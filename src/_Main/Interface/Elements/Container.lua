@@ -12,7 +12,7 @@
 
 local Types = require(script.Parent.Parent.Parent.Parent.Types)
 local Window = require(script.Parent.Parent.Parent.Parent._Classes.Window)
-local Packages = require(script.Parent.Parent.Parent.Parent._Packages)
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)
 
 --// siblings in Elements/, not children of this file
 local Lines = require(script.Parent.Lines)
@@ -23,7 +23,6 @@ type WindowConfig = Types.WindowConfig
 local Container = {}
 Container.__index = Container
 
-local Lume = Packages.Lume()
 
 export type View = {
 	Window: any,
@@ -39,7 +38,9 @@ export type Fields = {
 	Windows: { [string]: View },
 	Order: { string },
 	Focus: string?,
-	Open: boolean,
+	--// `Shown`, not `Open`: a field of that name would shadow the `Open`
+	--// METHOD, since raw fields win over the metatable
+	Shown: boolean,
 	OnSubmit: ((id: string, text: string) -> ())?,
 	OnChange: ((id: string, text: string) -> ())?,
 }
@@ -84,7 +85,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Windows = {},
 		Order = {},
 		Focus = nil,
-		Open = false,
+		Shown = false,
 		OnSubmit = nil,
 		OnChange = nil,
 	}
@@ -146,7 +147,7 @@ function Container.Open(self: Container, config: WindowConfig): View
 	panel:open()
 
 	self.Focus = config.Id
-	self.Open = true
+	self.Shown = true
 
 	return view
 end
@@ -174,7 +175,7 @@ function Container.Close(self: Container, id: string)
 	end
 
 	if #self.Order == 0 then
-		self.Open = false
+		self.Shown = false
 	end
 end
 
@@ -238,7 +239,7 @@ function Container.Show(self: Container)
 		self.Windows[id].Panel:open()
 	end
 
-	self.Open = true
+	self.Shown = true
 end
 
 function Container.Hide(self: Container)
@@ -246,11 +247,11 @@ function Container.Hide(self: Container)
 		self.Windows[id].Panel:close()
 	end
 
-	self.Open = false
+	self.Shown = false
 end
 
 function Container.Toggle(self: Container)
-	if self.Open then
+	if self.Shown then
 		Container.Hide(self)
 	else
 		Container.Show(self)

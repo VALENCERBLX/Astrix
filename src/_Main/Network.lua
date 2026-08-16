@@ -28,7 +28,9 @@ local FOLDER = "AstrixNetwork"
 local INVOKE = "Invoke"
 local PUBLISH = "Publish"
 
-local function container(): Folder
+--- The transport folder. Nil on a client whose server has not hosted yet —
+--- which is a normal state, not an error, so every caller handles it.
+local function container(): Folder?
 	local existing = ReplicatedStorage:FindFirstChild(FOLDER)
 
 	if existing then
@@ -36,8 +38,9 @@ local function container(): Folder
 	end
 
 	if not RunService:IsServer() then
-		--// the client must wait: the server builds this during Host
-		return ReplicatedStorage:WaitForChild(FOLDER, 10) :: Folder
+		--// the client waits for the server to build it. Callers run this on a
+		--// spawned thread, so the wait never blocks the console from opening
+		return ReplicatedStorage:WaitForChild(FOLDER, 10) :: Folder?
 	end
 
 	local folder = Instance.new("Folder")
@@ -48,8 +51,13 @@ local function container(): Folder
 	return folder
 end
 
-local function remote(class: string, name: string): Instance
+local function remote(class: string, name: string): Instance?
 	local parent = container()
+
+	if not parent then
+		return nil
+	end
+
 	local existing = parent:FindFirstChild(name)
 
 	if existing then
@@ -74,6 +82,8 @@ function Network.Host(handler: (player: Player, name: string, args: { any }, fla
 	assert(RunService:IsServer(), "Network.Host is server-only")
 
 	local invoke = remote("RemoteFunction", INVOKE) :: RemoteFunction
+
+	assert(invoke, "Astrix could not create its transport")
 
 	invoke.OnServerInvoke = function(player: Player, payload: any): any
 		if type(payload) ~= "table" then
@@ -114,7 +124,11 @@ end
 function Network.Publish(definitions: { ReplicatedDefinition }, player: Player?)
 	assert(RunService:IsServer(), "Network.Publish is server-only")
 
-	local publish = remote("RemoteEvent", PUBLISH) :: RemoteEvent
+	local publish = remote("RemoteEvent", PUBLISH) :: RemoteEvent?
+
+	if not publish then
+		return
+	end
 
 	if player then
 		publish:FireClient(player, definitions)

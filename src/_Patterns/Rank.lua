@@ -8,10 +8,25 @@
 --- `Rank`. The two are independent on purpose — "can open the console" and
 --- "can run this" are different questions.
 
-local Enums = require(script.Parent.Parent.Enums)
+--- The rank bands.
+---
+--- **Placeholder values.** `Player 0-99`, `Admin 100-199`, `Owner 200` was
+--- never confirmed in design; confirm before shipping, because changing them
+--- later silently changes who can run what.
+---
+--- They live here rather than in a separate Enums module so the numbers and the
+--- code that compares them cannot drift apart. `Astrix.Enums.Rank` is this
+--- table.
+local Bands = {
+	Player = { Min = 0, Max = 99 },
+	Admin = { Min = 100, Max = 199 },
+	Owner = { Min = 200, Max = 200 },
+}
 
 local Rank = {}
 Rank.__index = Rank
+
+Rank.Bands = Bands
 
 export type Resolver = (Entity: any) -> number?
 
@@ -37,13 +52,13 @@ function Rank.new(): Ranks
 	local self: Fields = {
 		Assignments = {},
 		Labels = {
-			player = Enums.Rank.Player.Min,
-			admin = Enums.Rank.Admin.Min,
-			owner = Enums.Rank.Owner.Min,
+			player = Bands.Player.Min,
+			admin = Bands.Admin.Min,
+			owner = Bands.Owner.Min,
 		},
 		Resolver = nil,
-		Default = Enums.Rank.Player.Min,
-		InterfaceRank = Enums.Rank.Player.Min,
+		Default = Bands.Player.Min,
+		InterfaceRank = Bands.Player.Min,
 	}
 
 	return setmetatable(self, Rank)
@@ -104,9 +119,9 @@ end
 
 --- The band a numeric rank falls in, for display.
 function Rank.BandOf(self: Ranks, value: number): string
-	if value >= Enums.Rank.Owner.Min then
+	if value >= Bands.Owner.Min then
 		return "Owner"
-	elseif value >= Enums.Rank.Admin.Min then
+	elseif value >= Bands.Admin.Min then
 		return "Admin"
 	end
 

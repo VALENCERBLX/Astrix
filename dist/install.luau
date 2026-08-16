@@ -48,7 +48,6 @@ local Players = game:GetService(\"Players\")\
 local RunService = game:GetService(\"RunService\")\
 \
 local Types = require(script.Types)\
-local Enums = require(script.Enums)\
 \
 local Command = require(script._Classes.Command)\
 local Session = require(script._Classes.Input)\
@@ -61,10 +60,26 @@ local Cooldown = require(script._Patterns.Cooldown)\
 local Replication = require(script._Patterns.Replication)\
 local Profile = require(script._Patterns.Profile)\
 \
-local Providers = require(script._Types)\
 local Themes = require(script._Themes)\
 local Functions = require(script._Functions)\
-local Commands = require(script._Commands)\
+\
+--// `_Types` is a plain Folder, so its providers are required one by one and\
+--// assembled here. Add your own by assigning into this table before `Start`.\
+local Providers: { [string]: any } = {\
+	String = require(script._Types.String),\
+	Number = require(script._Types.Number),\
+	Boolean = require(script._Types.Boolean),\
+	Player = require(script._Types.Player),\
+	Vector3 = require(script._Types.Vector3),\
+	Enum = require(script._Types.Enum),\
+}\
+\
+--// `_Commands` is a plain Folder too; each subfolder is its own manifest\
+local Manifests = {\
+	require(script._Commands._Local),\
+	require(script._Commands._Server),\
+	require(script._Commands._Service),\
+}\
 \
 local Client = require(script._Main.Client)\
 local Server = require(script._Main.Server)\
@@ -80,6 +95,44 @@ export type AstrixOptions = Types.AstrixOptions\
 export type AstrixProfile = Types.AstrixProfile\
 export type Argument = Types.Argument\
 export type Flag = Types.Flag\
+\
+--// enums -----------------------------------------------------------------------\
+--- `Rank` is `_Patterns/Rank`'s own band table, not a copy — the numbers and\
+--- the code that compares them cannot drift apart that way.\
+local Enums = table.freeze({\
+	Rank = Rank.Bands,\
+\
+	CommandType = table.freeze({ Local = \"Local\", Server = \"Server\", Service = \"Service\" }),\
+	FlagKind = table.freeze({ IsValue = \"IsValue\", IsBool = \"IsBool\" }),\
+\
+	ArgumentType = table.freeze({\
+		String = \"String\",\
+		Number = \"Number\",\
+		Boolean = \"Boolean\",\
+		Player = \"Player\",\
+		Vector3 = \"Vector3\",\
+		Enum = \"Enum\",\
+	}),\
+\
+	Resolve = table.freeze({\
+		Ok = \"Ok\",\
+		Fail = \"Fail\",\
+		Warn = \"Warn\",\
+		CommandNotFound = \"CommandNotFound\",\
+		RankDenied = \"RankDenied\",\
+		OnCooldown = \"OnCooldown\",\
+		ParseFailed = \"ParseFailed\",\
+		AbsoluteOverwrite = \"AbsoluteOverwrite\",\
+	}),\
+\
+	HistoryKind = table.freeze({\
+		Input = \"Input\",\
+		Output = \"Output\",\
+		Ok = \"Ok\",\
+		Fail = \"Fail\",\
+		Warn = \"Warn\",\
+	}),\
+})\
 \
 --// state -----------------------------------------------------------------------\
 local registry = Lookup.new()\
@@ -104,7 +157,12 @@ local function registerBuiltins()\
 	builtinsRegistered = true\
 \
 	Functions.Install(natives)\
-	Commands.Register(Astrix)\
+\
+	for _, manifest in Manifests do\
+		for _, define in manifest do\
+			define(Astrix)\
+		end\
+	end\
 end\
 \
 --- Namespaced lookups available to Kyn. `@Players.Rin` lands here.\
@@ -209,16 +267,22 @@ function Astrix.Start(options: AstrixOptions?)\
 \
 	started = true\
 \
-	--// the client learns server-only commands from the published schemas\
-	Network.OnPublish(function(definitions)\
-		for _, schema in definitions do\
-			if not registry:Resolve(schema.Name) then\
-				registry:Add(Replication.Hydrate(schema))\
+	--// the client learns server-only commands from the published schemas.\
+	--\
+	--// Spawned, not awaited: the transport waits on instances the server\
+	--// creates, so a client that boots first — or a place with no server half\
+	--// at all — would otherwise stall here before the console ever opened.\
+	task.spawn(function()\
+		Network.OnPublish(function(definitions)\
+			for _, schema in definitions do\
+				if not registry:Resolve(schema.Name) then\
+					registry:Add(Replication.Hydrate(schema))\
+				end\
 			end\
-		end\
-	end)\
+		end)\
 \
-	Network.RequestPublish()\
+		Network.RequestPublish()\
+	end)\
 \
 	local Interface = require(script._Main.Interface)\
 \
@@ -376,65 +440,6 @@ end\
 export type Api = typeof(Astrix)\
 \
 return Astrix\
-"},
-{"Astrix/Enums","ModuleScript","--!strict\
-\
---- Astrix's enumerations.\
----\
---- **The rank bands below are placeholders.** They were never confirmed in\
---- design and are flagged as open item #2 in the specification. `Player 0-99`,\
---- `Admin 100-199`, `Owner 200` is a guess that reads sensibly; confirm the\
---- real numbers before shipping, because changing them later silently changes\
---- who can run what.\
-\
-local Enums = {}\
-\
-Enums.Rank = {\
-	Player = { Min = 0, Max = 99 },\
-	Admin = { Min = 100, Max = 199 },\
-	Owner = { Min = 200, Max = 200 },\
-}\
-\
-Enums.CommandType = {\
-	Local = \"Local\" :: \"Local\",\
-	Server = \"Server\" :: \"Server\",\
-	Service = \"Service\" :: \"Service\",\
-}\
-\
-Enums.FlagKind = {\
-	IsValue = \"IsValue\" :: \"IsValue\",\
-	IsBool = \"IsBool\" :: \"IsBool\",\
-}\
-\
-Enums.ArgumentType = {\
-	String = \"String\" :: \"String\",\
-	Number = \"Number\" :: \"Number\",\
-	Boolean = \"Boolean\" :: \"Boolean\",\
-	Player = \"Player\" :: \"Player\",\
-	Vector3 = \"Vector3\" :: \"Vector3\",\
-	Enum = \"Enum\" :: \"Enum\",\
-}\
-\
-Enums.Resolve = {\
-	Ok = \"Ok\" :: \"Ok\",\
-	Fail = \"Fail\" :: \"Fail\",\
-	Warn = \"Warn\" :: \"Warn\",\
-	CommandNotFound = \"CommandNotFound\" :: \"CommandNotFound\",\
-	RankDenied = \"RankDenied\" :: \"RankDenied\",\
-	OnCooldown = \"OnCooldown\" :: \"OnCooldown\",\
-	ParseFailed = \"ParseFailed\" :: \"ParseFailed\",\
-	AbsoluteOverwrite = \"AbsoluteOverwrite\" :: \"AbsoluteOverwrite\",\
-}\
-\
-Enums.HistoryKind = {\
-	Input = \"Input\" :: \"Input\",\
-	Output = \"Output\" :: \"Output\",\
-	Ok = \"Ok\" :: \"Ok\",\
-	Fail = \"Fail\" :: \"Fail\",\
-	Warn = \"Warn\" :: \"Warn\",\
-}\
-\
-return table.freeze(Enums)\
 "},
 {"Astrix/Types","ModuleScript","--!strict\
 \
@@ -2183,31 +2188,7 @@ end\
 \
 return Window\
 "},
-{"Astrix/_Commands","ModuleScript","--!strict\
-\
---- Built-in command manifest, grouped by execution type.\
----\
---- Each entry is a function taking the Astrix module, so a command file never\
---- has to require the library it is being registered into.\
-\
-local groups = {\
-	require(script._Local),\
-	require(script._Server),\
-	require(script._Service),\
-}\
-\
-local Commands = {}\
-\
-function Commands.Register(Astrix: any)\
-	for _, group in groups do\
-		for _, define in group do\
-			define(Astrix)\
-		end\
-	end\
-end\
-\
-return Commands\
-"},
+{"Astrix/_Commands","Folder",nil},
 {"Astrix/_Commands/_Local","ModuleScript","--!strict\
 \
 --- Local commands: everything runs on the client that typed it.\
@@ -2710,7 +2691,7 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 			return\
 		end\
 \
-		if not self.Container.Open then\
+		if not self.Container.Shown then\
 			return\
 		end\
 \
@@ -2789,7 +2770,7 @@ function Interface.Hide(self: Interface)\
 end\
 \
 function Interface.Toggle(self: Interface)\
-	if self.Container.Open then\
+	if self.Container.Shown then\
 		Interface.Hide(self)\
 	else\
 		Interface.Show(self)\
@@ -2844,7 +2825,7 @@ return Interface\
 \
 local Types = require(script.Parent.Parent.Parent.Parent.Types)\
 local Window = require(script.Parent.Parent.Parent.Parent._Classes.Window)\
-local Packages = require(script.Parent.Parent.Parent.Parent._Packages)\
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)\
 \
 --// siblings in Elements/, not children of this file\
 local Lines = require(script.Parent.Lines)\
@@ -2855,7 +2836,6 @@ type WindowConfig = Types.WindowConfig\
 local Container = {}\
 Container.__index = Container\
 \
-local Lume = Packages.Lume()\
 \
 export type View = {\
 	Window: any,\
@@ -2871,7 +2851,9 @@ export type Fields = {\
 	Windows: { [string]: View },\
 	Order: { string },\
 	Focus: string?,\
-	Open: boolean,\
+	--// `Shown`, not `Open`: a field of that name would shadow the `Open`\
+	--// METHOD, since raw fields win over the metatable\
+	Shown: boolean,\
 	OnSubmit: ((id: string, text: string) -> ())?,\
 	OnChange: ((id: string, text: string) -> ())?,\
 }\
@@ -2916,7 +2898,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Windows = {},\
 		Order = {},\
 		Focus = nil,\
-		Open = false,\
+		Shown = false,\
 		OnSubmit = nil,\
 		OnChange = nil,\
 	}\
@@ -2978,7 +2960,7 @@ function Container.Open(self: Container, config: WindowConfig): View\
 	panel:open()\
 \
 	self.Focus = config.Id\
-	self.Open = true\
+	self.Shown = true\
 \
 	return view\
 end\
@@ -3006,7 +2988,7 @@ function Container.Close(self: Container, id: string)\
 	end\
 \
 	if #self.Order == 0 then\
-		self.Open = false\
+		self.Shown = false\
 	end\
 end\
 \
@@ -3070,7 +3052,7 @@ function Container.Show(self: Container)\
 		self.Windows[id].Panel:open()\
 	end\
 \
-	self.Open = true\
+	self.Shown = true\
 end\
 \
 function Container.Hide(self: Container)\
@@ -3078,11 +3060,11 @@ function Container.Hide(self: Container)\
 		self.Windows[id].Panel:close()\
 	end\
 \
-	self.Open = false\
+	self.Shown = false\
 end\
 \
 function Container.Toggle(self: Container)\
-	if self.Open then\
+	if self.Shown then\
 		Container.Hide(self)\
 	else\
 		Container.Show(self)\
@@ -3343,7 +3325,7 @@ return Input\
 \
 local Types = require(script.Parent.Parent.Parent.Parent.Types)\
 local LineParser = require(script.Parent.Parent.Parent.Parent._Classes.Line)\
-local Packages = require(script.Parent.Parent.Parent.Parent._Packages)\
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)\
 \
 type HistoryEntry = Types.HistoryEntry\
 \
@@ -3360,7 +3342,6 @@ export type Fields = {\
 export type Lines = typeof(setmetatable({} :: Fields, Lines))\
 \
 --// locals ---------------------------------------------------------------------\
-local Lume = Packages.Lume()\
 local Text = Lume.Text\
 \
 --- Colours one Kyn token by what the parser decided it is.\
@@ -3534,7 +3515,7 @@ return Lines\
 local Players = game:GetService(\"Players\")\
 \
 local LineParser = require(script.Parent.Parent.Parent.Parent._Classes.Line)\
-local Packages = require(script.Parent.Parent.Parent.Parent._Packages)\
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)\
 \
 local Suggestions = {}\
 Suggestions.__index = Suggestions\
@@ -3551,7 +3532,6 @@ export type Fields = {\
 \
 export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))\
 \
-local Lume = Packages.Lume()\
 \
 --// context -----------------------------------------------------------------------\
 export type Context = {\
@@ -3760,7 +3740,9 @@ local FOLDER = \"AstrixNetwork\"\
 local INVOKE = \"Invoke\"\
 local PUBLISH = \"Publish\"\
 \
-local function container(): Folder\
+--- The transport folder. Nil on a client whose server has not hosted yet —\
+--- which is a normal state, not an error, so every caller handles it.\
+local function container(): Folder?\
 	local existing = ReplicatedStorage:FindFirstChild(FOLDER)\
 \
 	if existing then\
@@ -3768,8 +3750,9 @@ local function container(): Folder\
 	end\
 \
 	if not RunService:IsServer() then\
-		--// the client must wait: the server builds this during Host\
-		return ReplicatedStorage:WaitForChild(FOLDER, 10) :: Folder\
+		--// the client waits for the server to build it. Callers run this on a\
+		--// spawned thread, so the wait never blocks the console from opening\
+		return ReplicatedStorage:WaitForChild(FOLDER, 10) :: Folder?\
 	end\
 \
 	local folder = Instance.new(\"Folder\")\
@@ -3780,8 +3763,13 @@ local function container(): Folder\
 	return folder\
 end\
 \
-local function remote(class: string, name: string): Instance\
+local function remote(class: string, name: string): Instance?\
 	local parent = container()\
+\
+	if not parent then\
+		return nil\
+	end\
+\
 	local existing = parent:FindFirstChild(name)\
 \
 	if existing then\
@@ -3806,6 +3794,8 @@ function Network.Host(handler: (player: Player, name: string, args: { any }, fla
 	assert(RunService:IsServer(), \"Network.Host is server-only\")\
 \
 	local invoke = remote(\"RemoteFunction\", INVOKE) :: RemoteFunction\
+\
+	assert(invoke, \"Astrix could not create its transport\")\
 \
 	invoke.OnServerInvoke = function(player: Player, payload: any): any\
 		if type(payload) ~= \"table\" then\
@@ -3846,7 +3836,11 @@ end\
 function Network.Publish(definitions: { ReplicatedDefinition }, player: Player?)\
 	assert(RunService:IsServer(), \"Network.Publish is server-only\")\
 \
-	local publish = remote(\"RemoteEvent\", PUBLISH) :: RemoteEvent\
+	local publish = remote(\"RemoteEvent\", PUBLISH) :: RemoteEvent?\
+\
+	if not publish then\
+		return\
+	end\
 \
 	if player then\
 		publish:FireClient(player, definitions)\
@@ -4072,96 +4066,20202 @@ end\
 \
 return Server\
 "},
-{"Astrix/_Packages","ModuleScript","--!strict\
+{"Astrix/_Packages","Folder",nil},
+{"Astrix/_Packages/Lume","ModuleScript","--!strict\
 \
---- Resolves Astrix's dependencies once, so every other file asks here instead\
---- of hard-coding a path.\
+--- **Lume** — a panel-and-element UI standard for Roblox.\
 ---\
---- Lume can arrive three ways depending on how the consumer installed things —\
---- vendored beside this file, in a Wally `Packages` folder next to Astrix, or\
---- sitting in ReplicatedStorage. Looking in all three means swapping install\
---- methods is not a code change, and a missing dependency fails with a sentence\
---- rather than an `attempt to index nil`.\
+--- Two primitives. A **Panel** is every surface: window, command bar, dropdown,\
+--- tooltip, modal, toast. An **Element** is everything a surface hosts. Panels\
+--- size themselves from their elements, grow away from whatever edge they are\
+--- anchored to, and morph as their content changes.\
+---\
+--- Every setter returns the receiver, and every setter takes a plain value or a\
+--- reactive one:\
+---\
+--- ```lua\
+--- local Lume = require(path.to.Lume)\
+---\
+--- local app = Lume.app({ name = \"Inspector\" })\
+--- local count = Lume.value(0)\
+---\
+--- local panel = app:panel(\"window\")\
+---     :setTitle(\"Inspector\")\
+---     :setAnchor(\"bottomRight\")\
+---     :setWidth(320)\
+---\
+--- panel:label(Lume.format(count, \"%d selected\"))\
+---     :setMuted(true)\
+---\
+--- panel:field(\"Search\")\
+---     :onSubmitted(print)\
+---\
+--- panel:button(\"Refresh\")\
+---     :onClicked(function()\
+---         count:update(function(n) return n + 1 end)\
+---     end)\
+---\
+--- panel:open()\
+--- ```\
+--- @section Overview\
 \
-local ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\
+local App = require(script.App)\
+local Types = require(script.Types)\
 \
-local Packages = {}\
+local Elements = require(script.Elements)\
+local Panel = require(script.Panel)\
+local Presets = require(script.Panel.Presets)\
 \
-local function search(name: string): Instance?\
-	--// vendored under src/_Packages\
-	local vendored = script:FindFirstChild(name)\
+local Autosize = require(script.Layout.Autosize)\
+local Measure = require(script.Layout.Measure)\
+local Placement = require(script.Layout.Placement)\
+local Stack = require(script.Layout.Stack)\
+local Virtual = require(script.Layout.Virtual)\
 \
-	if vendored then\
-		return vendored\
+local Create = require(script.Core.Create)\
+local Node = require(script.Core.Node)\
+local Scope = require(script.Core.Scope)\
+local Signal = require(script.Core.Signal)\
+local State = require(script.Core.State)\
+\
+local Drag = require(script.Input.Drag)\
+local Focus = require(script.Input.Focus)\
+local Hover = require(script.Input.Hover)\
+local Keys = require(script.Input.Keys)\
+\
+local Motion = require(script.Motion)\
+local Easing = require(script.Motion.Easing)\
+local Spring = require(script.Motion.Spring)\
+\
+local Theme = require(script.Theme)\
+local Tokens = require(script.Theme.Tokens)\
+local Text = require(script.Text)\
+\
+--// types\
+export type App = Types.App\
+export type Panel = Types.Panel\
+export type Element = Types.Element\
+export type Theme = Types.Theme\
+export type Scope = Types.Scope\
+export type Signal = Types.Signal\
+export type Stack = Types.Stack\
+export type Animation = Types.Animation\
+export type MotionSpec = Types.MotionSpec\
+\
+export type Value<T> = Types.Value<T>\
+export type Computed<T> = Types.Computed<T>\
+export type Bindable<T> = Types.Bindable<T>\
+\
+export type Anchor = Types.Anchor\
+export type Axis = Types.Axis\
+export type Edge = Types.Edge\
+export type Preset = Types.Preset\
+\
+export type Option = Types.Option\
+export type ListItem = Types.ListItem\
+export type MenuItem = Types.MenuItem\
+export type Tab = Types.Tab\
+\
+export type Label = Types.Label\
+export type Icon = Types.Icon\
+export type Button = Types.Button\
+export type Field = Types.Field\
+export type Toggle = Types.Toggle\
+export type Slider = Types.Slider\
+export type Select = Types.Select\
+export type List = Types.List\
+export type Divider = Types.Divider\
+export type Spacer = Types.Spacer\
+export type Group = Types.Group\
+export type Progress = Types.Progress\
+export type Tabs = Types.Tabs\
+export type Chips = Types.Chips\
+export type Suggest = Types.Suggest\
+export type Menu = Types.Menu\
+export type Badge = Types.Badge\
+export type Scroll = Types.Scroll\
+export type Keybind = Types.Keybind\
+\
+--// public api\
+local Lume = {\
+	version = \"0.1.0\",\
+\
+	--// entry point\
+	app = App.new,\
+\
+	--// reactivity\
+	value = State.value,\
+	computed = State.computed,\
+	observe = State.observe,\
+	batch = State.batch,\
+	format = State.format,\
+	pick = State.pick,\
+	unwrap = State.unwrap,\
+	isSource = State.is,\
+\
+	--// primitives, for building outside an app's factories\
+	Panel = Panel,\
+	Elements = Elements,\
+	Presets = Presets,\
+\
+	--// systems\
+	App = App,\
+	State = State,\
+	Theme = Theme,\
+	Tokens = Tokens,\
+	Motion = Motion,\
+	Text = Text,\
+\
+	Layout = {\
+		Autosize = Autosize,\
+		Measure = Measure,\
+		Placement = Placement,\
+		Stack = Stack,\
+		Virtual = Virtual,\
+	},\
+\
+	Core = {\
+		Create = Create,\
+		Node = Node,\
+		Scope = Scope,\
+		Signal = Signal,\
+		State = State,\
+	},\
+\
+	Input = {\
+		Drag = Drag,\
+		Focus = Focus,\
+		Hover = Hover,\
+		Keys = Keys,\
+	},\
+\
+	Easing = Easing,\
+	Spring = Spring,\
+\
+	--// escape hatches\
+	scope = Scope.new,\
+	signal = Signal.new,\
+	create = Create.node,\
+	tree = Create.tree,\
+	theme = Theme.new,\
+}\
+\
+return table.freeze(Lume)\
+"},
+{"Astrix/_Packages/Lume/App","ModuleScript","--!strict\
+\
+--- An app is the one piece of shared state: its host gui, its theme, its root\
+--- scope, its measurement cache, its focus ring and its key binder.\
+---\
+--- Layers are full-screen frames ordered by ZIndex, so a dropdown opened from\
+--- a panel can never be clipped by the panel that spawned it. Ask for one by\
+--- name and it is created on demand.\
+--- @section App\
+\
+local Players = game:GetService(\"Players\")\
+local Workspace = game:GetService(\"Workspace\")\
+\
+local Types = require(script.Parent.Types)\
+\
+local Measure = require(script.Parent.Layout.Measure)\
+local Stack = require(script.Parent.Layout.Stack)\
+\
+local Focus = require(script.Parent.Input.Focus)\
+local Keys = require(script.Parent.Input.Keys)\
+\
+local Signal = require(script.Parent.Core.Signal)\
+local Scope = require(script.Parent.Core.Scope)\
+local Theme = require(script.Parent.Theme)\
+\
+local App = {}\
+App.__index = App\
+\
+export type Options = {\
+	name: string?,\
+	gui: LayerCollector?,\
+	parent: Instance?,\
+	theme: { [string]: any }?,\
+	displayOrder: number?,\
+	ignoreGuiInset: boolean?,\
+	resetOnSpawn: boolean?,\
+}\
+\
+--// locals\
+--// named layers, lowest first. Anything not listed lands on the default layer.\
+local LAYERS: { [string]: number } = {\
+	background = -10,\
+	default = 1,\
+	raised = 10,\
+	popover = 100,\
+	modal = 500,\
+	toast = 800,\
+	tooltip = 1000,\
+}\
+\
+local function hostGui(options: Options, scope: Types.Scope): LayerCollector\
+	if options.gui then\
+		return options.gui\
 	end\
 \
-	--// a Wally Packages folder beside Astrix\
-	local astrix = script.Parent\
+	local player = Players.LocalPlayer\
+	local playerGui = player and player:FindFirstChildOfClass(\"PlayerGui\")\
 \
-	if astrix then\
-		local sibling = astrix.Parent\
+	local gui = Instance.new(\"ScreenGui\")\
 \
-		if sibling then\
-			local packages = sibling:FindFirstChild(\"Packages\")\
+	gui.Name = options.name or \"Lume\"\
+	gui.IgnoreGuiInset = options.ignoreGuiInset ~= false\
+	gui.ResetOnSpawn = options.resetOnSpawn == true\
+	gui.DisplayOrder = options.displayOrder or 10\
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling\
+	gui.Parent = options.parent or playerGui or Workspace\
 \
-			if packages and packages:FindFirstChild(name) then\
-				return packages:FindFirstChild(name)\
+	scope:add(gui)\
+\
+	return gui\
+end\
+\
+--// public api\
+--- Creates an app. Everything else in Lume hangs off one of these.\
+function App.new(options: Options?): Types.App\
+	local settings = options or {}\
+	local scope = Scope.new()\
+\
+	local self = {\
+		gui = nil :: any,\
+		theme = Theme.new(settings.theme),\
+		scope = scope,\
+		measure = Measure.new(),\
+\
+		layers = {},\
+		panels = {},\
+\
+		focus = nil :: any,\
+		keys = nil :: any,\
+\
+		resized = Signal.new(),\
+		themed = Signal.new(),\
+	}\
+\
+	local app = setmetatable(self, App) :: any\
+\
+	app.gui = hostGui(settings, scope)\
+\
+	app.focus = Focus.new(app)\
+	app.keys = Keys.new(app)\
+\
+	scope:add(app.resized)\
+	scope:add(app.themed)\
+\
+	local camera = Workspace.CurrentCamera\
+\
+	if camera then\
+		scope:add(camera:GetPropertyChangedSignal(\"ViewportSize\"):Connect(function()\
+			app.resized:fire(camera.ViewportSize)\
+\
+			--// every panel re-clamps against the new viewport; a panel that was\
+			--// at its height ceiling on a tall screen has to give room back on\
+			--// a short one\
+			for _, panel in app.panels do\
+				panel:refresh()\
 			end\
+		end))\
+	end\
 \
-			if sibling:FindFirstChild(name) then\
-				return sibling:FindFirstChild(name)\
-			end\
+	return app\
+end\
+\
+--- The usable viewport size, in pixels.\
+function App.viewport(self: Types.App): Vector2\
+	local camera = Workspace.CurrentCamera\
+\
+	if camera and camera.ViewportSize.Y > 1 then\
+		return camera.ViewportSize\
+	end\
+\
+	local size = self.gui.AbsoluteSize\
+\
+	return if size.Y > 1 then size else Vector2.new(1920, 1080)\
+end\
+\
+--- Gets or creates a named layer. Unknown names get the default z-order.\
+function App.surface(self: Types.App, layer: string): Frame\
+	local existing = self.layers[layer]\
+\
+	if existing then\
+		return existing\
+	end\
+\
+	local frame = Instance.new(\"Frame\")\
+\
+	frame.BackgroundTransparency = 1\
+	frame.BorderSizePixel = 0\
+	frame.Size = UDim2.fromScale(1, 1)\
+	frame.ZIndex = LAYERS[layer] or LAYERS.default\
+	frame.Name = `Layer_{layer}`\
+	frame.Parent = self.gui\
+\
+	self.layers[layer] = frame\
+	self.scope:add(frame)\
+\
+	return frame\
+end\
+\
+--- Deep-merges token overrides, flushes the measurement cache, and refreshes\
+--- every panel. Sizes are text-derived, so a font change is a layout change.\
+function App.restyle(self: Types.App, overrides: { [string]: any }): Types.Theme\
+	self.theme = self.theme:extend(overrides)\
+\
+	self.measure:flush()\
+	self.themed:fire(self.theme)\
+\
+	for _, panel in self.panels do\
+		panel:refresh()\
+	end\
+\
+	return self.theme\
+end\
+\
+--- Creates a panel on this app.\
+function App.panel(self: Types.App, preset: Types.Preset?): Types.Panel\
+	local Panel = require(script.Parent.Panel)\
+\
+	return Panel.new(self, preset)\
+end\
+\
+--- Creates a stack for laying panels out in sequence.\
+function App.stack(self: Types.App, anchor: Types.Anchor?): Types.Stack\
+	return Stack.new(self, anchor)\
+end\
+\
+--- Binds a key or chord at the app level.\
+function App.bind(self: Types.App, keys: { Enum.KeyCode } | Enum.KeyCode, handler: () -> ()): Types.KeyBinding\
+	return self.keys:bind(keys, handler)\
+end\
+\
+--- Drops focus from whatever holds it.\
+function App.blur(self: Types.App)\
+	self.focus:clear()\
+end\
+\
+--- Tears down every panel, layer, connection and instance this app owns.\
+function App.destroy(self: Types.App)\
+	for index = #self.panels, 1, -1 do\
+		self.panels[index]:destroy()\
+	end\
+\
+	table.clear(self.panels)\
+	table.clear(self.layers)\
+\
+	self.scope:destroy()\
+end\
+\
+return App\
+"},
+{"Astrix/_Packages/Lume/Core","Folder",nil},
+{"Astrix/_Packages/Lume/Core/Create","ModuleScript","--!strict\
+\
+--- Instance construction. A descriptor is a plain table, so a component body\
+--- reads as the tree it builds, and every reactive prop or event registered\
+--- along the way is owned by the scope that built it.\
+--- @section Core\
+\
+local Types = require(script.Parent.Parent.Types)\
+local State = require(script.Parent.State)\
+\
+type Descriptor = Types.Descriptor\
+type Scope = Types.Scope\
+type Refs = Types.Refs\
+\
+local Create = {}\
+\
+--// locals\
+local function assign(instance: Instance, key: string, value: any)\
+	local ok, err = pcall(function()\
+		(instance :: any)[key] = value\
+	end)\
+\
+	if not ok then\
+		warn(`[Lume] could not set {instance.ClassName}.{key}: {err}`)\
+	end\
+end\
+\
+--- Applies a prop table to an instance, subscribing any reactive entries.\
+function Create.apply(scope: Scope, instance: Instance, props: { [string]: any }?)\
+	for key, value in props or {} do\
+		if State.is(value) then\
+			scope:add(State.observe(value, function(next)\
+				assign(instance, key, next)\
+			end))\
+		else\
+			assign(instance, key, value)\
+		end\
+	end\
+end\
+\
+--- Connects an event table (`{ Activated = fn }`) to an instance.\
+function Create.connect(scope: Scope, instance: Instance, events: { [string]: (...any) -> () }?)\
+	for key, handler in events or {} do\
+		local event = (instance :: any)[key]\
+\
+		if typeof(event) == \"RBXScriptSignal\" then\
+			scope:add(event:Connect(handler))\
+		else\
+			warn(`[Lume] {instance.ClassName} has no event {key}`)\
+		end\
+	end\
+end\
+\
+--- Builds one descriptor and its children.\
+function Create.node(scope: Scope, descriptor: Descriptor, refs: Refs?): Instance\
+	local instance = Instance.new(descriptor.class)\
+\
+	Create.apply(scope, instance, descriptor.props)\
+	Create.connect(scope, instance, descriptor.events)\
+\
+	for _, child in descriptor.children or {} do\
+		if typeof(child) == \"Instance\" then\
+			child.Parent = instance\
+		else\
+			Create.node(scope, child :: Descriptor, refs).Parent = instance\
 		end\
 	end\
 \
-	--// loose in ReplicatedStorage\
-	local loose = ReplicatedStorage:FindFirstChild(name)\
-\
-	if loose then\
-		return loose\
+	if descriptor.ref and refs then\
+		refs[descriptor.ref] = instance\
 	end\
 \
-	local packages = ReplicatedStorage:FindFirstChild(\"Packages\")\
+	scope:add(instance)\
 \
-	if packages then\
-		return packages:FindFirstChild(name)\
+	return instance\
+end\
+\
+--- Builds a descriptor and hands back the root plus every named ref in it.\
+function Create.tree(scope: Scope, descriptor: Descriptor): (Instance, Refs)\
+	local refs: Refs = {}\
+	local root = Create.node(scope, descriptor, refs)\
+\
+	return root, refs\
+end\
+\
+--- Binds one reactive source to one property of an existing instance.\
+function Create.bind(scope: Scope, instance: Instance, key: string, source: any): Instance\
+	scope:add(State.observe(source, function(next)\
+		assign(instance, key, next)\
+	end))\
+\
+	return instance\
+end\
+\
+--// descriptor helpers: the modifiers every surface reaches for\
+function Create.corner(radius: number | UDim): Descriptor\
+	local value = if typeof(radius) == \"UDim\" then radius else UDim.new(0, radius :: number)\
+\
+	return { class = \"UICorner\", props = { CornerRadius = value } }\
+end\
+\
+function Create.stroke(color: Color3, thickness: number, transparency: number?): Descriptor\
+	return {\
+		class = \"UIStroke\",\
+		props = {\
+			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+			LineJoinMode = Enum.LineJoinMode.Round,\
+			Transparency = transparency or 0,\
+			Thickness = thickness,\
+			Color = color,\
+		},\
+	}\
+end\
+\
+function Create.padding(x: number, y: number?, right: number?, bottom: number?): Descriptor\
+	local vertical = y or x\
+\
+	return {\
+		class = \"UIPadding\",\
+		props = {\
+			PaddingLeft = UDim.new(0, x),\
+			PaddingRight = UDim.new(0, right or x),\
+			PaddingTop = UDim.new(0, vertical),\
+			PaddingBottom = UDim.new(0, bottom or vertical),\
+		},\
+	}\
+end\
+\
+function Create.list(direction: Enum.FillDirection, gap: number, extra: { [string]: any }?): Descriptor\
+	local props: { [string]: any } = {\
+		SortOrder = Enum.SortOrder.LayoutOrder,\
+		Padding = UDim.new(0, gap),\
+		FillDirection = direction,\
+	}\
+\
+	for key, value in extra or {} do\
+		props[key] = value\
+	end\
+\
+	return { class = \"UIListLayout\", props = props }\
+end\
+\
+function Create.grid(cell: Vector2, gap: number, extra: { [string]: any }?): Descriptor\
+	local props: { [string]: any } = {\
+		SortOrder = Enum.SortOrder.LayoutOrder,\
+		CellPadding = UDim2.fromOffset(gap, gap),\
+		CellSize = UDim2.fromOffset(cell.X, cell.Y),\
+	}\
+\
+	for key, value in extra or {} do\
+		props[key] = value\
+	end\
+\
+	return { class = \"UIGridLayout\", props = props }\
+end\
+\
+function Create.gradient(colors: ColorSequence, rotation: number?, transparency: NumberSequence?): Descriptor\
+	return {\
+		class = \"UIGradient\",\
+		props = {\
+			Color = colors,\
+			Rotation = rotation or 0,\
+			Transparency = transparency or NumberSequence.new(0),\
+		},\
+	}\
+end\
+\
+function Create.constraint(min: Vector2?, max: Vector2?): Descriptor\
+	return {\
+		class = \"UISizeConstraint\",\
+		props = {\
+			MinSize = min or Vector2.zero,\
+			MaxSize = max or Vector2.new(math.huge, math.huge),\
+		},\
+	}\
+end\
+\
+--- A transparent, borderless frame — the shape ninety percent of containers\
+--- want before anything else is said about them.\
+function Create.frame(name: string, extra: { [string]: any }?): Descriptor\
+	local props: { [string]: any } = {\
+		BackgroundTransparency = 1,\
+		BorderSizePixel = 0,\
+		Name = name,\
+	}\
+\
+	for key, value in extra or {} do\
+		props[key] = value\
+	end\
+\
+	return { class = \"Frame\", props = props }\
+end\
+\
+return Create\
+"},
+{"Astrix/_Packages/Lume/Core/Node","ModuleScript","--!strict\
+\
+--- The base every Panel and Element shares: a root instance, a scope, a bag of\
+--- refs, a bag of property bindings, and a bag of event signals.\
+---\
+--- It is installed as a mixin rather than inherited through a metatable chain.\
+--- Copying the methods onto each class costs one loop at load and saves a\
+--- pointer chase on every call, and it keeps each class's method table honest\
+--- about what it actually answers to.\
+---\
+--- Every setter here returns the receiver, which is what makes the whole\
+--- library chainable.\
+--- @section Core\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Signal = require(script.Parent.Parent.Core.Signal)\
+local State = require(script.Parent.State)\
+\
+type NodeFields = Types.NodeFields\
+type Bindable<T> = Types.Bindable<T>\
+\
+local Node = {}\
+\
+--// public api\
+--- Fills in the shared fields on a freshly constructed node.\
+function Node.init(self: NodeFields, app: Types.App, instance: GuiObject, scope: Types.Scope)\
+	self.app = app\
+	self.instance = instance\
+	self.scope = scope\
+\
+	self.refs = {}\
+	self.bindings = {}\
+	self.events = {}\
+\
+	self.owner = nil\
+	self.dead = false\
+end\
+\
+--- Binds a property key to a plain value or a reactive source, replacing any\
+--- previous binding on that key. `apply` receives the resolved value.\
+---\
+--- Rebinding is the normal case — `setText` called twice should not leave the\
+--- first subscription running — so the old one is disposed first.\
+function Node.bind<T>(self: NodeFields, key: string, value: Bindable<T>, apply: (T) -> ())\
+	local existing = self.bindings[key]\
+\
+	if existing then\
+		existing()\
+\
+		self.bindings[key] = nil\
+	end\
+\
+	if self.dead then\
+		return\
+	end\
+\
+	self.bindings[key] = State.observe(value, apply)\
+end\
+\
+--- Drops a binding without setting a new one.\
+function Node.unbind(self: NodeFields, key: string)\
+	local existing = self.bindings[key]\
+\
+	if existing then\
+		existing()\
+\
+		self.bindings[key] = nil\
+	end\
+end\
+\
+--- Gets or creates the signal for a named event.\
+function Node.signal(self: NodeFields, event: string): Types.Signal\
+	local existing = self.events[event]\
+\
+	if existing then\
+		return existing\
+	end\
+\
+	local created = Signal.new()\
+\
+	self.events[event] = created\
+\
+	self.scope:add(created)\
+\
+	return created\
+end\
+\
+--- The shared teardown: fire `destroyed`, drop every binding, stop every\
+--- animation, unwind the scope. Classes with their own `destroy` (a panel has\
+--- children to take with it) call this at the end rather than repeating it.\
+function Node.teardown(self: NodeFields)\
+	if self.dead then\
+		return\
+	end\
+\
+	self.dead = true\
+\
+	local signal = self.events.destroyed\
+\
+	if signal then\
+		signal:fire()\
+	end\
+\
+	for _, unbind in self.bindings do\
+		unbind()\
+	end\
+\
+	table.clear(self.bindings)\
+\
+	Motion.stop(self.instance)\
+\
+	self.scope:destroy()\
+\
+	table.clear(self.refs)\
+	table.clear(self.events)\
+end\
+\
+--- Installs the shared chained methods onto a class table. Methods the class\
+--- already defines are left alone, so a class can override any of them.\
+function Node.install(class: { [string]: any })\
+	--// identity and visibility\
+	if not class.setName then\
+		function class.setName<T>(self: T & NodeFields, name: string): T\
+			self.instance.Name = name\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.setVisible then\
+		function class.setVisible<T>(self: T & NodeFields, visible: Bindable<boolean>): T\
+			Node.bind(self, \"Visible\", visible, function(next: boolean)\
+				self.instance.Visible = next\
+\
+				local owner = self.owner\
+\
+				if owner then\
+					owner:refresh()\
+				end\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	--// geometry\
+	if not class.setSize then\
+		function class.setSize<T>(self: T & NodeFields, size: Bindable<UDim2>): T\
+			Node.bind(self, \"Size\", size, function(next: UDim2)\
+				self.instance.Size = next\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.setPosition then\
+		function class.setPosition<T>(self: T & NodeFields, position: Bindable<UDim2>): T\
+			Node.bind(self, \"Position\", position, function(next: UDim2)\
+				self.instance.Position = next\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.setAnchorPoint then\
+		function class.setAnchorPoint<T>(self: T & NodeFields, anchor: Bindable<Vector2>): T\
+			Node.bind(self, \"AnchorPoint\", anchor, function(next: Vector2)\
+				self.instance.AnchorPoint = next\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.setZIndex then\
+		function class.setZIndex<T>(self: T & NodeFields, index: Bindable<number>): T\
+			Node.bind(self, \"ZIndex\", index, function(next: number)\
+				self.instance.ZIndex = next\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.setLayoutOrder then\
+		function class.setLayoutOrder<T>(self: T & NodeFields, order: Bindable<number>): T\
+			Node.bind(self, \"LayoutOrder\", order, function(next: number)\
+				self.instance.LayoutOrder = next\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	--- Escape hatch: assign raw Roblox properties on the root instance.\
+	if not class.setProps then\
+		function class.setProps<T>(self: T & NodeFields, props: { [string]: any }): T\
+			for key, value in props do\
+				Node.bind(self, `raw:{key}`, value, function(next: any)\
+					local ok, err = pcall(function()\
+						(self.instance :: any)[key] = next\
+					end)\
+\
+					if not ok then\
+						warn(`[Lume] could not set {self.instance.ClassName}.{key}: {err}`)\
+					end\
+				end)\
+			end\
+\
+			return self\
+		end\
+	end\
+\
+	--// events\
+	if not class.on then\
+		function class.on<T>(self: T & NodeFields, event: string, handler: (...any) -> ()): T\
+			self.scope:add(Node.signal(self, event):connect(handler))\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.once then\
+		function class.once<T>(self: T & NodeFields, event: string, handler: (...any) -> ()): T\
+			self.scope:add(Node.signal(self, event):once(handler))\
+\
+			return self\
+		end\
+	end\
+\
+	if not class.emit then\
+		function class.emit<T>(self: T & NodeFields, event: string, ...: any): T\
+			local signal = self.events[event]\
+\
+			if signal then\
+				signal:fire(...)\
+			end\
+\
+			return self\
+		end\
+	end\
+\
+	--// motion\
+	if not class.animate then\
+		function class.animate(\
+			self: NodeFields,\
+			props: { [string]: any },\
+			spec: (Types.MotionSpec | string)?\
+		): Types.Animation\
+			return Motion.animate(self.instance, props, self.app.theme:spec(spec))\
+		end\
+	end\
+\
+	--// access and teardown\
+	if not class.get then\
+		function class.get(self: NodeFields): GuiObject\
+			return self.instance\
+		end\
+	end\
+\
+	if not class.alive then\
+		function class.alive(self: NodeFields): boolean\
+			return not self.dead\
+		end\
+	end\
+\
+	if not class.destroy then\
+		function class.destroy(self: NodeFields)\
+			Node.teardown(self)\
+		end\
+	end\
+end\
+\
+return Node\
+"},
+{"Astrix/_Packages/Lume/Core/Scope","ModuleScript","--!strict\
+\
+--- Lifecycle ownership. Everything Lume creates — instances, connections,\
+--- subscriptions, child scopes — is handed to a scope, and destroying that\
+--- scope unwinds all of it in reverse creation order.\
+---\
+--- Reverse order matters: a connection registered after the instance it fires\
+--- on must be dropped before that instance is destroyed, or the handler can\
+--- run against a parented-to-nil tree during teardown.\
+--- @section Core\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+type Cleanup = Types.Cleanup\
+\
+export type Fields = {\
+	items: { Cleanup },\
+	kids: { Types.Scope },\
+	living: boolean,\
+}\
+\
+local Scope = {}\
+Scope.__index = Scope\
+\
+local function dispose(item: Cleanup)\
+	if type(item) == \"function\" then\
+		item()\
+	elseif typeof(item) == \"Instance\" then\
+		item:Destroy()\
+	elseif typeof(item) == \"RBXScriptConnection\" then\
+		item:Disconnect()\
+	elseif type(item) == \"table\" and type(item.destroy) == \"function\" then\
+		item.destroy(item)\
+	end\
+end\
+\
+--- Creates an empty scope.\
+function Scope.new(): Types.Scope\
+	local self: Fields = {\
+		items = {},\
+		kids = {},\
+		living = true,\
+	}\
+\
+	return setmetatable(self, Scope) :: any\
+end\
+\
+--- Registers something for teardown. Returns the item, so it composes:\
+--- `local part = scope:add(Instance.new(\"Frame\"))`.\
+function Scope.add(self: Fields & Types.Scope, item: Cleanup): Cleanup\
+	if not self.living then\
+		--// a scope that has already unwound owns nothing; dispose immediately\
+		--// rather than leaking the item into a dead list\
+		dispose(item)\
+		return item\
+	end\
+\
+	table.insert(self.items, item)\
+\
+	return item\
+end\
+\
+--- Creates a nested scope destroyed with its parent. Every panel and element\
+--- takes one of these, which is why destroying a panel takes its whole subtree.\
+function Scope.child(self: Fields & Types.Scope): Types.Scope\
+	local kid = Scope.new()\
+\
+	if not self.living then\
+		kid:destroy()\
+		return kid\
+	end\
+\
+	table.insert(self.kids, kid)\
+\
+	return kid\
+end\
+\
+--- Whether this scope has not yet been destroyed.\
+function Scope.alive(self: Fields & Types.Scope): boolean\
+	return self.living\
+end\
+\
+--- Unwinds children first, then own items in reverse order. Idempotent.\
+function Scope.destroy(self: Fields & Types.Scope)\
+	if not self.living then\
+		return\
+	end\
+\
+	self.living = false\
+\
+	for index = #self.kids, 1, -1 do\
+		self.kids[index]:destroy()\
+	end\
+\
+	for index = #self.items, 1, -1 do\
+		local ok, err = pcall(dispose, self.items[index])\
+\
+		if not ok then\
+			warn(`[Lume] cleanup failed: {err}`)\
+		end\
+	end\
+\
+	table.clear(self.items)\
+	table.clear(self.kids)\
+end\
+\
+return Scope\
+"},
+{"Astrix/_Packages/Lume/Core/Signal","ModuleScript","--!strict\
+\
+--- A minimal signal. Connecting returns an unsubscribe function rather than a\
+--- connection object, so handlers drop straight into a scope:\
+--- `scope:add(panel.opened:connect(fn))`.\
+---\
+--- Firing iterates a snapshot, so connecting or disconnecting from inside a\
+--- handler never skips or double-fires the dispatch in flight.\
+--- @section Core\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+export type Handler = (...any) -> ()\
+\
+export type Fields = {\
+	handlers: { Handler },\
+	firing: boolean,\
+}\
+\
+local Signal = {}\
+Signal.__index = Signal\
+\
+--- Creates an empty signal.\
+function Signal.new(): Types.Signal\
+	local self: Fields = {\
+		handlers = {},\
+		firing = false,\
+	}\
+\
+	return setmetatable(self, Signal) :: any\
+end\
+\
+--- Connects a handler. The returned function disconnects it.\
+function Signal.connect(self: Fields & Types.Signal, handler: Handler): Types.Unsubscribe\
+	table.insert(self.handlers, handler)\
+\
+	local live = true\
+\
+	return function()\
+		if not live then\
+			return\
+		end\
+\
+		live = false\
+\
+		local index = table.find(self.handlers, handler)\
+\
+		if index then\
+			table.remove(self.handlers, index)\
+		end\
+	end\
+end\
+\
+--- Connects a handler for exactly one fire.\
+function Signal.once(self: Fields & Types.Signal, handler: Handler): Types.Unsubscribe\
+	local disconnect: Types.Unsubscribe\
+\
+	disconnect = Signal.connect(self, function(...)\
+		disconnect()\
+		handler(...)\
+	end)\
+\
+	return disconnect\
+end\
+\
+--- Fires every currently connected handler.\
+function Signal.fire(self: Fields & Types.Signal, ...: any)\
+	local snapshot = table.clone(self.handlers)\
+\
+	self.firing = true\
+\
+	for _, handler in snapshot do\
+		local ok, err = pcall(handler, ...)\
+\
+		if not ok then\
+			warn(`[Lume] signal handler errored: {err}`)\
+		end\
+	end\
+\
+	self.firing = false\
+end\
+\
+--- How many handlers are connected.\
+function Signal.count(self: Fields & Types.Signal): number\
+	return #self.handlers\
+end\
+\
+--- Drops every handler.\
+function Signal.destroy(self: Fields & Types.Signal)\
+	table.clear(self.handlers)\
+end\
+\
+return Signal\
+"},
+{"Astrix/_Packages/Lume/Core/State","ModuleScript","--!strict\
+\
+--- Reactivity. Two cells — `value` (mutable) and `computed` (derived) — plus\
+--- `observe`, which is what every setter in the library funnels through.\
+---\
+--- Computeds track their dependencies automatically: whatever they read during\
+--- evaluation becomes a dependency, and they resubscribe on every recompute so\
+--- branching (`if flag:get() then a:get() else b:get() end`) stays correct.\
+---\
+--- Equality is `==`. Setting a table to itself is a no-op, so mutate through\
+--- `update` and return a fresh table when you want subscribers to hear about it.\
+--- @section State\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+type Unsubscribe = Types.Unsubscribe\
+\
+--// locals\
+--// dependency capture: each frame is the dep set of one in-flight computed\
+local capturing: { { [any]: boolean } } = {}\
+\
+--// batching: while depth > 0 notifications queue instead of firing\
+local depth = 0\
+local queued: { any } = {}\
+local queuedSet: { [any]: boolean } = {}\
+\
+local State = {}\
+\
+local Value = {}\
+Value.__index = Value\
+\
+local Computed = {}\
+Computed.__index = Computed\
+\
+export type ValueFields<T> = {\
+	kind: \"value\",\
+	current: T,\
+	listeners: { (T) -> () },\
+	dead: boolean,\
+}\
+\
+export type ComputedFields<T> = {\
+	kind: \"computed\",\
+	current: T,\
+	compute: () -> T,\
+	listeners: { (T) -> () },\
+	links: { Unsubscribe },\
+	dead: boolean,\
+}\
+\
+local function track(cell: any)\
+	local frame = capturing[#capturing]\
+\
+	if frame then\
+		frame[cell] = true\
+	end\
+end\
+\
+local function publish(cell: any)\
+	local snapshot = table.clone(cell.listeners)\
+\
+	for _, listener in snapshot do\
+		local ok, err = pcall(listener, cell.current)\
+\
+		if not ok then\
+			warn(`[Lume] state listener errored: {err}`)\
+		end\
+	end\
+end\
+\
+local function notify(cell: any)\
+	if depth > 0 then\
+		if not queuedSet[cell] then\
+			queuedSet[cell] = true\
+			table.insert(queued, cell)\
+		end\
+\
+		return\
+	end\
+\
+	publish(cell)\
+end\
+\
+local function subscribe(cell: any, listener: (any) -> ()): Unsubscribe\
+	table.insert(cell.listeners, listener)\
+\
+	local live = true\
+\
+	return function()\
+		if not live then\
+			return\
+		end\
+\
+		live = false\
+\
+		local index = table.find(cell.listeners, listener)\
+\
+		if index then\
+			table.remove(cell.listeners, index)\
+		end\
+	end\
+end\
+\
+--// value\
+--- Creates a mutable cell.\
+function State.value<T>(initial: T): Types.Value<T>\
+	local self: ValueFields<T> = {\
+		kind = \"value\",\
+		current = initial,\
+		listeners = {},\
+		dead = false,\
+	}\
+\
+	return setmetatable(self, Value) :: any\
+end\
+\
+function Value.get<T>(self: ValueFields<T> & Types.Value<T>): T\
+	track(self)\
+\
+	return self.current\
+end\
+\
+function Value.set<T>(self: ValueFields<T> & Types.Value<T>, next: T)\
+	if self.dead or self.current == next then\
+		return\
+	end\
+\
+	self.current = next\
+\
+	notify(self)\
+end\
+\
+function Value.update<T>(self: ValueFields<T> & Types.Value<T>, transform: (T) -> T)\
+	Value.set(self, transform(self.current))\
+end\
+\
+function Value.subscribe<T>(self: ValueFields<T> & Types.Value<T>, listener: (T) -> ()): Unsubscribe\
+	return subscribe(self, listener)\
+end\
+\
+function Value.destroy<T>(self: ValueFields<T> & Types.Value<T>)\
+	self.dead = true\
+\
+	table.clear(self.listeners)\
+end\
+\
+--// computed\
+local function evaluate<T>(self: ComputedFields<T> & Types.Computed<T>, initial: boolean)\
+	for _, unlink in self.links do\
+		unlink()\
+	end\
+\
+	table.clear(self.links)\
+\
+	local frame: { [any]: boolean } = {}\
+\
+	table.insert(capturing, frame)\
+\
+	local ok, result = pcall(self.compute)\
+\
+	table.remove(capturing)\
+\
+	if not ok then\
+		warn(`[Lume] computed errored: {result}`)\
+		return\
+	end\
+\
+	for dependency in frame do\
+		table.insert(\
+			self.links,\
+			subscribe(dependency, function()\
+				evaluate(self, false)\
+			end)\
+		)\
+	end\
+\
+	local changed = self.current ~= result\
+\
+	self.current = result :: any\
+\
+	if changed and not initial then\
+		notify(self)\
+	end\
+end\
+\
+--- Creates a derived cell from a function of other cells.\
+function State.computed<T>(compute: () -> T): Types.Computed<T>\
+	local self: ComputedFields<T> = {\
+		kind = \"computed\",\
+		current = nil :: any,\
+		compute = compute,\
+		listeners = {},\
+		links = {},\
+		dead = false,\
+	}\
+\
+	local public = setmetatable(self, Computed) :: any\
+\
+	evaluate(public, true)\
+\
+	return public\
+end\
+\
+function Computed.get<T>(self: ComputedFields<T> & Types.Computed<T>): T\
+	track(self)\
+\
+	return self.current\
+end\
+\
+function Computed.subscribe<T>(self: ComputedFields<T> & Types.Computed<T>, listener: (T) -> ()): Unsubscribe\
+	return subscribe(self, listener)\
+end\
+\
+function Computed.destroy<T>(self: ComputedFields<T> & Types.Computed<T>)\
+	self.dead = true\
+\
+	for _, unlink in self.links do\
+		unlink()\
+	end\
+\
+	table.clear(self.links)\
+	table.clear(self.listeners)\
+end\
+\
+--// public api\
+--- Whether a value is a reactive source rather than a plain value.\
+function State.is(candidate: any): boolean\
+	if type(candidate) ~= \"table\" then\
+		return false\
+	end\
+\
+	local kind = rawget(candidate, \"kind\")\
+\
+	return kind == \"value\" or kind == \"computed\"\
+end\
+\
+--- Reads through a source, or returns a plain value unchanged.\
+function State.unwrap<T>(candidate: Types.Bindable<T>): T\
+	if State.is(candidate) then\
+		return (candidate :: any):get()\
+	end\
+\
+	return candidate :: T\
+end\
+\
+--- Calls `listener` with the current value now and on every change. Returns an\
+--- unsubscribe function; for a plain value it fires once and unsubscribing is\
+--- a no-op. This is the single seam every bindable setter goes through.\
+function State.observe<T>(candidate: Types.Bindable<T>, listener: (T) -> ()): Unsubscribe\
+	if not State.is(candidate) then\
+		listener(candidate :: T)\
+\
+		return function() end\
+	end\
+\
+	local source = candidate :: any\
+\
+	listener(source:get())\
+\
+	return source:subscribe(listener)\
+end\
+\
+--- Groups writes so subscribers see one notification per changed cell at the\
+--- end, instead of one per `set`.\
+function State.batch(body: () -> ())\
+	depth += 1\
+\
+	local ok, err = pcall(body)\
+\
+	depth -= 1\
+\
+	if depth == 0 then\
+		local flushing = table.clone(queued)\
+\
+		table.clear(queued)\
+		table.clear(queuedSet)\
+\
+		for _, cell in flushing do\
+			publish(cell)\
+		end\
+	end\
+\
+	if not ok then\
+		error(err, 0)\
+	end\
+end\
+\
+--- Sugar for a computed that formats one source into a string.\
+function State.format<T>(source: Types.Bindable<T>, template: string): Types.Computed<string>\
+	return State.computed(function()\
+		return string.format(template, State.unwrap(source) :: any)\
+	end)\
+end\
+\
+--- Sugar for a computed that picks between two values on a boolean source.\
+function State.pick<T>(condition: Types.Bindable<boolean>, whenTrue: T, whenFalse: T): Types.Computed<T>\
+	return State.computed(function()\
+		return if State.unwrap(condition) then whenTrue else whenFalse\
+	end)\
+end\
+\
+return State\
+"},
+{"Astrix/_Packages/Lume/Elements","ModuleScript","--!strict\
+\
+--- Every element, by name. Panels and groups look factories up here, and you\
+--- can too when you want to build an element without a panel to hang it on:\
+---\
+--- ```lua\
+--- local button = Lume.Elements.Button.new(app)\
+--- panel:add(button)\
+--- ```\
+--- @section Elements\
+\
+return {\
+	Element = require(script.Element),\
+\
+	Label = require(script.Label),\
+	Icon = require(script.Icon),\
+	Button = require(script.Button),\
+	Field = require(script.Field),\
+	Toggle = require(script.Toggle),\
+	Slider = require(script.Slider),\
+	Select = require(script.Select),\
+	List = require(script.List),\
+	Divider = require(script.Divider),\
+	Spacer = require(script.Spacer),\
+	Group = require(script.Group),\
+	Progress = require(script.Progress),\
+	Tabs = require(script.Tabs),\
+	Chips = require(script.Chips),\
+	Suggest = require(script.Suggest),\
+	Menu = require(script.Menu),\
+	Badge = require(script.Badge),\
+	Scroll = require(script.Scroll),\
+	Keybind = require(script.Keybind),\
+}\
+"},
+{"Astrix/_Packages/Lume/Elements/Badge","ModuleScript","--!strict\
+\
+--- A small pill of text: counts, statuses, tags.\
+---\
+--- Tones map to the theme's semantic colours rather than taking a colour\
+--- directly, so a badge stays legible when the palette changes underneath it.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+\
+local Badge = {}\
+Badge.__index = Badge\
+\
+export type Tone = \"neutral\" | \"accent\" | \"success\" | \"warn\" | \"danger\"\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	value: string,\
+	tone: Tone,\
+	dot: boolean,\
+}\
+\
+local TONES: { [string]: string } = {\
+	neutral = \"textMuted\",\
+	accent = \"accent\",\
+	success = \"success\",\
+	warn = \"warn\",\
+	danger = \"danger\",\
+}\
+\
+--- Creates a badge. Prefer `panel:badge(text)`.\
+function Badge.new(app: Types.App): Types.Badge\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundColor3 = theme.color.textMuted,\
+			BackgroundTransparency = 0.85,\
+			BorderSizePixel = 0,\
+\
+			Size = UDim2.fromOffset(0, theme.size.hint),\
+			Name = \"Badge\",\
+		},\
+		children = {\
+			Create.corner(theme.radius.pill),\
+			Create.padding(theme.space.sm, 0),\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.xs, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,\
+			}),\
+			{\
+				class = \"Frame\",\
+				ref = \"dot\",\
+				props = {\
+					BackgroundColor3 = theme.color.textMuted,\
+					BorderSizePixel = 0,\
+					Size = UDim2.fromOffset(6, 6),\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Dot\",\
+				},\
+				children = { Create.corner(theme.radius.pill) },\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"text\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, theme.size.hint),\
+\
+					Font = theme.font.medium,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textMuted,\
+					TextXAlignment = Enum.TextXAlignment.Center,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					LayoutOrder = 2,\
+					Name = \"Text\",\
+					Text = \"\",\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"badge\",\
+		desired = Vector2.new(0, theme.size.hint),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		value = \"\",\
+		tone = \"neutral\",\
+		dot = false,\
+	}\
+\
+	return setmetatable(fields, Badge) :: any\
+end\
+\
+function Badge.setText(self: Fields & Types.Badge, text: Types.Bindable<string>): Types.Badge\
+	local label = self.refs.text :: TextLabel\
+\
+	Node.bind(self, \"text\", text, function(next: string)\
+		local value = tostring(next)\
+\
+		self.value = value\
+		label.Text = value\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Badge.setTone(self: Fields & Types.Badge, tone: Tone): Types.Badge\
+	local theme = self.app.theme\
+	local colour = theme.color[TONES[tone] or \"textMuted\"] or theme.color.textMuted\
+\
+	self.tone = tone\
+\
+	local root = self.instance :: Frame\
+\
+	root.BackgroundColor3 = colour\
+	;(self.refs.text :: TextLabel).TextColor3 = colour\
+	;(self.refs.dot :: Frame).BackgroundColor3 = colour\
+\
+	return self\
+end\
+\
+--- Shows a coloured dot before the text — a status light.\
+function Badge.setDot(self: Fields & Types.Badge, dot: boolean): Types.Badge\
+	self.dot = dot ~= false\
+	;(self.refs.dot :: Frame).Visible = self.dot\
+\
+	return self:invalidate()\
+end\
+\
+function Badge.measure(self: Fields & Types.Badge, _available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local text = self.app.measure:width(self.value, theme.text.xs, theme.font.medium)\
+\
+	local width = text + theme.space.sm * 2 + (if self.dot then 6 + theme.space.xs else 0)\
+\
+	self.desired = Vector2.new(math.ceil(width), theme.size.hint)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Badge)\
+\
+return Badge\
+"},
+{"Astrix/_Packages/Lume/Elements/Button","ModuleScript","--!strict\
+\
+--- A button. Five variants over one implementation, with hover, press and\
+--- loading states driven through the motion driver rather than by swapping\
+--- properties instantly.\
+---\
+--- The press is a `UIScale` dip rather than a colour change: it reads on every\
+--- variant including the transparent ones, and it costs one number.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Button = {}\
+Button.__index = Button\
+\
+export type Variant = \"solid\" | \"soft\" | \"ghost\" | \"outline\" | \"danger\"\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	value: string,\
+	variant: Variant,\
+	iconImage: string,\
+	fixedWidth: number?,\
+	loading: boolean,\
+\
+	baseTransparency: number,\
+	hovering: boolean,\
+}\
+\
+--- Per-variant surface: background colour token, resting transparency, the\
+--- transparency it lifts to on hover, text colour token, and whether it wears\
+--- a border.\
+local VARIANTS: { [string]: { color: string, rest: number, hover: number, text: string, stroke: boolean } } = {\
+	solid = { color = \"accent\", rest = 0, hover = 0.12, text = \"accentText\", stroke = false },\
+	soft = { color = \"accent\", rest = 0.85, hover = 0.75, text = \"accent\", stroke = false },\
+	ghost = { color = \"text\", rest = 1, hover = 0.92, text = \"textMuted\", stroke = false },\
+	outline = { color = \"text\", rest = 1, hover = 0.94, text = \"text\", stroke = true },\
+	danger = { color = \"danger\", rest = 0, hover = 0.12, text = \"textInverse\", stroke = false },\
+}\
+\
+--- Creates a button. Prefer `panel:button(text)`.\
+function Button.new(app: Types.App): Types.Button\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"TextButton\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundColor3 = theme.color.accent,\
+			BackgroundTransparency = 0,\
+			BorderSizePixel = 0,\
+\
+			AutoButtonColor = false,\
+			Selectable = true,\
+			Size = UDim2.fromOffset(96, theme.size.control),\
+\
+			Name = \"Button\",\
+			Text = \"\",\
+		},\
+		children = {\
+			Create.corner(theme.radius.md),\
+			{\
+				class = \"UIStroke\",\
+				ref = \"stroke\",\
+				props = {\
+					ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+					Color = theme.color.border,\
+					Thickness = theme.stroke.hairline,\
+					Transparency = theme.transparency.border,\
+					Enabled = false,\
+				},\
+			},\
+			{\
+				class = \"UIScale\",\
+				ref = \"scale\",\
+				props = { Scale = 1 },\
+			},\
+			Create.padding(theme.space.md, 0),\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.xs, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+				HorizontalAlignment = Enum.HorizontalAlignment.Center,\
+			}),\
+			{\
+				class = \"ImageLabel\",\
+				ref = \"icon\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					ImageColor3 = theme.color.accentText,\
+					ScaleType = Enum.ScaleType.Fit,\
+\
+					Size = UDim2.fromOffset(theme.size.icon, theme.size.icon),\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Icon\",\
+					Image = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"text\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, theme.size.control),\
+\
+					Font = theme.font.medium,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.accentText,\
+					TextXAlignment = Enum.TextXAlignment.Center,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					LayoutOrder = 2,\
+					Name = \"Text\",\
+					Text = \"\",\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"button\",\
+		desired = Vector2.new(96, theme.size.control),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		value = \"\",\
+		variant = \"solid\",\
+		iconImage = \"\",\
+		fixedWidth = nil,\
+		loading = false,\
+\
+		baseTransparency = 0,\
+		hovering = false,\
+	}\
+\
+	local button = setmetatable(fields, Button) :: any\
+\
+	local instance = root :: TextButton\
+	local scale = refs.scale :: UIScale\
+\
+	Hover.attach(scope, instance, function(hovering)\
+		fields.hovering = hovering\
+\
+		if not fields.enabled or fields.loading then\
+			return\
+		end\
+\
+		local surface = VARIANTS[fields.variant]\
+\
+		Motion.animate(\
+			instance,\
+			{ BackgroundTransparency = if hovering then surface.hover else surface.rest },\
+			theme:spec(\"hover\")\
+		)\
+\
+		button:emit(\"hovered\", hovering)\
+	end)\
+\
+	Hover.press(scope, instance, function(pressed)\
+		if not fields.enabled or fields.loading then\
+			return\
+		end\
+\
+		Motion.animate(scale, { Scale = if pressed then 0.97 else 1 }, theme:spec(\"press\"))\
+\
+		button:emit(if pressed then \"pressed\" else \"released\")\
+	end)\
+\
+	scope:add(instance.Activated:Connect(function()\
+		if not fields.enabled or fields.loading then\
+			return\
+		end\
+\
+		button:emit(\"clicked\")\
+	end))\
+\
+	Button.setVariant(button, \"solid\")\
+\
+	return button\
+end\
+\
+function Button.setText(self: Fields & Types.Button, text: Types.Bindable<string>): Types.Button\
+	local label = self.refs.text :: TextLabel\
+\
+	Node.bind(self, \"text\", text, function(next: string)\
+		local value = tostring(next)\
+\
+		self.value = value\
+		label.Text = value\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Button.setIcon(self: Fields & Types.Button, image: Types.Bindable<string>): Types.Button\
+	local icon = self.refs.icon :: ImageLabel\
+\
+	Node.bind(self, \"icon\", image, function(next: string)\
+		local value = tostring(next)\
+\
+		self.iconImage = value\
+\
+		icon.Image = value\
+		icon.Visible = value ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Button.setVariant(self: Fields & Types.Button, variant: Variant): Types.Button\
+	local theme = self.app.theme\
+	local surface = VARIANTS[variant] or VARIANTS.solid\
+\
+	self.variant = variant\
+	self.baseTransparency = surface.rest\
+\
+	local instance = self.instance :: TextButton\
+	local textColor = theme.color[surface.text] or theme.color.text\
+\
+	instance.BackgroundColor3 = theme.color[surface.color] or theme.color.accent\
+	instance.BackgroundTransparency = if self.hovering then surface.hover else surface.rest\
+\
+	;(self.refs.stroke :: UIStroke).Enabled = surface.stroke\
+	;(self.refs.text :: TextLabel).TextColor3 = textColor\
+	;(self.refs.icon :: ImageLabel).ImageColor3 = textColor\
+\
+	return self\
+end\
+\
+function Button.setColor(self: Fields & Types.Button, color: Types.Bindable<Color3>): Types.Button\
+	Node.bind(self, \"color\", color, function(next: Color3)\
+		(self.instance :: TextButton).BackgroundColor3 = next\
+	end)\
+\
+	return self\
+end\
+\
+function Button.setRadius(self: Fields & Types.Button, radius: number | \"pill\"): Types.Button\
+	local corner = self.instance:FindFirstChildOfClass(\"UICorner\")\
+\
+	if corner then\
+		corner.CornerRadius = if radius == \"pill\"\
+			then UDim.new(1, 0)\
+			else UDim.new(0, radius :: number)\
+	end\
+\
+	return self\
+end\
+\
+--- Spins the icon and stops accepting clicks.\
+function Button.setLoading(self: Fields & Types.Button, loading: Types.Bindable<boolean>): Types.Button\
+	local icon = self.refs.icon :: ImageLabel\
+\
+	Node.bind(self, \"loading\", loading, function(next: boolean)\
+		self.loading = next == true\
+\
+		icon.Rotation = 0\
+\
+		Motion.animate(\
+			self.instance,\
+			{ BackgroundTransparency = if self.loading then math.max(self.baseTransparency, 0.4) else self.baseTransparency },\
+			self.app.theme:spec(\"fade\")\
+		)\
+	end)\
+\
+	return self\
+end\
+\
+--- Pins the width instead of sizing to the label.\
+function Button.setFixedWidth(self: Fields & Types.Button, width: number): Types.Button\
+	self.fixedWidth = width\
+\
+	return self:invalidate()\
+end\
+\
+function Button.onClicked(self: Fields & Types.Button, handler: () -> ()): Types.Button\
+	return self:on(\"clicked\", handler)\
+end\
+\
+function Button.onPressed(self: Fields & Types.Button, handler: () -> ()): Types.Button\
+	return self:on(\"pressed\", handler)\
+end\
+\
+function Button.onReleased(self: Fields & Types.Button, handler: () -> ()): Types.Button\
+	return self:on(\"released\", handler)\
+end\
+\
+function Button.onHovered(self: Fields & Types.Button, handler: (boolean) -> ()): Types.Button\
+	return self:on(\"hovered\", handler)\
+end\
+\
+--- Fires the click handlers as if the button had been pressed.\
+function Button.click(self: Fields & Types.Button): Types.Button\
+	if self.enabled and not self.loading then\
+		self:emit(\"clicked\")\
+	end\
+\
+	return self\
+end\
+\
+function Button.measure(self: Fields & Types.Button, available: Vector2): Vector2\
+	local theme = self.app.theme\
+\
+	local text = if self.value == \"\"\
+		then 0\
+		else self.app.measure:width(self.value, theme.text.sm, theme.font.medium)\
+\
+	local icon = if self.iconImage ~= \"\" then theme.size.icon + theme.space.xs else 0\
+	local natural = self.fixedWidth or (text + icon + theme.space.md * 2)\
+\
+	--// never `available.X`, even when filling: see the note in Element\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), theme.size.control)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Button)\
+\
+return Button\
+"},
+{"Astrix/_Packages/Lume/Elements/Chips","ModuleScript","--!strict\
+\
+--- A wrapping row of small pills: tags, filters, active selections.\
+---\
+--- Chips wrap rather than scroll, so the element reports a height that depends\
+--- on the width it is given — which is exactly the case the measure/commit\
+--- split exists for.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Chips = {}\
+Chips.__index = Chips\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	chips: { Types.Option },\
+	instances: { TextButton },\
+	widths: { number },\
+\
+	chosen: { string },\
+	removable: boolean,\
+	selectable: boolean,\
+	wrapping: boolean,\
+}\
+\
+local CHIP_HEIGHT = 24\
+local REMOVE_WIDTH = 16\
+\
+--// locals\
+local function normalise(entry: Types.Option | string): Types.Option\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	local option = entry :: Types.Option\
+\
+	return { id = option.id or option.text, text = option.text, icon = option.icon, description = option.description }\
+end\
+\
+--- Creates a chip row. Prefer `panel:chips()`.\
+function Chips.new(app: Types.App): Types.Chips\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, CHIP_HEIGHT),\
+			Name = \"Chips\",\
+		},\
+		children = {\
+			{\
+				class = \"UIListLayout\",\
+				ref = \"layout\",\
+				props = {\
+					SortOrder = Enum.SortOrder.LayoutOrder,\
+					FillDirection = Enum.FillDirection.Horizontal,\
+					Padding = UDim.new(0, theme.space.xs),\
+					HorizontalAlignment = Enum.HorizontalAlignment.Left,\
+					VerticalAlignment = Enum.VerticalAlignment.Top,\
+					Wraps = true,\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"chips\",\
+		desired = Vector2.new(0, CHIP_HEIGHT),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		chips = {},\
+		instances = {},\
+		widths = {},\
+\
+		chosen = {},\
+		removable = false,\
+		selectable = false,\
+		wrapping = true,\
+	}\
+\
+	return setmetatable(fields, Chips) :: any\
+end\
+\
+local function isChosen(self: Fields, id: string): boolean\
+	return table.find(self.chosen, id) ~= nil\
+end\
+\
+--- Recolours every chip for the current selection.\
+function Chips.paint(self: Fields)\
+	local theme = self.app.theme\
+\
+	for index, option in self.chips do\
+		local button = self.instances[index]\
+\
+		if not button then\
+			continue\
+		end\
+\
+		local selected = self.selectable and isChosen(self, option.id)\
+\
+		Motion.animate(button, {\
+			BackgroundColor3 = if selected then theme.color.accent else theme.color.textMuted,\
+			BackgroundTransparency = if selected then 0 else 0.85,\
+			TextColor3 = if selected then theme.color.accentText else theme.color.textMuted,\
+		}, theme:spec(\"hover\"))\
+	end\
+end\
+\
+--- Rebuilds every chip instance and caches their measured widths.\
+function Chips.rebuild(self: Fields & Types.Chips)\
+	local theme = self.app.theme\
+\
+	for _, button in self.instances do\
+		button:Destroy()\
+	end\
+\
+	table.clear(self.instances)\
+	table.clear(self.widths)\
+\
+	for index, option in self.chips do\
+		local textWidth = self.app.measure:width(option.text, theme.text.xs, theme.font.medium)\
+		local width = math.ceil(textWidth + theme.space.sm * 2 + (if self.removable then REMOVE_WIDTH else 0))\
+\
+		self.widths[index] = width\
+\
+		local button = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundColor3 = theme.color.textMuted,\
+				BackgroundTransparency = 0.85,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.fromOffset(width, CHIP_HEIGHT),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.medium,\
+				TextSize = theme.text.xs,\
+				TextColor3 = theme.color.textMuted,\
+				TextXAlignment = Enum.TextXAlignment.Left,\
+\
+				Name = `Chip_{option.id}`,\
+				Text = \"\",\
+			},\
+			children = {\
+				Create.corner(theme.radius.pill),\
+				Create.padding(theme.space.sm, 0),\
+				Create.list(Enum.FillDirection.Horizontal, 2, {\
+					VerticalAlignment = Enum.VerticalAlignment.Center,\
+				}),\
+				{\
+					class = \"TextLabel\",\
+					props = {\
+						BackgroundTransparency = 1,\
+						AutomaticSize = Enum.AutomaticSize.X,\
+						Size = UDim2.fromOffset(0, CHIP_HEIGHT),\
+\
+						Font = theme.font.medium,\
+						TextSize = theme.text.xs,\
+						TextColor3 = theme.color.textMuted,\
+						TextYAlignment = Enum.TextYAlignment.Center,\
+\
+						LayoutOrder = 1,\
+						Name = \"Text\",\
+						Text = option.text,\
+					},\
+				},\
+				{\
+					class = \"TextButton\",\
+					props = {\
+						BackgroundTransparency = 1,\
+						AutoButtonColor = false,\
+						Size = UDim2.fromOffset(REMOVE_WIDTH, CHIP_HEIGHT),\
+\
+						Font = theme.font.medium,\
+						TextSize = theme.text.sm,\
+						TextColor3 = theme.color.textMuted,\
+\
+						LayoutOrder = 2,\
+						Visible = self.removable,\
+						Name = \"Remove\",\
+						Text = \"×\",\
+					},\
+				},\
+			},\
+		}) :: TextButton\
+\
+		button.Parent = self.instance\
+\
+		self.instances[index] = button\
+\
+		local remove = button:FindFirstChild(\"Remove\") :: TextButton?\
+\
+		Hover.attach(self.scope, button, function(hovering)\
+			if self.selectable and isChosen(self, option.id) then\
+				return\
+			end\
+\
+			Motion.animate(\
+				button,\
+				{ BackgroundTransparency = if hovering then 0.75 else 0.85 },\
+				theme:spec(\"hover\")\
+			)\
+		end)\
+\
+		if remove then\
+			self.scope:add(remove.Activated:Connect(function()\
+				if self.enabled then\
+					self:emit(\"removed\", option.id)\
+				end\
+			end))\
+		end\
+\
+		self.scope:add(button.Activated:Connect(function()\
+			if not self.enabled or not self.selectable then\
+				return\
+			end\
+\
+			local at = table.find(self.chosen, option.id)\
+\
+			if at then\
+				table.remove(self.chosen, at)\
+			else\
+				table.insert(self.chosen, option.id)\
+			end\
+\
+			Chips.paint(self)\
+\
+			self:emit(\"selected\", table.clone(self.chosen))\
+		end))\
+	end\
+\
+	Chips.paint(self)\
+end\
+\
+function Chips.setChips(self: Fields & Types.Chips, chips: Types.Bindable<{ Types.Option | string }>): Types.Chips\
+	Node.bind(self, \"chips\", chips, function(next: { Types.Option | string })\
+		local normalised: { Types.Option } = {}\
+\
+		for _, entry in next do\
+			table.insert(normalised, normalise(entry))\
+		end\
+\
+		self.chips = normalised\
+\
+		Chips.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Chips.setRemovable(self: Fields & Types.Chips, removable: boolean): Types.Chips\
+	self.removable = removable ~= false\
+\
+	Chips.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Chips.setSelectable(self: Fields & Types.Chips, selectable: boolean): Types.Chips\
+	self.selectable = selectable ~= false\
+\
+	Chips.paint(self)\
+\
+	return self\
+end\
+\
+function Chips.setSelected(self: Fields & Types.Chips, ids: Types.Bindable<{ string }>): Types.Chips\
+	Node.bind(self, \"selected\", ids, function(next: { string })\
+		self.chosen = table.clone(next)\
+\
+		Chips.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Chips.setWrap(self: Fields & Types.Chips, wrap: boolean): Types.Chips\
+	self.wrapping = wrap ~= false\
+	;(self.refs.layout :: UIListLayout).Wraps = self.wrapping\
+\
+	return self:invalidate()\
+end\
+\
+function Chips.onRemoved(self: Fields & Types.Chips, handler: (string) -> ()): Types.Chips\
+	return self:on(\"removed\", handler)\
+end\
+\
+function Chips.onSelected(self: Fields & Types.Chips, handler: ({ string }) -> ()): Types.Chips\
+	return self:on(\"selected\", handler)\
+end\
+\
+function Chips.selected(self: Fields & Types.Chips): { string }\
+	return table.clone(self.chosen)\
+end\
+\
+--- Height depends on the width offered, because wrapping does.\
+function Chips.measure(self: Fields & Types.Chips, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local width = math.max(1, available.X - self.margin * 2)\
+\
+	local total = 0\
+\
+	for index, chipWidth in self.widths do\
+		total += chipWidth + (if index > 1 then theme.space.xs else 0)\
+	end\
+\
+	--// one row is the natural size; only report the full width once the chips\
+	--// genuinely need to wrap\
+	if not self.wrapping or total <= width then\
+		self.desired = Vector2.new(math.min(total, width), CHIP_HEIGHT)\
+		self.measured = true\
+\
+		return self.desired\
+	end\
+\
+	local rows = 1\
+	local cursor = 0\
+\
+	for _, chipWidth in self.widths do\
+		local advance = chipWidth + (if cursor > 0 then theme.space.xs else 0)\
+\
+		if cursor + advance > width and cursor > 0 then\
+			rows += 1\
+			cursor = chipWidth\
+		else\
+			cursor += advance\
+		end\
+	end\
+\
+	local height = rows * CHIP_HEIGHT + (rows - 1) * theme.space.xs\
+\
+	self.desired = Vector2.new(width, height)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Chips)\
+\
+return Chips\
+"},
+{"Astrix/_Packages/Lume/Elements/Divider","ModuleScript","--!strict\
+\
+--- A hairline rule, optionally with a caption.\
+---\
+--- A labelled divider hides its rule and shows only the caption. The usual\
+--- trick — floating the caption on an opaque chip over the line — needs an\
+--- opaque surface to hide behind, and Lume's surfaces are translucent by\
+--- default, so the line would ghost through the text.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+\
+local Divider = {}\
+Divider.__index = Divider\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	thickness: number,\
+	labelled: boolean,\
+}\
+\
+--- Creates a divider. Prefer `panel:divider()`.\
+function Divider.new(app: Types.App): Types.Divider\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.stroke.hairline),\
+			Name = \"Divider\",\
+		},\
+		children = {\
+			{\
+				class = \"Frame\",\
+				ref = \"line\",\
+				props = {\
+					BackgroundColor3 = theme.color.border,\
+					BackgroundTransparency = theme.transparency.border,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(0, 0.5),\
+					Position = UDim2.new(0, 0, 0.5, 0),\
+					Size = UDim2.new(1, 0, 0, theme.stroke.hairline),\
+\
+					Name = \"Line\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"caption\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(0, 0.5),\
+					Position = UDim2.new(0, 0, 0.5, 0),\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, theme.size.hint),\
+\
+					Font = theme.font.medium,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+\
+					Visible = false,\
+					Name = \"Caption\",\
+					Text = \"\",\
+					ZIndex = 2,\
+				},\
+				children = {\
+					Create.padding(theme.space.xs, 0),\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"divider\",\
+		desired = Vector2.new(0, theme.stroke.hairline),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		thickness = theme.stroke.hairline,\
+		labelled = false,\
+	}\
+\
+	return setmetatable(fields, Divider) :: any\
+end\
+\
+function Divider.setLabel(self: Fields & Types.Divider, label: Types.Bindable<string>): Types.Divider\
+	local caption = self.refs.caption :: TextLabel\
+\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local value = tostring(next)\
+\
+		caption.Text = value\
+		caption.Visible = value ~= \"\"\
+\
+		self.labelled = value ~= \"\"\
+\
+		--// the rule and the caption are alternatives, not neighbours\
+		;(self.refs.line :: Frame).Visible = not self.labelled\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Divider.setThickness(self: Fields & Types.Divider, thickness: number): Types.Divider\
+	self.thickness = thickness\
+	;(self.refs.line :: Frame).Size = UDim2.new(1, 0, 0, thickness)\
+\
+	return self:invalidate()\
+end\
+\
+function Divider.setColor(self: Fields & Types.Divider, color: Types.Bindable<Color3>): Types.Divider\
+	Node.bind(self, \"color\", color, function(next: Color3)\
+		(self.refs.line :: Frame).BackgroundColor3 = next\
+	end)\
+\
+	return self\
+end\
+\
+function Divider.measure(self: Fields & Types.Divider, available: Vector2): Vector2\
+	local height = if self.labelled then self.app.theme.size.hint else self.thickness\
+\
+	--// a rule wants no width of its own; it takes whatever the panel settles\
+	--// on during commit, so it never drags a panel wider\
+	self.desired = Vector2.new(0, height)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Divider)\
+\
+return Divider\
+"},
+{"Astrix/_Packages/Lume/Elements/Element","ModuleScript","--!strict\
+\
+--- The element mixin: what every child of a panel answers to on top of the\
+--- shared node methods.\
+---\
+--- The contract is two calls. `measure(available)` reports the size the element\
+--- wants given the room on offer and must not mutate anything. `commit(inner,\
+--- vertical, share)` then applies the size the panel decided on — which is the\
+--- earliest moment a `fill` element can know how wide it is allowed to be.\
+---\
+--- Splitting them is what lets one pass handle both \"size the panel to its\
+--- content\" and \"stretch the content across the panel\".\
+---\
+--- **`fill` belongs to commit, never to measure.** An element that reported the\
+--- full available width as its *desired* width would drag every auto-sized\
+--- panel straight to its maximum, and a command bar that is always 900px wide\
+--- is not content-driven, it is just wide. Measure reports what the element\
+--- naturally wants; commit stretches it afterwards.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local State = require(script.Parent.Parent.Core.State)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+\
+type ElementFields = Types.ElementFields\
+type NodeFields = Types.NodeFields\
+type Base = NodeFields & ElementFields\
+\
+local Element = {}\
+\
+--// public api\
+--- Fills in the shared element fields.\
+function Element.init(self: Base, kind: string, desired: Vector2)\
+	self.kind = kind\
+	self.desired = desired\
+\
+	self.margin = 0\
+	self.fill = false\
+	self.grow = false\
+	self.enabled = true\
+	self.measured = false\
+end\
+\
+--- Walks up to the nearest owning panel, if there is one.\
+function Element.owner(self: Base): Types.Panel?\
+	return self.owner\
+end\
+\
+--- Installs the element methods onto a class table, then the node methods.\
+--- Anything the class already defines wins.\
+function Element.install(class: { [string]: any })\
+	--- Default measurement: whatever the element last computed for itself.\
+	--- Every real element overrides this.\
+	if not class.measure then\
+		function class.measure(self: Base, _available: Vector2): Vector2\
+			return self.desired\
+		end\
+	end\
+\
+	--- Default commit: stretch across the cross axis when filling, otherwise\
+	--- take exactly the measured size. `share` is this element's cut of any\
+	--- leftover main-axis space.\
+	if not class.commit then\
+		function class.commit(self: Base, inner: Vector2, vertical: boolean, share: number)\
+			local width = self.desired.X\
+			local height = self.desired.Y\
+\
+			if vertical then\
+				if self.fill then\
+					width = math.max(0, inner.X - self.margin * 2)\
+				end\
+\
+				if self.grow then\
+					height += share\
+				end\
+			else\
+				if self.fill then\
+					height = math.max(0, inner.Y - self.margin * 2)\
+				end\
+\
+				if self.grow then\
+					width += share\
+				end\
+			end\
+\
+			self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+		end\
+	end\
+\
+	--- Marks the measurement stale and asks the owning panel for a new pass.\
+	--- Coalesced by the panel, so calling it from a text change handler on\
+	--- every keystroke costs one layout per frame.\
+	if not class.invalidate then\
+		function class.invalidate<T>(self: T & Base): T\
+			self.measured = false\
+\
+			local owner = self.owner\
+\
+			if owner then\
+				owner:refresh()\
+			end\
+\
+			return self\
+		end\
+	end\
+\
+	--- Re-measure. Panels, groups and scrolls override this with a real layout\
+	--- pass; for a leaf element it simply bubbles the request upward.\
+	---\
+	--- Every element answers it because any element can end up hosting\
+	--- children — a suggestion list owns a list, a select owns a popover — and\
+	--- `invalidate` calls `owner:refresh()` without asking what the owner is.\
+	if not class.refresh then\
+		function class.refresh<T>(self: T & Base): T\
+			return class.invalidate(self)\
+		end\
+	end\
+\
+	--- Stretch across the panel's cross axis.\
+	if not class.setFill then\
+		function class.setFill<T>(self: T & Base, fill: boolean): T\
+			self.fill = fill ~= false\
+\
+			return class.invalidate(self)\
+		end\
+	end\
+\
+	--- Absorb leftover space along the panel's main axis.\
+	if not class.setGrow then\
+		function class.setGrow<T>(self: T & Base, grow: boolean): T\
+			self.grow = grow ~= false\
+\
+			return class.invalidate(self)\
+		end\
+	end\
+\
+	if not class.setMargin then\
+		function class.setMargin<T>(self: T & Base, margin: number): T\
+			self.margin = margin\
+\
+			return class.invalidate(self)\
+		end\
+	end\
+\
+	if not class.setOrder then\
+		function class.setOrder<T>(self: T & Base, order: number): T\
+			self.instance.LayoutOrder = order\
+\
+			return self\
+		end\
+	end\
+\
+	--- Greys the element out and stops it responding to input.\
+	if not class.setEnabled then\
+		function class.setEnabled<T>(self: T & Base, enabled: Types.Bindable<boolean>): T\
+			Node.bind(self, \"enabled\", enabled, function(next: boolean)\
+				self.enabled = next ~= false\
+\
+				local theme = self.app.theme\
+				local target = if self.enabled then 0 else theme.transparency.disabled\
+\
+				--// a CanvasGroup would be cleaner but costs a render target per\
+				--// element; fading the root's children keeps it to one property\
+				local root = self.instance\
+\
+				if root:IsA(\"CanvasGroup\") then\
+					root.GroupTransparency = target\
+				end\
+\
+				if root:IsA(\"GuiButton\") then\
+					root.Active = self.enabled\
+					root.Selectable = self.enabled\
+					root.AutoButtonColor = false\
+				end\
+\
+				for _, child in root:GetDescendants() do\
+					if child:IsA(\"TextLabel\") or child:IsA(\"TextButton\") or child:IsA(\"TextBox\") then\
+						child.TextTransparency = math.max(child.TextTransparency, target)\
+					elseif child:IsA(\"ImageLabel\") or child:IsA(\"ImageButton\") then\
+						child.ImageTransparency = math.max(child.ImageTransparency, target)\
+					end\
+				end\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	--- Shows a tooltip panel while the pointer rests on this element.\
+	if not class.setTooltip then\
+		function class.setTooltip<T>(self: T & Base, text: Types.Bindable<string>): T\
+			local Panel = require(script.Parent.Parent.Panel)\
+\
+			local tip: Types.Panel? = nil\
+\
+			Hover.attach(self.scope, self.instance, function(hovering)\
+				if not hovering then\
+					if tip then\
+						tip:close()\
+					end\
+\
+					return\
+				end\
+\
+				if not tip then\
+					tip = Panel.new(self.app, \"tooltip\")\
+\
+					local created = tip :: Types.Panel\
+\
+					created:label(text):setMuted(false)\
+					created:attachTo(self.instance, \"top\", self.app.theme.space.xs)\
+\
+					self.scope:add(created)\
+				end\
+\
+				local created = tip :: Types.Panel\
+\
+				created:attachTo(self.instance, \"top\", self.app.theme.space.xs)\
+				created:open()\
+			end)\
+\
+			return self\
+		end\
+	end\
+\
+	--- The panel hosting this element.\
+	if not class.host then\
+		function class.host(self: Base): Types.Panel?\
+			return self.owner\
+		end\
+	end\
+\
+	Node.install(class)\
+end\
+\
+--- Reads a bindable through to its current value. Re-exported so elements do\
+--- not each have to reach for State.\
+function Element.unwrap<T>(value: Types.Bindable<T>): T\
+	return State.unwrap(value)\
+end\
+\
+return Element\
+"},
+{"Astrix/_Packages/Lume/Elements/Field","ModuleScript","--!strict\
+\
+--- A text input: optional leading icon, optional prefix, placeholder, and a\
+--- ghosted completion hint that sits directly after what you have typed.\
+---\
+--- The hint is positioned by measuring the current text, which is the same\
+--- trick the console command bar uses — it is what makes inline autocomplete\
+--- read as part of the input rather than as a separate suggestion.\
+---\
+--- Masking renders bullets in a mirror label over a transparent input. Roblox\
+--- has no native masked field, and this is the closest honest approximation;\
+--- the caret is not visible while masked.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Element = require(script.Parent.Element)\
+\
+local Field = {}\
+Field.__index = Field\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	--// named `current`, not `value`: a field of that name would shadow the\
+	--// `value()` method, since raw fields win over the metatable\
+	current: string,\
+	placeholderText: string,\
+	prefixText: string,\
+	hintText: string,\
+	iconImage: string,\
+\
+	font: Enum.Font,\
+	textSize: number,\
+	multiline: boolean,\
+	masked: boolean,\
+	maxLength: number,\
+	clearOnSubmit: boolean,\
+\
+	focused: boolean,\
+	valid: boolean,\
+	validator: ((string) -> (boolean, string?))?,\
+}\
+\
+--- Creates a field. Prefer `panel:field(placeholder)`.\
+function Field.new(app: Types.App): Types.Field\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundColor3 = theme.color.surfaceSunken,\
+			BackgroundTransparency = 0.35,\
+			BorderSizePixel = 0,\
+\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			ClipsDescendants = true,\
+			Name = \"Field\",\
+		},\
+		children = {\
+			Create.corner(theme.radius.sm),\
+			{\
+				class = \"UIStroke\",\
+				ref = \"stroke\",\
+				props = {\
+					ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+					Color = theme.color.border,\
+					Thickness = theme.stroke.hairline,\
+					Transparency = theme.transparency.border,\
+				},\
+			},\
+			Create.padding(theme.space.sm, 0),\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.xs, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+			{\
+				class = \"ImageLabel\",\
+				ref = \"icon\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					ImageColor3 = theme.color.textGhost,\
+					ImageTransparency = theme.transparency.ghost,\
+					ScaleType = Enum.ScaleType.Fit,\
+\
+					Size = UDim2.fromOffset(theme.size.icon, theme.size.icon),\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Icon\",\
+					Image = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"prefix\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, theme.size.control),\
+\
+					Font = theme.font.mono,\
+					TextSize = theme.text.md,\
+					TextColor3 = theme.color.accent,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					LayoutOrder = 2,\
+					Visible = false,\
+					Name = \"Prefix\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"box\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					BorderSizePixel = 0,\
+					ClipsDescendants = false,\
+\
+					Size = UDim2.new(1, -theme.space.sm, 1, 0),\
+					LayoutOrder = 3,\
+					Name = \"Box\",\
+				},\
+				children = {\
+					{\
+						class = \"TextLabel\",\
+						ref = \"placeholder\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							Size = UDim2.fromScale(1, 1),\
+\
+							Font = theme.font.body,\
+							TextSize = theme.text.md,\
+							TextColor3 = theme.color.textGhost,\
+							TextTransparency = theme.transparency.ghost,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							Name = \"Placeholder\",\
+							Text = \"\",\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"hint\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							AutomaticSize = Enum.AutomaticSize.X,\
+							Size = UDim2.new(0, 0, 1, 0),\
+\
+							Font = theme.font.body,\
+							TextSize = theme.text.md,\
+							TextColor3 = theme.color.textGhost,\
+							TextTransparency = theme.transparency.ghost,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							Visible = false,\
+							Name = \"Hint\",\
+							Text = \"\",\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"mask\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							Size = UDim2.fromScale(1, 1),\
+\
+							Font = theme.font.body,\
+							TextSize = theme.text.md,\
+							TextColor3 = theme.color.text,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							Visible = false,\
+							Name = \"Mask\",\
+							Text = \"\",\
+							ZIndex = 3,\
+						},\
+					},\
+					{\
+						class = \"TextBox\",\
+						ref = \"input\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							Size = UDim2.fromScale(1, 1),\
+\
+							Font = theme.font.body,\
+							TextSize = theme.text.md,\
+							TextColor3 = theme.color.text,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							ClearTextOnFocus = false,\
+							MultiLine = false,\
+							TextWrapped = false,\
+							PlaceholderText = \"\",\
+\
+							Name = \"Input\",\
+							Text = \"\",\
+							ZIndex = 2,\
+						},\
+					},\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"field\",\
+		desired = Vector2.new(200, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		current = \"\",\
+		placeholderText = \"\",\
+		prefixText = \"\",\
+		hintText = \"\",\
+		iconImage = \"\",\
+\
+		font = theme.font.body,\
+		textSize = theme.text.md,\
+		multiline = false,\
+		masked = false,\
+		maxLength = 0,\
+		clearOnSubmit = false,\
+\
+		focused = false,\
+		valid = true,\
+		validator = nil,\
+	}\
+\
+	local field = setmetatable(fields, Field) :: any\
+\
+	local input = refs.input :: TextBox\
+	local stroke = refs.stroke :: UIStroke\
+\
+	local function sync()\
+		local text = input.Text\
+\
+		if fields.maxLength > 0 and #text > fields.maxLength then\
+			text = string.sub(text, 1, fields.maxLength)\
+			input.Text = text\
+\
+			return\
+		end\
+\
+		fields.current = text\
+\
+		;(refs.placeholder :: TextLabel).Visible = text == \"\"\
+\
+		Field.layoutHint(fields)\
+\
+		if fields.masked then\
+			(refs.mask :: TextLabel).Text = string.rep(\"•\", #text)\
+		end\
+\
+		if fields.validator then\
+			local ok, message = fields.validator(text)\
+\
+			fields.valid = ok\
+\
+			stroke.Color = if ok then theme.color.border else theme.color.danger\
+\
+			field:emit(\"validated\", ok, message)\
+		end\
+\
+		field:emit(\"changed\", text)\
+	end\
+\
+	scope:add(input:GetPropertyChangedSignal(\"Text\"):Connect(sync))\
+\
+	scope:add(input.Focused:Connect(function()\
+		fields.focused = true\
+\
+		app.focus:set(field)\
+\
+		Motion.animate(\
+			stroke,\
+			{ Color = theme.color.accent, Transparency = 0 },\
+			theme:spec(\"hover\")\
+		)\
+\
+		field:emit(\"focused\")\
+	end))\
+\
+	scope:add(input.FocusLost:Connect(function(submitted)\
+		fields.focused = false\
+\
+		if app.focus:owns(field) then\
+			app.focus:clear()\
+		end\
+\
+		Motion.animate(stroke, {\
+			Color = if fields.valid then theme.color.border else theme.color.danger,\
+			Transparency = theme.transparency.border,\
+		}, theme:spec(\"hover\"))\
+\
+		if submitted then\
+			field:emit(\"submitted\", fields.current)\
+\
+			if fields.clearOnSubmit then\
+				input.Text = \"\"\
+			end\
+		end\
+\
+		field:emit(\"blurred\")\
+	end))\
+\
+	return field\
+end\
+\
+--- Places the ghost hint directly after the typed text.\
+function Field.layoutHint(self: Fields)\
+	local hint = self.refs.hint :: TextLabel\
+\
+	if self.hintText == \"\" or self.current == \"\" then\
+		hint.Visible = self.hintText ~= \"\" and self.current == \"\"\
+		hint.Position = UDim2.fromOffset(0, 0)\
+\
+		return\
+	end\
+\
+	local theme = self.app.theme\
+	local width = self.app.measure:width(self.current, self.textSize, self.font)\
+\
+	hint.Position = UDim2.fromOffset(math.ceil(width), 0)\
+	hint.Visible = true\
+end\
+\
+function Field.setText(self: Fields & Types.Field, text: Types.Bindable<string>): Types.Field\
+	local input = self.refs.input :: TextBox\
+\
+	Node.bind(self, \"text\", text, function(next: string)\
+		input.Text = tostring(next)\
+	end)\
+\
+	return self\
+end\
+\
+function Field.setPlaceholder(self: Fields & Types.Field, placeholder: Types.Bindable<string>): Types.Field\
+	local label = self.refs.placeholder :: TextLabel\
+\
+	Node.bind(self, \"placeholder\", placeholder, function(next: string)\
+		local value = tostring(next)\
+\
+		self.placeholderText = value\
+\
+		label.Text = value\
+		label.Visible = self.current == \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+--- A fixed leading token, drawn in the accent colour. The `>` of a prompt.\
+function Field.setPrefix(self: Fields & Types.Field, prefix: Types.Bindable<string>): Types.Field\
+	local label = self.refs.prefix :: TextLabel\
+\
+	Node.bind(self, \"prefix\", prefix, function(next: string)\
+		local value = tostring(next)\
+\
+		self.prefixText = value\
+\
+		label.Text = value\
+		label.Visible = value ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Field.setIcon(self: Fields & Types.Field, image: Types.Bindable<string>): Types.Field\
+	local icon = self.refs.icon :: ImageLabel\
+\
+	Node.bind(self, \"icon\", image, function(next: string)\
+		local value = tostring(next)\
+\
+		self.iconImage = value\
+\
+		icon.Image = value\
+		icon.Visible = value ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+--- The ghosted completion shown after the caret.\
+function Field.setHint(self: Fields & Types.Field, hint: Types.Bindable<string>): Types.Field\
+	local label = self.refs.hint :: TextLabel\
+\
+	Node.bind(self, \"hint\", hint, function(next: string)\
+		local value = tostring(next)\
+\
+		self.hintText = value\
+		label.Text = value\
+\
+		Field.layoutHint(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- Sets the font on the input, placeholder, hint and mask together, so the\
+--- ghost completion still lines up with the text it follows. A terminal wants\
+--- `Enum.Font.Code` here.\
+function Field.setFont(self: Fields & Types.Field, font: Enum.Font): Types.Field\
+	self.font = font\
+\
+	for _, key in { \"input\", \"placeholder\", \"hint\", \"mask\" } do\
+		local label = self.refs[key]\
+\
+		if label then\
+			(label :: any).Font = font\
+		end\
+	end\
+\
+	Field.layoutHint(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Field.setTextSize(self: Fields & Types.Field, size: number): Types.Field\
+	self.textSize = size\
+\
+	for _, key in { \"input\", \"placeholder\", \"hint\", \"mask\", \"prefix\" } do\
+		local label = self.refs[key]\
+\
+		if label then\
+			(label :: any).TextSize = size\
+		end\
+	end\
+\
+	Field.layoutHint(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Field.setMultiline(self: Fields & Types.Field, multiline: boolean): Types.Field\
+	local input = self.refs.input :: TextBox\
+\
+	self.multiline = multiline ~= false\
+\
+	input.MultiLine = self.multiline\
+	input.TextWrapped = self.multiline\
+	input.TextYAlignment = if self.multiline then Enum.TextYAlignment.Top else Enum.TextYAlignment.Center\
+\
+	return self:invalidate()\
+end\
+\
+function Field.setMasked(self: Fields & Types.Field, masked: boolean): Types.Field\
+	local input = self.refs.input :: TextBox\
+	local mask = self.refs.mask :: TextLabel\
+\
+	self.masked = masked ~= false\
+\
+	input.TextTransparency = if self.masked then 1 else 0\
+	mask.Visible = self.masked\
+	mask.Text = string.rep(\"•\", #self.current)\
+\
+	return self\
+end\
+\
+function Field.setMaxLength(self: Fields & Types.Field, length: number): Types.Field\
+	self.maxLength = math.max(0, length)\
+\
+	return self\
+end\
+\
+function Field.setClearOnSubmit(self: Fields & Types.Field, clear: boolean): Types.Field\
+	self.clearOnSubmit = clear ~= false\
+\
+	return self\
+end\
+\
+--- Runs on every keystroke. Returning false reddens the border and reports the\
+--- message on the `validated` event.\
+function Field.setValidator(self: Fields & Types.Field, validator: (string) -> (boolean, string?)): Types.Field\
+	self.validator = validator\
+\
+	return self\
+end\
+\
+function Field.onChanged(self: Fields & Types.Field, handler: (string) -> ()): Types.Field\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Field.onSubmitted(self: Fields & Types.Field, handler: (string) -> ()): Types.Field\
+	return self:on(\"submitted\", handler)\
+end\
+\
+function Field.onFocused(self: Fields & Types.Field, handler: () -> ()): Types.Field\
+	return self:on(\"focused\", handler)\
+end\
+\
+function Field.onBlurred(self: Fields & Types.Field, handler: () -> ()): Types.Field\
+	return self:on(\"blurred\", handler)\
+end\
+\
+function Field.focus(self: Fields & Types.Field): Types.Field\
+	(self.refs.input :: TextBox):CaptureFocus()\
+\
+	return self\
+end\
+\
+function Field.blur(self: Fields & Types.Field): Types.Field\
+	(self.refs.input :: TextBox):ReleaseFocus()\
+\
+	return self\
+end\
+\
+function Field.value(self: Fields & Types.Field): string\
+	return self.current\
+end\
+\
+function Field.measure(self: Fields & Types.Field, available: Vector2): Vector2\
+	local theme = self.app.theme\
+\
+	local height = theme.size.control\
+\
+	if self.multiline then\
+		local lines = self.app.measure:text(\
+			if self.current == \"\" then self.placeholderText else self.current,\
+			self.textSize,\
+			self.font,\
+			math.max(1, available.X - theme.space.sm * 2)\
+		)\
+\
+		height = math.max(theme.size.control, lines.Y + theme.space.sm * 2)\
+	end\
+\
+	--// natural width: whatever is in the box (or the placeholder standing in\
+	--// for it), plus the leading furniture. Growing with what you type is what\
+	--// makes a command bar widen as you use it\
+	local shown = if self.current ~= \"\" then self.current else self.placeholderText\
+	local content = self.app.measure:width(shown .. self.hintText, self.textSize, self.font)\
+\
+	if self.iconImage ~= \"\" then\
+		content += theme.size.icon + theme.space.xs\
+	end\
+\
+	if self.prefixText ~= \"\" then\
+		content += self.app.measure:width(self.prefixText, self.textSize, theme.font.mono) + theme.space.xs\
+	end\
+\
+	local natural = math.max(160, content + theme.space.sm * 2 + theme.space.md)\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+--- Sizes the inner box to whatever is left after the icon and prefix.\
+function Field.commit(self: Fields & Types.Field, inner: Vector2, vertical: boolean, share: number)\
+	local theme = self.app.theme\
+\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	local used = theme.space.sm * 2\
+\
+	if self.iconImage ~= \"\" then\
+		used += theme.size.icon + theme.space.xs\
+	end\
+\
+	if self.prefixText ~= \"\" then\
+		used += self.app.measure:width(self.prefixText, self.textSize, theme.font.mono) + theme.space.xs\
+	end\
+\
+	;(self.refs.box :: Frame).Size = UDim2.new(0, math.max(0, width - used), 1, 0)\
+end\
+\
+Element.install(Field)\
+\
+return Field\
+"},
+{"Astrix/_Packages/Lume/Elements/Group","ModuleScript","--!strict\
+\
+--- A row or column of elements inside a panel. Groups are how you get a\
+--- horizontal arrangement inside a vertical panel without nesting a whole\
+--- second panel and its chrome.\
+---\
+--- A group runs the same layout pass a panel does, so everything that works in\
+--- a panel — fill, grow, flexible spacers, measured text — works here too.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Autosize = require(script.Parent.Parent.Layout.Autosize)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Element = require(script.Parent.Element)\
+\
+local Group = {}\
+Group.__index = Group\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	children: { Types.Element },\
+	vertical: boolean,\
+	gap: number,\
+}\
+\
+--// locals\
+local function adopt(self: Fields, element: Types.Element): Types.Element\
+	element.owner = self :: any\
+\
+	table.insert(self.children, element)\
+\
+	element.instance.LayoutOrder = #self.children\
+	element.instance.Parent = self.instance\
+\
+	local owner = self.owner\
+\
+	if owner then\
+		owner:refresh()\
+	end\
+\
+	return element\
+end\
+\
+local function factory(app: Types.App, name: string): any\
+	local Elements = require(script.Parent)\
+\
+	return (Elements :: any)[name].new(app)\
+end\
+\
+--- Creates a group. Prefer `panel:group(axis)`.\
+function Group.new(app: Types.App): Types.Group\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.fromOffset(0, theme.size.control),\
+			Name = \"Group\",\
+		},\
+		children = {\
+			{\
+				class = \"UIListLayout\",\
+				ref = \"layout\",\
+				props = {\
+					SortOrder = Enum.SortOrder.LayoutOrder,\
+					FillDirection = Enum.FillDirection.Horizontal,\
+					Padding = UDim.new(0, theme.space.sm),\
+					HorizontalAlignment = Enum.HorizontalAlignment.Left,\
+					VerticalAlignment = Enum.VerticalAlignment.Center,\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"group\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		children = {},\
+		vertical = false,\
+		gap = theme.space.sm,\
+	}\
+\
+	return setmetatable(fields, Group) :: any\
+end\
+\
+function Group.setAxis(self: Fields & Types.Group, axis: Types.Axis): Types.Group\
+	local layout = self.refs.layout :: UIListLayout\
+\
+	self.vertical = axis == \"vertical\"\
+\
+	layout.FillDirection = if self.vertical then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal\
+	layout.VerticalAlignment = if self.vertical then Enum.VerticalAlignment.Top else Enum.VerticalAlignment.Center\
+\
+	return self:invalidate()\
+end\
+\
+function Group.setGap(self: Fields & Types.Group, gap: number): Types.Group\
+	self.gap = gap\
+	;(self.refs.layout :: UIListLayout).Padding = UDim.new(0, gap)\
+\
+	return self:invalidate()\
+end\
+\
+function Group.setAlign(\
+	self: Fields & Types.Group,\
+	horizontal: Enum.HorizontalAlignment,\
+	vertical: Enum.VerticalAlignment?\
+): Types.Group\
+	local layout = self.refs.layout :: UIListLayout\
+\
+	layout.HorizontalAlignment = horizontal\
+	layout.VerticalAlignment = vertical or layout.VerticalAlignment\
+\
+	return self\
+end\
+\
+--- Lets a horizontal group wrap onto more lines instead of overflowing.\
+function Group.setWrap(self: Fields & Types.Group, wrap: boolean): Types.Group\
+	(self.refs.layout :: UIListLayout).Wraps = wrap ~= false\
+\
+	return self:invalidate()\
+end\
+\
+function Group.add(self: Fields & Types.Group, child: Types.Element): Types.Group\
+	adopt(self, child)\
+\
+	return self\
+end\
+\
+function Group.clear(self: Fields & Types.Group): Types.Group\
+	for index = #self.children, 1, -1 do\
+		self.children[index]:destroy()\
+	end\
+\
+	table.clear(self.children)\
+\
+	return self:invalidate()\
+end\
+\
+--- Groups host children, so they answer `refresh` the way a panel does. It\
+--- bubbles: re-measuring a group re-measures whatever contains it.\
+function Group.refresh(self: Fields & Types.Group): Types.Group\
+	return self:invalidate()\
+end\
+\
+--// child factories\
+function Group.label(self: Fields & Types.Group, text: Types.Bindable<string>?): Types.Label\
+	local element = factory(self.app, \"Label\")\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.icon(self: Fields & Types.Group, image: Types.Bindable<string>?): Types.Icon\
+	local element = factory(self.app, \"Icon\")\
+\
+	if image ~= nil then\
+		element:setImage(image)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.button(self: Fields & Types.Group, text: Types.Bindable<string>?): Types.Button\
+	local element = factory(self.app, \"Button\")\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.field(self: Fields & Types.Group, placeholder: Types.Bindable<string>?): Types.Field\
+	local element = factory(self.app, \"Field\")\
+\
+	if placeholder ~= nil then\
+		element:setPlaceholder(placeholder)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.toggle(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Toggle\
+	local element = factory(self.app, \"Toggle\")\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.badge(self: Fields & Types.Group, text: Types.Bindable<string>?): Types.Badge\
+	local element = factory(self.app, \"Badge\")\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.spacer(self: Fields & Types.Group, size: number?): Types.Spacer\
+	local element = factory(self.app, \"Spacer\")\
+\
+	if size ~= nil then\
+		element:setAmount(size)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.group(self: Fields & Types.Group, axis: Types.Axis?): Types.Group\
+	local element = factory(self.app, \"Group\")\
+\
+	if axis ~= nil then\
+		element:setAxis(axis)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+--// layout\
+--- `settled` is passed only from commit, once the real width is known. During\
+--- measure it is nil so the group reports what its children actually want\
+--- rather than claiming the whole row.\
+local function input(self: Fields, available: Vector2, settled: number?): Autosize.Input\
+	return {\
+		children = self.children,\
+		vertical = self.vertical,\
+\
+		gap = self.gap,\
+		padX = 0,\
+		padY = 0,\
+\
+		chrome = Vector2.zero,\
+		room = available,\
+\
+		minWidth = 0,\
+		maxWidth = math.max(1, available.X - self.margin * 2),\
+		minHeight = 0,\
+		maxHeight = 9999,\
+\
+		fixedWidth = settled,\
+		fixedHeight = nil,\
+	}\
+end\
+\
+function Group.measure(self: Fields & Types.Group, available: Vector2): Vector2\
+	local solution = Autosize.solve(input(self, available))\
+\
+	self.desired = solution.clamped\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Group.commit(self: Fields & Types.Group, inner: Vector2, vertical: boolean, share: number)\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	--// children are measured against the size the group actually got, not the\
+	--// size it asked for\
+	local settled = Vector2.new(width, height)\
+	local solved = input(self, settled, width)\
+	local solution = Autosize.solve(solved)\
+	local childShare = Autosize.share(solved, solution)\
+\
+	for _, child in self.children do\
+		if child.instance.Visible then\
+			child:commit(settled, self.vertical, if child.grow then childShare else 0)\
+		end\
+	end\
+end\
+\
+function Group.destroy(self: Fields & Types.Group)\
+	for index = #self.children, 1, -1 do\
+		self.children[index]:destroy()\
+	end\
+\
+	table.clear(self.children)\
+\
+	require(script.Parent.Parent.Core.Node).teardown(self)\
+end\
+\
+Element.install(Group)\
+\
+return Group\
+"},
+{"Astrix/_Packages/Lume/Elements/Icon","ModuleScript","--!strict\
+\
+--- An image at a fixed square size, tinted by the theme.\
+---\
+--- Icons never scale with content — a row is easier to read when its icons\
+--- share one size — so measurement is simply the size you asked for.\
+--- @section Elements\
+\
+local RunService = game:GetService(\"RunService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+\
+local Icon = {}\
+Icon.__index = Icon\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	iconSize: number,\
+	spinning: RBXScriptConnection?,\
+}\
+\
+--- Creates an icon. Prefer `panel:icon(image)`.\
+function Icon.new(app: Types.App): Types.Icon\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root = Create.node(scope, {\
+		class = \"ImageLabel\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+\
+			ImageColor3 = theme.color.textMuted,\
+			ImageTransparency = theme.transparency.muted,\
+			ScaleType = Enum.ScaleType.Fit,\
+\
+			Size = UDim2.fromOffset(theme.size.icon, theme.size.icon),\
+			Name = \"Icon\",\
+			Image = \"\",\
+		},\
+	}) :: ImageLabel\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root,\
+		refs = { root = root },\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"icon\",\
+		desired = Vector2.new(theme.size.icon, theme.size.icon),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		iconSize = theme.size.icon,\
+		spinning = nil,\
+	}\
+\
+	return setmetatable(fields, Icon) :: any\
+end\
+\
+function Icon.setImage(self: Fields & Types.Icon, image: Types.Bindable<string>): Types.Icon\
+	Node.bind(self, \"image\", image, function(next: string)\
+		(self.instance :: ImageLabel).Image = tostring(next)\
+	end)\
+\
+	return self\
+end\
+\
+function Icon.setColor(self: Fields & Types.Icon, color: Types.Bindable<Color3>): Types.Icon\
+	Node.bind(self, \"color\", color, function(next: Color3)\
+		(self.instance :: ImageLabel).ImageColor3 = next\
+	end)\
+\
+	return self\
+end\
+\
+function Icon.setIconSize(self: Fields & Types.Icon, size: number): Types.Icon\
+	self.iconSize = size\
+\
+	return self:invalidate()\
+end\
+\
+function Icon.setScaleType(self: Fields & Types.Icon, scale: Enum.ScaleType): Types.Icon\
+	(self.instance :: ImageLabel).ScaleType = scale\
+\
+	return self\
+end\
+\
+--- Uses a region of a sprite sheet rather than the whole image.\
+function Icon.setRectOffset(self: Fields & Types.Icon, offset: Vector2, size: Vector2): Types.Icon\
+	local image = self.instance :: ImageLabel\
+\
+	image.ImageRectOffset = offset\
+	image.ImageRectSize = size\
+\
+	return self\
+end\
+\
+--- Spins the icon continuously — a loading indicator without a second asset.\
+function Icon.setSpin(self: Fields & Types.Icon, spinning: boolean): Types.Icon\
+	if self.spinning then\
+		self.spinning:Disconnect()\
+\
+		self.spinning = nil\
+	end\
+\
+	if not spinning then\
+		(self.instance :: ImageLabel).Rotation = 0\
+\
+		return self\
+	end\
+\
+	local connection = RunService.RenderStepped:Connect(function(delta)\
+		local image = self.instance :: ImageLabel\
+\
+		image.Rotation = (image.Rotation + delta * 360) % 360\
+	end)\
+\
+	self.spinning = connection\
+	self.scope:add(connection)\
+\
+	return self\
+end\
+\
+function Icon.measure(self: Fields & Types.Icon, _available: Vector2): Vector2\
+	self.desired = Vector2.new(self.iconSize, self.iconSize)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Icon)\
+\
+return Icon\
+"},
+{"Astrix/_Packages/Lume/Elements/Keybind","ModuleScript","--!strict\
+\
+--- A key capture row: a label and a button that, once clicked, binds the next\
+--- key you press.\
+---\
+--- Escape cancels the capture and Backspace clears the binding, which is what\
+--- every keybind row anybody has ever used does.\
+--- @section Elements\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Element = require(script.Parent.Element)\
+\
+local Keybind = {}\
+Keybind.__index = Keybind\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	key: Enum.KeyCode?,\
+	labelText: string,\
+	capturing: boolean,\
+	listener: RBXScriptConnection?,\
+}\
+\
+local CHIP_WIDTH = 92\
+\
+--- Creates a keybind row. Prefer `panel:keybind(label)`.\
+function Keybind.new(app: Types.App): Types.Keybind\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Keybind\",\
+		},\
+		children = {\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, -(CHIP_WIDTH + theme.space.md), 1, 0),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.text,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextButton\",\
+				ref = \"chip\",\
+				props = {\
+					BackgroundColor3 = theme.color.surfaceSunken,\
+					BackgroundTransparency = 0.3,\
+					BorderSizePixel = 0,\
+					AutoButtonColor = false,\
+\
+					AnchorPoint = Vector2.new(1, 0.5),\
+					Position = UDim2.new(1, 0, 0.5, 0),\
+					Size = UDim2.fromOffset(CHIP_WIDTH, theme.size.row),\
+\
+					Font = theme.font.mono,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textMuted,\
+\
+					Name = \"Chip\",\
+					Text = \"None\",\
+				},\
+				children = {\
+					Create.corner(theme.radius.sm),\
+					{\
+						class = \"UIStroke\",\
+						ref = \"stroke\",\
+						props = {\
+							ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+							Color = theme.color.border,\
+							Thickness = theme.stroke.hairline,\
+							Transparency = theme.transparency.border,\
+						},\
+					},\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"keybind\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		key = nil,\
+		labelText = \"\",\
+		capturing = false,\
+		listener = nil,\
+	}\
+\
+	local keybind = setmetatable(fields, Keybind) :: any\
+\
+	local chip = refs.chip :: TextButton\
+\
+	scope:add(chip.Activated:Connect(function()\
+		if fields.enabled then\
+			Keybind.capture(keybind)\
+		end\
+	end))\
+\
+	return keybind\
+end\
+\
+--- Redraws the chip for the current key and capture state.\
+function Keybind.paint(self: Fields)\
+	local theme = self.app.theme\
+	local chip = self.refs.chip :: TextButton\
+	local stroke = self.refs.stroke :: UIStroke\
+\
+	if self.capturing then\
+		chip.Text = \"Press a key…\"\
+		chip.TextColor3 = theme.color.accent\
+\
+		Motion.animate(stroke, { Color = theme.color.accent, Transparency = 0 }, theme:spec(\"hover\"))\
+\
+		return\
+	end\
+\
+	chip.Text = if self.key then self.key.Name else \"None\"\
+	chip.TextColor3 = if self.key then theme.color.text else theme.color.textGhost\
+\
+	Motion.animate(\
+		stroke,\
+		{ Color = theme.color.border, Transparency = theme.transparency.border },\
+		theme:spec(\"hover\")\
+	)\
+end\
+\
+--- Listens for the next key. Escape cancels, Backspace clears.\
+function Keybind.capture(self: Fields & Types.Keybind)\
+	if self.capturing then\
+		return\
+	end\
+\
+	self.capturing = true\
+\
+	Keybind.paint(self)\
+\
+	local connection: RBXScriptConnection\
+\
+	connection = UserInputService.InputBegan:Connect(function(input)\
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
+			return\
+		end\
+\
+		connection:Disconnect()\
+\
+		self.capturing = false\
+		self.listener = nil\
+\
+		if input.KeyCode == Enum.KeyCode.Escape then\
+			Keybind.paint(self)\
+\
+			return\
+		end\
+\
+		self.key = if input.KeyCode == Enum.KeyCode.Backspace then nil else input.KeyCode\
+\
+		Keybind.paint(self)\
+\
+		self:emit(\"changed\", self.key)\
+	end)\
+\
+	self.listener = connection\
+	self.scope:add(connection)\
+end\
+\
+function Keybind.setLabel(self: Fields & Types.Keybind, label: Types.Bindable<string>): Types.Keybind\
+	local text = self.refs.label :: TextLabel\
+\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local value = tostring(next)\
+\
+		self.labelText = value\
+		text.Text = value\
+	end)\
+\
+	return self\
+end\
+\
+function Keybind.setValue(self: Fields & Types.Keybind, key: Types.Bindable<Enum.KeyCode?>): Types.Keybind\
+	Node.bind(self, \"value\", key, function(next: Enum.KeyCode?)\
+		self.key = next\
+\
+		Keybind.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Keybind.onChanged(self: Fields & Types.Keybind, handler: (Enum.KeyCode?) -> ()): Types.Keybind\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Keybind.value(self: Fields & Types.Keybind): Enum.KeyCode?\
+	return self.key\
+end\
+\
+function Keybind.measure(self: Fields & Types.Keybind, available: Vector2): Vector2\
+	local theme = self.app.theme\
+\
+	local natural = self.app.measure:width(self.labelText, theme.text.sm, theme.font.body)\
+		+ CHIP_WIDTH\
+		+ theme.space.md\
+\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), theme.size.control)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Keybind.commit(self: Fields & Types.Keybind, inner: Vector2, vertical: boolean, share: number)\
+	local theme = self.app.theme\
+\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	;(self.refs.label :: TextLabel).Size =\
+		UDim2.new(0, math.max(0, width - CHIP_WIDTH - theme.space.md), 1, 0)\
+end\
+\
+Element.install(Keybind)\
+\
+return Keybind\
+"},
+{"Astrix/_Packages/Lume/Elements/Label","ModuleScript","--!strict\
+\
+--- Text. The most common element and the one that drives most panel sizing,\
+--- because a panel is usually as wide as its widest line.\
+---\
+--- Measurement respects wrapping and `maxLines`: an unwrapped label reports its\
+--- full single-line width and lets the panel decide whether that fits, while a\
+--- wrapped one reports the height it needs at the width on offer.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+local Text = require(script.Parent.Parent.Text)\
+\
+local Label = {}\
+Label.__index = Label\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	value: string,\
+	textSize: number,\
+	font: Enum.Font,\
+	wrapped: boolean,\
+	rich: boolean,\
+	maxLines: number,\
+}\
+\
+--- Creates a label. Prefer `panel:label(text)`.\
+function Label.new(app: Types.App): Types.Label\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root = Create.node(scope, {\
+		class = \"TextLabel\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+\
+			Font = theme.font.body,\
+			TextSize = theme.text.md,\
+			TextColor3 = theme.color.text,\
+			TextTransparency = theme.transparency.text,\
+			TextXAlignment = Enum.TextXAlignment.Left,\
+			TextYAlignment = Enum.TextYAlignment.Top,\
+			TextWrapped = false,\
+			RichText = false,\
+\
+			Size = UDim2.fromOffset(0, theme.text.md),\
+			Name = \"Label\",\
+			Text = \"\",\
+		},\
+	}) :: TextLabel\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root,\
+		refs = { root = root },\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"label\",\
+		desired = Vector2.zero,\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		value = \"\",\
+		textSize = theme.text.md,\
+		font = theme.font.body,\
+		wrapped = false,\
+		rich = false,\
+		maxLines = 0,\
+	}\
+\
+	return setmetatable(fields, Label) :: any\
+end\
+\
+function Label.setText(self: Fields & Types.Label, text: Types.Bindable<string>): Types.Label\
+	Node.bind(self, \"text\", text, function(next: string)\
+		local value = tostring(next)\
+\
+		self.value = value\
+		;(self.instance :: TextLabel).Text = value\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Label.setColor(self: Fields & Types.Label, color: Types.Bindable<Color3>): Types.Label\
+	Node.bind(self, \"color\", color, function(next: Color3)\
+		(self.instance :: TextLabel).TextColor3 = next\
+	end)\
+\
+	return self\
+end\
+\
+function Label.setTextSize(self: Fields & Types.Label, size: number): Types.Label\
+	self.textSize = size\
+	;(self.instance :: TextLabel).TextSize = size\
+\
+	return self:invalidate()\
+end\
+\
+function Label.setFont(self: Fields & Types.Label, font: Enum.Font): Types.Label\
+	self.font = font\
+	;(self.instance :: TextLabel).Font = font\
+\
+	return self:invalidate()\
+end\
+\
+function Label.setAlign(\
+	self: Fields & Types.Label,\
+	horizontal: Enum.TextXAlignment,\
+	vertical: Enum.TextYAlignment?\
+): Types.Label\
+	local label = self.instance :: TextLabel\
+\
+	label.TextXAlignment = horizontal\
+	label.TextYAlignment = vertical or label.TextYAlignment\
+\
+	--// alignment only reads as alignment if the label owns the full width\
+	if horizontal ~= Enum.TextXAlignment.Left then\
+		self.fill = true\
+	end\
+\
+	return self:invalidate()\
+end\
+\
+--- Wrap at the width the panel offers instead of running on in one line.\
+function Label.setWrapped(self: Fields & Types.Label, wrapped: boolean): Types.Label\
+	self.wrapped = wrapped ~= false\
+	;(self.instance :: TextLabel).TextWrapped = self.wrapped\
+\
+	if self.wrapped then\
+		self.fill = true\
+	end\
+\
+	return self:invalidate()\
+end\
+\
+function Label.setRich(self: Fields & Types.Label, rich: boolean): Types.Label\
+	self.rich = rich ~= false\
+	;(self.instance :: TextLabel).RichText = self.rich\
+\
+	return self:invalidate()\
+end\
+\
+function Label.setMuted(self: Fields & Types.Label, muted: boolean): Types.Label\
+	local theme = self.app.theme\
+	local label = self.instance :: TextLabel\
+\
+	label.TextColor3 = if muted then theme.color.textMuted else theme.color.text\
+	label.TextTransparency = if muted then theme.transparency.muted else theme.transparency.text\
+\
+	return self\
+end\
+\
+--- Caps the height at a number of lines. Zero means no cap.\
+function Label.setMaxLines(self: Fields & Types.Label, lines: number): Types.Label\
+	self.maxLines = math.max(0, lines)\
+\
+	return self:invalidate()\
+end\
+\
+function Label.text(self: Fields & Types.Label): string\
+	return self.value\
+end\
+\
+function Label.measure(self: Fields & Types.Label, available: Vector2): Vector2\
+	--// RichText tags are not rendered, so they must not be measured either\
+	local content = if self.rich then Text.strip(self.value) else self.value\
+	local width = if self.wrapped then math.max(1, available.X - self.margin * 2) else nil\
+\
+	local bounds = self.app.measure:text(content, self.textSize, self.font, width)\
+	local lineHeight = self.app.measure:lineHeight(self.textSize, self.font)\
+\
+	local height = math.max(bounds.Y, lineHeight)\
+\
+	if self.maxLines > 0 then\
+		height = math.min(height, self.maxLines * lineHeight)\
+	end\
+\
+	local finalWidth = if self.wrapped then math.min(bounds.X, math.max(1, available.X)) else bounds.X\
+\
+	self.desired = Vector2.new(math.ceil(finalWidth), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Label)\
+\
+return Label\
+"},
+{"Astrix/_Packages/Lume/Elements/List","ModuleScript","--!strict\
+\
+--- A list of rows, virtualised.\
+---\
+--- Only the rows on screen exist as instances; a pool of them is recycled as\
+--- you scroll, so ten thousand items cost the same as ten. The list also\
+--- reports the width of its widest row when it is not filling, which is how a\
+--- panel ends up exactly as wide as its longest line.\
+---\
+--- New content follows the view down only when you were already at the bottom.\
+--- Scroll up to read and the list stops chasing you.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Virtual = require(script.Parent.Parent.Layout.Virtual)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+local Text = require(script.Parent.Parent.Text)\
+\
+local List = {}\
+List.__index = List\
+\
+export type Row = {\
+	button: TextButton,\
+	icon: ImageLabel,\
+	title: TextLabel,\
+	detail: TextLabel,\
+	index: number,\
+}\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	items: { Types.ListItem },\
+	rows: { Row },\
+\
+	rowHeight: number,\
+	font: Enum.Font,\
+	textSize: number,\
+	maxRows: number,\
+	virtual: boolean,\
+	selectable: boolean,\
+	selectedId: string?,\
+\
+	widest: number,\
+	pinned: boolean,\
+	emptyText: string,\
+	renderer: ((Types.ListItem, number) -> string)?,\
+}\
+\
+local MEASURE_BUDGET = 500\
+\
+--// locals\
+local function normalise(entry: Types.ListItem | string, index: number): Types.ListItem\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	local item = entry :: Types.ListItem\
+\
+	return {\
+		id = item.id or item.text or tostring(index),\
+		text = item.text or \"\",\
+		icon = item.icon,\
+		description = item.description,\
+		height = item.height,\
+		data = item.data,\
+	}\
+end\
+\
+--- Creates a list. Prefer `panel:list()`.\
+function List.new(app: Types.App): Types.List\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"ScrollingFrame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+\
+			Size = UDim2.new(1, 0, 0, theme.size.row * 3),\
+			CanvasSize = UDim2.fromOffset(0, 0),\
+\
+			ScrollingDirection = Enum.ScrollingDirection.Y,\
+			ScrollBarImageColor3 = theme.color.borderStrong,\
+			ScrollBarImageTransparency = 0.5,\
+			ScrollBarThickness = 3,\
+\
+			ClipsDescendants = true,\
+			Name = \"List\",\
+\
+			--// starts empty, so it starts hidden; `setItems` reveals it\
+			Visible = false,\
+		},\
+		children = {\
+			{\
+				class = \"Frame\",\
+				ref = \"canvas\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					BorderSizePixel = 0,\
+					Size = UDim2.new(1, 0, 1, 0),\
+					Name = \"Canvas\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"empty\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.fromScale(1, 1),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+					TextXAlignment = Enum.TextXAlignment.Center,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Visible = false,\
+					Name = \"Empty\",\
+					Text = \"\",\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"list\",\
+		desired = Vector2.new(0, theme.size.row * 3),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		items = {},\
+		rows = {},\
+\
+		rowHeight = theme.size.row,\
+		font = theme.font.body,\
+		textSize = theme.text.sm,\
+		maxRows = 8,\
+		virtual = true,\
+		selectable = true,\
+		selectedId = nil,\
+\
+		widest = 0,\
+		pinned = true,\
+		emptyText = \"\",\
+		renderer = nil,\
+	}\
+\
+	local list = setmetatable(fields, List) :: any\
+\
+	local scroller = root :: ScrollingFrame\
+\
+	scope:add(scroller:GetPropertyChangedSignal(\"CanvasPosition\"):Connect(function()\
+		fields.pinned = Virtual.pinned(\
+			scroller.CanvasPosition.Y,\
+			scroller.AbsoluteSize.Y,\
+			scroller.CanvasSize.Y.Offset\
+		)\
+\
+		List.render(list)\
+\
+		list:emit(\"scrolled\", scroller.CanvasPosition.Y)\
+	end))\
+\
+	return list\
+end\
+\
+--- Builds one recycled row instance.\
+function List.buildRow(self: Fields, index: number): Row\
+	local theme = self.app.theme\
+\
+	local button, refs = Create.tree(self.scope, {\
+		class = \"TextButton\",\
+		ref = \"button\",\
+		props = {\
+			BackgroundColor3 = theme.color.surfaceHover,\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			AutoButtonColor = false,\
+\
+			Size = UDim2.new(1, 0, 0, self.rowHeight),\
+			Name = `Row{index}`,\
+			Text = \"\",\
+		},\
+		children = {\
+			Create.corner(theme.radius.sm),\
+			Create.padding(theme.space.sm, 0),\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.sm, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+			{\
+				class = \"ImageLabel\",\
+				ref = \"icon\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					ImageColor3 = theme.color.textMuted,\
+					ImageTransparency = theme.transparency.muted,\
+					ScaleType = Enum.ScaleType.Fit,\
+\
+					Size = UDim2.fromOffset(theme.size.icon, theme.size.icon),\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Icon\",\
+					Image = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"title\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, self.rowHeight),\
+\
+					Font = self.font,\
+					TextSize = self.textSize,\
+					TextColor3 = theme.color.text,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+					RichText = true,\
+\
+					LayoutOrder = 2,\
+					Name = \"Title\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"detail\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, self.rowHeight),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					LayoutOrder = 3,\
+					Visible = false,\
+					Name = \"Detail\",\
+					Text = \"\",\
+				},\
+			},\
+		},\
+	})\
+\
+	local row: Row = {\
+		button = button :: TextButton,\
+		icon = refs.icon :: ImageLabel,\
+		title = refs.title :: TextLabel,\
+		detail = refs.detail :: TextLabel,\
+		index = 0,\
+	}\
+\
+	button.Parent = self.refs.canvas\
+\
+	Hover.attach(self.scope, row.button, function(hovering)\
+		local item = self.items[row.index]\
+		local selected = item ~= nil and item.id == self.selectedId\
+\
+		row.button.BackgroundTransparency = if selected then 0.82 elseif hovering then 0.9 else 1\
+	end)\
+\
+	row.button.Activated:Connect(function()\
+		local item = self.items[row.index]\
+\
+		if not item or not self.enabled then\
+			return\
+		end\
+\
+		if self.selectable then\
+			self.selectedId = item.id\
+\
+			List.render(self)\
+		end\
+\
+		;(self :: any):emit(\"selected\", item, row.index)\
+		;(self :: any):emit(\"activated\", item, row.index)\
+	end)\
+\
+	return row\
+end\
+\
+--- Points the row pool at the slice of items currently on screen.\
+function List.render(self: Fields)\
+	local theme = self.app.theme\
+	local scroller = self.instance :: ScrollingFrame\
+	local canvas = self.refs.canvas :: Frame\
+\
+	local count = #self.items\
+	local height = Virtual.canvas(count, self.rowHeight)\
+\
+	scroller.CanvasSize = UDim2.fromOffset(0, height)\
+	canvas.Size = UDim2.new(1, 0, 0, math.max(height, 1))\
+\
+	;(self.refs.empty :: TextLabel).Visible = count == 0 and self.emptyText ~= \"\"\
+\
+	local first = 1\
+	local last = count\
+\
+	if self.virtual then\
+		first, last = Virtual.range(\
+			scroller.CanvasPosition.Y,\
+			math.max(scroller.AbsoluteSize.Y, self.rowHeight),\
+			self.rowHeight,\
+			count\
+		)\
+	end\
+\
+	local needed = math.max(0, last - first + 1)\
+\
+	while #self.rows < needed do\
+		table.insert(self.rows, List.buildRow(self, #self.rows + 1))\
+	end\
+\
+	for offset = 0, needed - 1 do\
+		local index = first + offset\
+		local row = self.rows[offset + 1]\
+		local item = self.items[index]\
+\
+		if not item then\
+			row.button.Visible = false\
+			continue\
+		end\
+\
+		local selected = item.id == self.selectedId\
+\
+		row.index = index\
+		row.button.Visible = true\
+		row.button.Position = UDim2.fromOffset(0, Virtual.offset(index, self.rowHeight))\
+		row.button.Size = UDim2.new(1, 0, 0, self.rowHeight)\
+		row.button.BackgroundTransparency = if selected then 0.82 else 1\
+\
+		row.title.Text = if self.renderer then self.renderer(item, index) else Text.escape(item.text or \"\")\
+		row.title.TextColor3 = if selected then theme.color.text else theme.color.text\
+\
+		row.icon.Image = item.icon or \"\"\
+		row.icon.Visible = item.icon ~= nil and item.icon ~= \"\"\
+\
+		row.detail.Text = item.description or \"\"\
+		row.detail.Visible = item.description ~= nil and item.description ~= \"\"\
+	end\
+\
+	for index = needed + 1, #self.rows do\
+		self.rows[index].button.Visible = false\
+	end\
+end\
+\
+--- An empty list with nothing to say occupies no space at all, and hides so\
+--- the panel does not leave a gap where it would have been. This is what lets\
+--- a command bar collapse to exactly one input row.\
+function List.updateVisibility(self: Fields)\
+	local blank = #self.items == 0 and self.emptyText == \"\"\
+\
+	self.instance.Visible = not blank\
+end\
+\
+function List.setItems(self: Fields & Types.List, items: Types.Bindable<{ Types.ListItem | string }>): Types.List\
+	Node.bind(self, \"items\", items, function(next: { Types.ListItem | string })\
+		local normalised: { Types.ListItem } = {}\
+\
+		for index, entry in next do\
+			table.insert(normalised, normalise(entry, index))\
+		end\
+\
+		self.items = normalised\
+		self.widest = 0\
+\
+		List.updateVisibility(self)\
+		List.render(self)\
+\
+		--// stay glued to the bottom only if that is where the reader already was\
+		if self.pinned then\
+			List.scrollToBottom(self)\
+		end\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function List.setRowHeight(self: Fields & Types.List, height: number): Types.List\
+	self.rowHeight = math.max(1, height)\
+\
+	List.render(self)\
+\
+	return self:invalidate()\
+end\
+\
+--- Sets the row font. A terminal history wants `Enum.Font.Code`; the widths\
+--- the list reports are measured in whatever is set here, so the panel still\
+--- sizes to the longest line.\
+function List.setFont(self: Fields & Types.List, font: Enum.Font): Types.List\
+	self.font = font\
+	self.widest = 0\
+\
+	for _, row in self.rows do\
+		row.title.Font = font\
+	end\
+\
+	return self:invalidate()\
+end\
+\
+function List.setTextSize(self: Fields & Types.List, size: number): Types.List\
+	self.textSize = size\
+	self.widest = 0\
+\
+	for _, row in self.rows do\
+		row.title.TextSize = size\
+	end\
+\
+	return self:invalidate()\
+end\
+\
+--- Turn virtualisation off for short lists where every row should exist.\
+function List.setVirtual(self: Fields & Types.List, virtual: boolean): Types.List\
+	self.virtual = virtual ~= false\
+\
+	List.render(self)\
+\
+	return self\
+end\
+\
+--- Caps the measured height at this many rows. The list scrolls past it.\
+function List.setMaxRows(self: Fields & Types.List, rows: number): Types.List\
+	self.maxRows = math.max(1, rows)\
+\
+	return self:invalidate()\
+end\
+\
+function List.setSelectable(self: Fields & Types.List, selectable: boolean): Types.List\
+	self.selectable = selectable ~= false\
+\
+	return self\
+end\
+\
+function List.setSelected(self: Fields & Types.List, id: Types.Bindable<string?>): Types.List\
+	Node.bind(self, \"selected\", id, function(next: string?)\
+		self.selectedId = next\
+\
+		List.render(self)\
+	end)\
+\
+	return self\
+end\
+\
+function List.setEmptyText(self: Fields & Types.List, text: Types.Bindable<string>): Types.List\
+	local label = self.refs.empty :: TextLabel\
+\
+	Node.bind(self, \"empty\", text, function(next: string)\
+		local value = tostring(next)\
+\
+		self.emptyText = value\
+\
+		label.Text = value\
+		label.Visible = #self.items == 0 and value ~= \"\"\
+\
+		List.updateVisibility(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- Replaces the default row text with your own RichText. Return escaped\
+--- content; the row renders it raw.\
+function List.setRenderer(self: Fields & Types.List, renderer: (Types.ListItem, number) -> string): Types.List\
+	self.renderer = renderer\
+\
+	List.render(self)\
+\
+	return self\
+end\
+\
+function List.onSelected(self: Fields & Types.List, handler: (Types.ListItem, number) -> ()): Types.List\
+	return self:on(\"selected\", handler)\
+end\
+\
+function List.onActivated(self: Fields & Types.List, handler: (Types.ListItem, number) -> ()): Types.List\
+	return self:on(\"activated\", handler)\
+end\
+\
+function List.onScrolled(self: Fields & Types.List, handler: (number) -> ()): Types.List\
+	return self:on(\"scrolled\", handler)\
+end\
+\
+function List.scrollTo(self: Fields & Types.List, index: number): Types.List\
+	local scroller = self.instance :: ScrollingFrame\
+\
+	scroller.CanvasPosition = Vector2.new(\
+		0,\
+		Virtual.scrollTo(index, self.rowHeight, scroller.AbsoluteSize.Y, scroller.CanvasPosition.Y)\
+	)\
+\
+	return self\
+end\
+\
+function List.scrollToBottom(self: Fields & Types.List): Types.List\
+	local scroller = self.instance :: ScrollingFrame\
+\
+	scroller.CanvasPosition = Vector2.new(0, math.max(0, scroller.CanvasSize.Y.Offset - scroller.AbsoluteSize.Y))\
+	self.pinned = true\
+\
+	return self\
+end\
+\
+function List.count(self: Fields & Types.List): number\
+	return #self.items\
+end\
+\
+--- Height is rows capped by `maxRows`. Width is the widest row when the list\
+--- is not filling — measurement is bounded so a huge list stays cheap.\
+function List.measure(self: Fields & Types.List, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local count = #self.items\
+\
+	if count == 0 and self.emptyText == \"\" then\
+		self.desired = Vector2.zero\
+		self.measured = true\
+\
+		return self.desired\
+	end\
+\
+	local rows = math.min(math.max(count, 1), self.maxRows)\
+	local height = rows * self.rowHeight\
+\
+	--// the widest row is what a panel should grow to, so it is measured even\
+	--// when filling. The budget bounds the cost: a hundred thousand rows do\
+	--// not get measured to find out the panel wants to be wide\
+	if self.widest == 0 and count > 0 then\
+		local budget = math.min(count, MEASURE_BUDGET)\
+\
+		for index = 1, budget do\
+			local item = self.items[index]\
+			local content = Text.strip(item.text or \"\")\
+\
+			local line = self.app.measure:width(content, self.textSize, self.font)\
+\
+			if item.description then\
+				line += self.app.measure:width(item.description, theme.text.xs, theme.font.body) + theme.space.sm\
+			end\
+\
+			if item.icon and item.icon ~= \"\" then\
+				line += theme.size.icon + theme.space.sm\
+			end\
+\
+			self.widest = math.max(self.widest, line)\
+		end\
+	end\
+\
+	local natural = self.widest + theme.space.sm * 2 + 8\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(List)\
+\
+return List\
+"},
+{"Astrix/_Packages/Lume/Elements/Menu","ModuleScript","--!strict\
+\
+--- A context menu. The element itself takes no space — it is a handle you keep\
+--- and call `openAt` on; the menu is a popover panel built on demand.\
+---\
+--- Items may carry an `action`, in which case picking one runs it before the\
+--- `picked` event fires. Dividers, shortcuts, disabled rows and a danger tone\
+--- are all part of the item shape.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Placement = require(script.Parent.Parent.Layout.Placement)\
+local Element = require(script.Parent.Element)\
+\
+local Menu = {}\
+Menu.__index = Menu\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	items: { Types.MenuItem },\
+	popover: Types.Panel?,\
+	built: boolean,\
+}\
+\
+--// locals\
+local function normalise(entry: Types.MenuItem | string): Types.MenuItem\
+	if type(entry) == \"string\" then\
+		if entry == \"-\" then\
+			return { text = \"\", divider = true }\
+		end\
+\
+		return { id = entry, text = entry }\
+	end\
+\
+	return entry :: Types.MenuItem\
+end\
+\
+--- Creates a menu. Prefer `panel:menu()`.\
+function Menu.new(app: Types.App): Types.Menu\
+	local scope = app.scope:child()\
+\
+	local root = Create.node(scope, {\
+		class = \"Frame\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.fromOffset(0, 0),\
+			Visible = false,\
+			Name = \"Menu\",\
+		},\
+	}) :: Frame\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root,\
+		refs = { root = root },\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"menu\",\
+		desired = Vector2.zero,\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		items = {},\
+		popover = nil,\
+		built = false,\
+	}\
+\
+	return setmetatable(fields, Menu) :: any\
+end\
+\
+--- Builds the popover contents from the current items.\
+function Menu.build(self: Fields & Types.Menu): Types.Panel\
+	local Panel = require(script.Parent.Parent.Panel)\
+	local theme = self.app.theme\
+\
+	local popover = self.popover\
+\
+	if not popover then\
+		popover = Panel.new(self.app, \"popover\")\
+\
+		local created = popover :: Types.Panel\
+\
+		created:setPadding(theme.space.xs, theme.space.xs)\
+		created:setGap(1)\
+		created:setMaxSize(320, 420)\
+\
+		self.popover = created\
+	end\
+\
+	local menu = popover :: Types.Panel\
+\
+	menu:clear()\
+\
+	local function wire(button: Types.Button, item: Types.MenuItem)\
+		button:setVariant(\"ghost\")\
+		button:setEnabled(item.disabled ~= true)\
+\
+		if item.icon then\
+			button:setIcon(item.icon)\
+		end\
+\
+		if item.danger then\
+			button:setColor(theme.color.danger)\
+		end\
+\
+		button:onClicked(function()\
+			if item.action then\
+				item.action()\
+			end\
+\
+			self:emit(\"picked\", item)\
+\
+			menu:close()\
+		end)\
+	end\
+\
+	for _, item in self.items do\
+		if item.divider then\
+			menu:divider()\
+\
+			continue\
+		end\
+\
+		--// an item with a shortcut needs a row: label on the left, key on the\
+		--// right. Everything else is one full-width button\
+		if item.shortcut then\
+			local row = menu:group(\"horizontal\")\
+\
+			row:setFill(true)\
+			row:setGap(theme.space.sm)\
+\
+			local button = row:button(item.text)\
+\
+			button:setGrow(true)\
+\
+			wire(button, item)\
+\
+			local hint = row:label(item.shortcut)\
+\
+			hint:setTextSize(theme.text.xs)\
+			hint:setMuted(true)\
+		else\
+			local button = menu:button(item.text)\
+\
+			button:setFill(true)\
+\
+			wire(button, item)\
+		end\
+	end\
+\
+	self.built = true\
+\
+	return menu\
+end\
+\
+function Menu.setItems(self: Fields & Types.Menu, items: { Types.MenuItem | string }): Types.Menu\
+	local normalised: { Types.MenuItem } = {}\
+\
+	for _, entry in items do\
+		table.insert(normalised, normalise(entry))\
+	end\
+\
+	self.items = normalised\
+	self.built = false\
+\
+	if self.popover then\
+		Menu.build(self)\
+	end\
+\
+	return self\
+end\
+\
+--- Opens the menu at a screen position, flipped and clamped to stay visible.\
+function Menu.openAt(self: Fields & Types.Menu, position: Vector2): Types.Menu\
+	local menu = if self.built and self.popover then self.popover :: Types.Panel else Menu.build(self)\
+\
+	menu:setAnchor(\"topLeft\")\
+	menu:refreshNow()\
+\
+	local layer = self.app:surface(\"popover\")\
+	local viewport = self.app:viewport()\
+\
+	local clamped = Placement.clamp(\
+		UDim2.fromOffset(position.X - layer.AbsolutePosition.X, position.Y - layer.AbsolutePosition.Y),\
+		Vector2.zero,\
+		menu.target,\
+		viewport,\
+		self.app.theme.space.sm\
+	)\
+\
+	menu.instance.AnchorPoint = Vector2.zero\
+	menu.settled = clamped\
+	menu.instance.Position = clamped\
+\
+	menu:open()\
+\
+	return self\
+end\
+\
+function Menu.closeMenu(self: Fields & Types.Menu): Types.Menu\
+	if self.popover then\
+		self.popover:close()\
+	end\
+\
+	return self\
+end\
+\
+function Menu.onPicked(self: Fields & Types.Menu, handler: (Types.MenuItem) -> ()): Types.Menu\
+	return self:on(\"picked\", handler)\
+end\
+\
+function Menu.measure(self: Fields & Types.Menu, _available: Vector2): Vector2\
+	self.desired = Vector2.zero\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Menu.destroy(self: Fields & Types.Menu)\
+	if self.popover then\
+		self.popover:destroy()\
+\
+		self.popover = nil\
+	end\
+\
+	Node.teardown(self)\
+end\
+\
+Element.install(Menu)\
+\
+return Menu\
+"},
+{"Astrix/_Packages/Lume/Elements/Progress","ModuleScript","--!strict\
+\
+--- A progress bar, determinate or not.\
+---\
+--- The determinate fill is a spring, so a value that jumps from 20% to 80%\
+--- travels rather than teleports. The indeterminate one is a chunk sweeping\
+--- the rail, driven by the same driver so it stops cleanly on destroy.\
+--- @section Elements\
+\
+local RunService = game:GetService(\"RunService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Element = require(script.Parent.Element)\
+\
+local Progress = {}\
+Progress.__index = Progress\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	current: number,\
+	labelText: string,\
+	showValue: boolean,\
+	thickness: number,\
+	indeterminate: boolean,\
+	sweep: RBXScriptConnection?,\
+	elapsed: number,\
+}\
+\
+--- Creates a progress bar. Prefer `panel:progress()`.\
+function Progress.new(app: Types.App): Types.Progress\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.rail),\
+			Name = \"Progress\",\
+		},\
+		children = {\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(0.7, 0, 0, theme.size.row),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Visible = false,\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"readout\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AnchorPoint = Vector2.new(1, 0),\
+					Position = UDim2.fromScale(1, 0),\
+					Size = UDim2.new(0.3, 0, 0, theme.size.row),\
+\
+					Font = theme.font.mono,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+					TextXAlignment = Enum.TextXAlignment.Right,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Visible = false,\
+					Name = \"Readout\",\
+					Text = \"0%\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"rail\",\
+				props = {\
+					BackgroundColor3 = theme.color.track,\
+					BackgroundTransparency = theme.transparency.track,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(0, 1),\
+					Position = UDim2.fromScale(0, 1),\
+					Size = UDim2.new(1, 0, 0, theme.size.rail),\
+\
+					ClipsDescendants = true,\
+					Name = \"Rail\",\
+				},\
+				children = {\
+					Create.corner(theme.radius.pill),\
+					{\
+						class = \"Frame\",\
+						ref = \"fill\",\
+						props = {\
+							BackgroundColor3 = theme.color.accent,\
+							BorderSizePixel = 0,\
+							Size = UDim2.fromScale(0, 1),\
+							Name = \"Fill\",\
+						},\
+						children = { Create.corner(theme.radius.pill) },\
+					},\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"progress\",\
+		desired = Vector2.new(0, theme.size.rail),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		current = 0,\
+		labelText = \"\",\
+		showValue = false,\
+		thickness = theme.size.rail,\
+		indeterminate = false,\
+		sweep = nil,\
+		elapsed = 0,\
+	}\
+\
+	return setmetatable(fields, Progress) :: any\
+end\
+\
+--- Clamped to zero-to-one; anything larger is read as a percentage.\
+function Progress.setValue(self: Fields & Types.Progress, value: Types.Bindable<number>): Types.Progress\
+	Node.bind(self, \"value\", value, function(next: number)\
+		local raw = tonumber(next) or 0\
+		local normalised = if raw > 1 then raw / 100 else raw\
+\
+		self.current = math.clamp(normalised, 0, 1)\
+\
+		if self.indeterminate then\
+			return\
+		end\
+\
+		Motion.animate(\
+			self.refs.fill :: Frame,\
+			{ Size = UDim2.fromScale(self.current, 1) },\
+			self.app.theme:spec(\"morph\")\
+		)\
+\
+		;(self.refs.readout :: TextLabel).Text = `{math.round(self.current * 100)}%`\
+	end)\
+\
+	return self\
+end\
+\
+function Progress.setLabel(self: Fields & Types.Progress, label: Types.Bindable<string>): Types.Progress\
+	local text = self.refs.label :: TextLabel\
+\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local value = tostring(next)\
+\
+		self.labelText = value\
+\
+		text.Text = value\
+		text.Visible = value ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Progress.setColor(self: Fields & Types.Progress, color: Types.Bindable<Color3>): Types.Progress\
+	Node.bind(self, \"color\", color, function(next: Color3)\
+		(self.refs.fill :: Frame).BackgroundColor3 = next\
+	end)\
+\
+	return self\
+end\
+\
+--- Sweeps a chunk along the rail for work of unknown duration.\
+function Progress.setIndeterminate(self: Fields & Types.Progress, indeterminate: boolean): Types.Progress\
+	self.indeterminate = indeterminate ~= false\
+\
+	if self.sweep then\
+		self.sweep:Disconnect()\
+\
+		self.sweep = nil\
+	end\
+\
+	local fill = self.refs.fill :: Frame\
+\
+	if not self.indeterminate then\
+		Motion.set(fill, { Position = UDim2.fromScale(0, 0), Size = UDim2.fromScale(self.current, 1) })\
+\
+		return self\
+	end\
+\
+	self.elapsed = 0\
+\
+	local connection = RunService.RenderStepped:Connect(function(delta)\
+		self.elapsed += delta\
+\
+		--// a third-width chunk crossing the rail every 1.2 seconds\
+		local phase = (self.elapsed / 1.2) % 1\
+\
+		fill.Size = UDim2.fromScale(0.33, 1)\
+		fill.Position = UDim2.fromScale(-0.33 + phase * 1.33, 0)\
+	end)\
+\
+	self.sweep = connection\
+	self.scope:add(connection)\
+\
+	return self\
+end\
+\
+function Progress.setThickness(self: Fields & Types.Progress, thickness: number): Types.Progress\
+	self.thickness = thickness\
+	;(self.refs.rail :: Frame).Size = UDim2.new(1, 0, 0, thickness)\
+\
+	return self:invalidate()\
+end\
+\
+function Progress.setShowValue(self: Fields & Types.Progress, shown: boolean): Types.Progress\
+	self.showValue = shown ~= false\
+	;(self.refs.readout :: TextLabel).Visible = self.showValue\
+\
+	return self:invalidate()\
+end\
+\
+function Progress.measure(self: Fields & Types.Progress, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local header = if self.labelText ~= \"\" or self.showValue then theme.size.row else 0\
+\
+	local natural = math.max(160, self.app.measure:width(self.labelText, theme.text.xs, theme.font.body) + 60)\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), header + self.thickness)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Progress)\
+\
+return Progress\
+"},
+{"Astrix/_Packages/Lume/Elements/Scroll","ModuleScript","--!strict\
+\
+--- A scrolling region inside a panel, capped at a maximum height.\
+---\
+--- Unlike a panel's own scroll — which only appears when the panel has run out\
+--- of screen — a scroll element caps itself deliberately, which is what you\
+--- want for one long section inside an otherwise short panel.\
+---\
+--- The optional edge fades are gradients over the region, not over the\
+--- content, so they stay put while the content moves under them.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Autosize = require(script.Parent.Parent.Layout.Autosize)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Element = require(script.Parent.Element)\
+\
+local Scroll = {}\
+Scroll.__index = Scroll\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	children: { Types.Element },\
+	vertical: boolean,\
+	gap: number,\
+	maxHeight: number,\
+	faded: boolean,\
+}\
+\
+--// locals\
+local function adopt(self: Fields, element: Types.Element): Types.Element\
+	element.owner = self :: any\
+\
+	table.insert(self.children, element)\
+\
+	element.instance.LayoutOrder = #self.children\
+	element.instance.Parent = self.instance\
+\
+	local owner = self.owner\
+\
+	if owner then\
+		owner:refresh()\
+	end\
+\
+	return element\
+end\
+\
+local function factory(app: Types.App, name: string): any\
+	local Elements = require(script.Parent)\
+\
+	return (Elements :: any)[name].new(app)\
+end\
+\
+--- Creates a scroll region. Prefer `panel:scroll()`.\
+function Scroll.new(app: Types.App): Types.Scroll\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"ScrollingFrame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+\
+			Size = UDim2.new(1, 0, 0, 120),\
+			CanvasSize = UDim2.fromOffset(0, 0),\
+\
+			ScrollingDirection = Enum.ScrollingDirection.Y,\
+			ScrollBarImageColor3 = theme.color.borderStrong,\
+			ScrollBarImageTransparency = 0.5,\
+			ScrollBarThickness = 3,\
+\
+			ClipsDescendants = true,\
+			Name = \"Scroll\",\
+		},\
+		children = {\
+			{\
+				class = \"UIListLayout\",\
+				ref = \"layout\",\
+				props = {\
+					SortOrder = Enum.SortOrder.LayoutOrder,\
+					FillDirection = Enum.FillDirection.Vertical,\
+					Padding = UDim.new(0, theme.space.sm),\
+					HorizontalAlignment = Enum.HorizontalAlignment.Left,\
+					VerticalAlignment = Enum.VerticalAlignment.Top,\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"scroll\",\
+		desired = Vector2.new(0, 120),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		children = {},\
+		vertical = true,\
+		gap = theme.space.sm,\
+		maxHeight = 240,\
+		faded = false,\
+	}\
+\
+	return setmetatable(fields, Scroll) :: any\
+end\
+\
+function Scroll.setAxis(self: Fields & Types.Scroll, axis: Types.Axis): Types.Scroll\
+	local layout = self.refs.layout :: UIListLayout\
+	local scroller = self.instance :: ScrollingFrame\
+\
+	self.vertical = axis == \"vertical\"\
+\
+	layout.FillDirection = if self.vertical then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal\
+	scroller.ScrollingDirection = if self.vertical then Enum.ScrollingDirection.Y else Enum.ScrollingDirection.X\
+\
+	return self:invalidate()\
+end\
+\
+function Scroll.setGap(self: Fields & Types.Scroll, gap: number): Types.Scroll\
+	self.gap = gap\
+	;(self.refs.layout :: UIListLayout).Padding = UDim.new(0, gap)\
+\
+	return self:invalidate()\
+end\
+\
+function Scroll.setMaxHeight(self: Fields & Types.Scroll, height: number): Types.Scroll\
+	self.maxHeight = math.max(1, height)\
+\
+	return self:invalidate()\
+end\
+\
+--- Fades the leading and trailing edges so clipped content reads as continuing\
+--- rather than as cut off.\
+function Scroll.setFade(self: Fields & Types.Scroll, enabled: boolean): Types.Scroll\
+	self.faded = enabled ~= false\
+\
+	local existing = self.instance:FindFirstChild(\"Fade\")\
+\
+	if not self.faded then\
+		if existing then\
+			existing:Destroy()\
+		end\
+\
+		return self\
+	end\
+\
+	if existing then\
+		return self\
+	end\
+\
+	local gradient = Instance.new(\"UIGradient\")\
+\
+	gradient.Name = \"Fade\"\
+	gradient.Rotation = if self.vertical then 90 else 0\
+	gradient.Transparency = NumberSequence.new({\
+		NumberSequenceKeypoint.new(0, 1),\
+		NumberSequenceKeypoint.new(0.08, 0),\
+		NumberSequenceKeypoint.new(0.92, 0),\
+		NumberSequenceKeypoint.new(1, 1),\
+	})\
+	gradient.Parent = self.instance\
+\
+	self.scope:add(gradient)\
+\
+	return self\
+end\
+\
+function Scroll.setBarVisible(self: Fields & Types.Scroll, visible: boolean): Types.Scroll\
+	local scroller = self.instance :: ScrollingFrame\
+\
+	scroller.ScrollBarThickness = if visible then 3 else 0\
+\
+	return self\
+end\
+\
+function Scroll.add(self: Fields & Types.Scroll, child: Types.Element): Types.Scroll\
+	adopt(self, child)\
+\
+	return self\
+end\
+\
+function Scroll.clear(self: Fields & Types.Scroll): Types.Scroll\
+	for index = #self.children, 1, -1 do\
+		self.children[index]:destroy()\
+	end\
+\
+	table.clear(self.children)\
+\
+	return self:invalidate()\
+end\
+\
+function Scroll.refresh(self: Fields & Types.Scroll): Types.Scroll\
+	return self:invalidate()\
+end\
+\
+function Scroll.scrollToBottom(self: Fields & Types.Scroll): Types.Scroll\
+	local scroller = self.instance :: ScrollingFrame\
+\
+	scroller.CanvasPosition = Vector2.new(0, math.max(0, scroller.CanvasSize.Y.Offset - scroller.AbsoluteSize.Y))\
+\
+	return self\
+end\
+\
+--// child factories\
+function Scroll.label(self: Fields & Types.Scroll, text: Types.Bindable<string>?): Types.Label\
+	local element = factory(self.app, \"Label\")\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Scroll.group(self: Fields & Types.Scroll, axis: Types.Axis?): Types.Group\
+	local element = factory(self.app, \"Group\")\
+\
+	if axis ~= nil then\
+		element:setAxis(axis)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Scroll.list(self: Fields & Types.Scroll): Types.List\
+	return adopt(self, factory(self.app, \"List\")) :: any\
+end\
+\
+--// layout\
+--- `settled` is passed only from commit, once the real width is known.\
+local function input(self: Fields, available: Vector2, settled: number?): Autosize.Input\
+	return {\
+		children = self.children,\
+		vertical = self.vertical,\
+\
+		gap = self.gap,\
+		padX = 0,\
+		padY = 0,\
+\
+		--// unbounded on the scrolling axis: the content is allowed to be taller\
+		--// than the region, that is the entire point of a scroll\
+		chrome = Vector2.zero,\
+		room = Vector2.new(available.X, 99999),\
+\
+		minWidth = 0,\
+		maxWidth = math.max(1, available.X - self.margin * 2),\
+		minHeight = 0,\
+		maxHeight = 99999,\
+\
+		fixedWidth = settled,\
+		fixedHeight = nil,\
+	}\
+end\
+\
+function Scroll.measure(self: Fields & Types.Scroll, available: Vector2): Vector2\
+	local solved = input(self, available)\
+	local solution = Autosize.solve(solved)\
+\
+	local height = math.min(solution.content.Y, self.maxHeight)\
+\
+	self.desired = Vector2.new(solution.clamped.X, math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Scroll.commit(self: Fields & Types.Scroll, inner: Vector2, vertical: boolean, share: number)\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	local settled = Vector2.new(width, height)\
+	local solved = input(self, settled, width)\
+	local solution = Autosize.solve(solved)\
+	local childShare = Autosize.share(solved, solution)\
+\
+	for _, child in self.children do\
+		if child.instance.Visible then\
+			child:commit(settled, self.vertical, if child.grow then childShare else 0)\
+		end\
+	end\
+\
+	local scroller = self.instance :: ScrollingFrame\
+\
+	scroller.CanvasSize = if self.vertical\
+		then UDim2.fromOffset(0, solution.content.Y)\
+		else UDim2.fromOffset(solution.content.X, 0)\
+end\
+\
+function Scroll.destroy(self: Fields & Types.Scroll)\
+	for index = #self.children, 1, -1 do\
+		self.children[index]:destroy()\
+	end\
+\
+	table.clear(self.children)\
+\
+	require(script.Parent.Parent.Core.Node).teardown(self)\
+end\
+\
+Element.install(Scroll)\
+\
+return Scroll\
+"},
+{"Astrix/_Packages/Lume/Elements/Select","ModuleScript","--!strict\
+\
+--- A dropdown. The element itself is only the trigger row; the options live in\
+--- a popover panel created on first open.\
+---\
+--- That split is why a dropdown opened from the bottom of a small panel is not\
+--- clipped by it: the popover lives on the popover layer, positions itself\
+--- against the trigger, and flips above when there is no room below.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+local Text = require(script.Parent.Parent.Text)\
+\
+local Select = {}\
+Select.__index = Select\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	options: { Types.Option },\
+	chosen: { string },\
+\
+	labelText: string,\
+	placeholderText: string,\
+	searchable: boolean,\
+	multi: boolean,\
+	query: string,\
+\
+	popover: Types.Panel?,\
+	list: Types.List?,\
+	search: Types.Field?,\
+	open: boolean,\
+}\
+\
+--// locals\
+local function normalise(entry: Types.Option | string): Types.Option\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	local option = entry :: Types.Option\
+\
+	return { id = option.id or option.text, text = option.text, icon = option.icon, description = option.description }\
+end\
+\
+local function find(self: Fields, id: string?): Types.Option?\
+	if not id then\
+		return nil\
+	end\
+\
+	for _, option in self.options do\
+		if option.id == id then\
+			return option\
+		end\
 	end\
 \
 	return nil\
 end\
 \
-local cache: { [string]: any } = {}\
+--- Creates a select. Prefer `panel:select(label)`.\
+function Select.new(app: Types.App): Types.Select\
+	local theme = app.theme\
+	local scope = app.scope:child()\
 \
---- Requires a dependency by name. Errors with something readable when missing.\
-function Packages.Get(name: string): any\
-	if cache[name] ~= nil then\
-		return cache[name]\
+	local root, refs = Create.tree(scope, {\
+		class = \"TextButton\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundColor3 = theme.color.surfaceSunken,\
+			BackgroundTransparency = 0.35,\
+			BorderSizePixel = 0,\
+			AutoButtonColor = false,\
+\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Select\",\
+			Text = \"\",\
+		},\
+		children = {\
+			Create.corner(theme.radius.sm),\
+			{\
+				class = \"UIStroke\",\
+				ref = \"stroke\",\
+				props = {\
+					ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+					Color = theme.color.border,\
+					Thickness = theme.stroke.hairline,\
+					Transparency = theme.transparency.border,\
+				},\
+			},\
+			Create.padding(theme.space.sm, 0),\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, -20, 1, 0),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.text,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+					RichText = true,\
+\
+					Name = \"Value\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"arrow\",\
+				props = {\
+					BackgroundTransparency = 1,\
+\
+					AnchorPoint = Vector2.new(1, 0.5),\
+					Position = UDim2.new(1, 0, 0.5, 0),\
+					Size = UDim2.fromOffset(16, 16),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+\
+					Name = \"Arrow\",\
+					Text = \"▾\",\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"select\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		options = {},\
+		chosen = {},\
+\
+		labelText = \"\",\
+		placeholderText = \"Select…\",\
+		searchable = false,\
+		multi = false,\
+		query = \"\",\
+\
+		popover = nil,\
+		list = nil,\
+		search = nil,\
+		open = false,\
+	}\
+\
+	local select = setmetatable(fields, Select) :: any\
+\
+	local button = root :: TextButton\
+\
+	Hover.attach(scope, button, function(hovering)\
+		if not fields.enabled then\
+			return\
+		end\
+\
+		Motion.animate(\
+			refs.stroke :: UIStroke,\
+			{ Transparency = if hovering then 0.1 else theme.transparency.border },\
+			theme:spec(\"hover\")\
+		)\
+	end)\
+\
+	scope:add(button.Activated:Connect(function()\
+		if fields.enabled then\
+			Select.toggle(select)\
+		end\
+	end))\
+\
+	Select.paint(fields)\
+\
+	return select\
+end\
+\
+--- Writes the current selection into the trigger row.\
+function Select.paint(self: Fields)\
+	local theme = self.app.theme\
+	local label = self.refs.label :: TextLabel\
+\
+	if #self.chosen == 0 then\
+		label.Text = Text.color(Text.escape(self.placeholderText), theme.rich.ghost)\
+\
+		return\
 	end\
 \
-	local found = search(name)\
+	if #self.chosen == 1 then\
+		local option = find(self, self.chosen[1])\
 \
-	if not found then\
-		error(\
-			`[Astrix] could not find dependency '{name}'. Vendor it under Astrix/_Packages/{name}, `\
-				.. `install it with Wally beside Astrix, or put it in ReplicatedStorage.`,\
-			0\
+		label.Text = Text.escape(if option then option.text else self.chosen[1])\
+\
+		return\
+	end\
+\
+	label.Text = `{#self.chosen} selected`\
+end\
+\
+--- The options visible for the current search query.\
+function Select.filtered(self: Fields): { Types.ListItem }\
+	local items: { Types.ListItem } = {}\
+\
+	for _, option in self.options do\
+		local matched, score = Text.fuzzy(option.text, self.query)\
+\
+		if matched then\
+			table.insert(items, {\
+				id = option.id,\
+				text = option.text,\
+				icon = option.icon,\
+				description = option.description,\
+				data = score,\
+			})\
+		end\
+	end\
+\
+	table.sort(items, function(left, right)\
+		return (left.data :: number) < (right.data :: number)\
+	end)\
+\
+	return items\
+end\
+\
+--- Builds the popover on first open and keeps it thereafter.\
+function Select.ensurePopover(self: Fields & Types.Select): Types.Panel\
+	if self.popover then\
+		return self.popover\
+	end\
+\
+	local Panel = require(script.Parent.Parent.Panel)\
+\
+	local popover = Panel.new(self.app, \"popover\")\
+\
+	popover:attachTo(self.instance, \"bottom\", self.app.theme.space.xs)\
+	popover:setMaxSize(520, 280)\
+\
+	if self.searchable then\
+		local search = popover:field(\"Search…\")\
+\
+		search:onChanged(function(text)\
+			self.query = text\
+\
+			if self.list then\
+				self.list:setItems(Select.filtered(self) :: any)\
+			end\
+		end)\
+\
+		self.search = search\
+	end\
+\
+	local list = popover:list()\
+\
+	list:setMaxRows(8)\
+	list:setItems(Select.filtered(self) :: any)\
+	list:onActivated(function(item)\
+		Select.choose(self, item.id :: string)\
+	end)\
+\
+	self.list = list\
+\
+	popover:on(\"closed\", function()\
+		self.open = false\
+\
+		Motion.animate(self.refs.arrow :: TextLabel, { Rotation = 0 }, self.app.theme:spec(\"morph\"))\
+\
+		self:emit(\"closed\")\
+	end)\
+\
+	self.popover = popover\
+\
+	return popover\
+end\
+\
+--- Applies a choice, respecting single versus multi mode.\
+function Select.choose(self: Fields & Types.Select, id: string)\
+	if self.multi then\
+		local at = table.find(self.chosen, id)\
+\
+		if at then\
+			table.remove(self.chosen, at)\
+		else\
+			table.insert(self.chosen, id)\
+		end\
+	else\
+		self.chosen = { id }\
+	end\
+\
+	Select.paint(self)\
+\
+	self:emit(\"changed\", if self.multi then nil else id, find(self, id))\
+\
+	if not self.multi and self.popover then\
+		self.popover:close()\
+	end\
+\
+	self:invalidate()\
+end\
+\
+function Select.toggle(self: Fields & Types.Select)\
+	local popover = Select.ensurePopover(self)\
+\
+	if self.open then\
+		popover:close()\
+\
+		return\
+	end\
+\
+	self.open = true\
+\
+	popover:setWidth(math.max(160, self.instance.AbsoluteSize.X))\
+	popover:attachTo(self.instance, \"bottom\", self.app.theme.space.xs)\
+\
+	if self.list then\
+		self.list:setItems(Select.filtered(self) :: any)\
+	end\
+\
+	popover:open()\
+\
+	Motion.animate(self.refs.arrow :: TextLabel, { Rotation = 180 }, self.app.theme:spec(\"morph\"))\
+\
+	self:emit(\"opened\")\
+end\
+\
+function Select.setLabel(self: Fields & Types.Select, label: Types.Bindable<string>): Types.Select\
+	Node.bind(self, \"label\", label, function(next: string)\
+		self.labelText = tostring(next)\
+	end)\
+\
+	return self\
+end\
+\
+function Select.setOptions(\
+	self: Fields & Types.Select,\
+	options: Types.Bindable<{ Types.Option | string }>\
+): Types.Select\
+	Node.bind(self, \"options\", options, function(next: { Types.Option | string })\
+		local normalised: { Types.Option } = {}\
+\
+		for _, entry in next do\
+			table.insert(normalised, normalise(entry))\
+		end\
+\
+		self.options = normalised\
+\
+		if self.list then\
+			self.list:setItems(Select.filtered(self) :: any)\
+		end\
+\
+		Select.paint(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Select.setValue(self: Fields & Types.Select, id: Types.Bindable<string?>): Types.Select\
+	Node.bind(self, \"value\", id, function(next: string?)\
+		self.chosen = if next then { next } else {}\
+\
+		Select.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Select.setPlaceholder(self: Fields & Types.Select, placeholder: Types.Bindable<string>): Types.Select\
+	Node.bind(self, \"placeholder\", placeholder, function(next: string)\
+		self.placeholderText = tostring(next)\
+\
+		Select.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- Adds a search field to the popover. Set before the first open.\
+function Select.setSearchable(self: Fields & Types.Select, searchable: boolean): Types.Select\
+	self.searchable = searchable ~= false\
+\
+	return self\
+end\
+\
+function Select.setMulti(self: Fields & Types.Select, multi: boolean): Types.Select\
+	self.multi = multi ~= false\
+\
+	return self\
+end\
+\
+function Select.onChanged(self: Fields & Types.Select, handler: (string?, Types.Option?) -> ()): Types.Select\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Select.onOpened(self: Fields & Types.Select, handler: () -> ()): Types.Select\
+	return self:on(\"opened\", handler)\
+end\
+\
+function Select.onClosed(self: Fields & Types.Select, handler: () -> ()): Types.Select\
+	return self:on(\"closed\", handler)\
+end\
+\
+function Select.value(self: Fields & Types.Select): string?\
+	return self.chosen[1]\
+end\
+\
+function Select.values(self: Fields & Types.Select): { string }\
+	return table.clone(self.chosen)\
+end\
+\
+function Select.measure(self: Fields & Types.Select, available: Vector2): Vector2\
+	local theme = self.app.theme\
+\
+	--// as wide as the longest option it might have to show, so choosing one\
+	--// does not resize the row underneath the pointer\
+	local widest = self.app.measure:width(self.placeholderText, theme.text.sm, theme.font.body)\
+\
+	for _, option in self.options do\
+		widest = math.max(widest, self.app.measure:width(option.text, theme.text.sm, theme.font.body))\
+	end\
+\
+	local natural = math.max(140, widest + theme.space.sm * 2 + 24)\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), theme.size.control)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Select.destroy(self: Fields & Types.Select)\
+	if self.popover then\
+		self.popover:destroy()\
+\
+		self.popover = nil\
+	end\
+\
+	Node.teardown(self)\
+end\
+\
+Element.install(Select)\
+\
+return Select\
+"},
+{"Astrix/_Packages/Lume/Elements/Slider","ModuleScript","--!strict\
+\
+--- A numeric slider with an optional label above and a live readout on the\
+--- right.\
+---\
+--- Two events, deliberately: `changed` fires continuously while dragging, and\
+--- `committed` fires once on release. Save settings on `committed` and preview\
+--- them on `changed`.\
+--- @section Elements\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Slider = {}\
+Slider.__index = Slider\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	current: number,\
+	minimum: number,\
+	maximum: number,\
+	step: number,\
+\
+	labelText: string,\
+	showValue: boolean,\
+	dragging: boolean,\
+	formatter: ((number) -> string)?,\
+}\
+\
+local THUMB = 14\
+\
+--- Creates a slider. Prefer `panel:slider(label)`.\
+function Slider.new(app: Types.App): Types.Slider\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control + theme.size.row),\
+			Name = \"Slider\",\
+		},\
+		children = {\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(0.6, 0, 0, theme.size.row),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.text,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"readout\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AnchorPoint = Vector2.new(1, 0),\
+					Position = UDim2.fromScale(1, 0),\
+					Size = UDim2.new(0.4, 0, 0, theme.size.row),\
+\
+					Font = theme.font.mono,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Right,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Name = \"Readout\",\
+					Text = \"0\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"rail\",\
+				props = {\
+					BackgroundColor3 = theme.color.track,\
+					BackgroundTransparency = theme.transparency.track,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(0, 0.5),\
+					Position = UDim2.new(0, 0, 0, theme.size.row + theme.size.control / 2),\
+					Size = UDim2.new(1, 0, 0, theme.size.rail),\
+\
+					Name = \"Rail\",\
+				},\
+				children = {\
+					Create.corner(theme.radius.pill),\
+					{\
+						class = \"Frame\",\
+						ref = \"fill\",\
+						props = {\
+							BackgroundColor3 = theme.color.accent,\
+							BorderSizePixel = 0,\
+							Size = UDim2.fromScale(0, 1),\
+							Name = \"Fill\",\
+						},\
+						children = { Create.corner(theme.radius.pill) },\
+					},\
+					{\
+						class = \"Frame\",\
+						ref = \"thumb\",\
+						props = {\
+							BackgroundColor3 = theme.color.text,\
+							BorderSizePixel = 0,\
+\
+							AnchorPoint = Vector2.new(0.5, 0.5),\
+							Position = UDim2.fromScale(0, 0.5),\
+							Size = UDim2.fromOffset(THUMB, THUMB),\
+\
+							ZIndex = 3,\
+							Name = \"Thumb\",\
+						},\
+						children = { Create.corner(theme.radius.pill) },\
+					},\
+				},\
+			},\
+			{\
+				class = \"TextButton\",\
+				ref = \"hit\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutoButtonColor = false,\
+\
+					Position = UDim2.fromOffset(0, theme.size.row),\
+					Size = UDim2.new(1, 0, 0, theme.size.control),\
+\
+					Name = \"Hit\",\
+					Text = \"\",\
+					ZIndex = 4,\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"slider\",\
+		desired = Vector2.new(0, theme.size.control + theme.size.row),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		current = 0,\
+		minimum = 0,\
+		maximum = 1,\
+		step = 0,\
+\
+		labelText = \"\",\
+		showValue = true,\
+		dragging = false,\
+		formatter = nil,\
+	}\
+\
+	local slider = setmetatable(fields, Slider) :: any\
+\
+	local hit = refs.hit :: TextButton\
+	local rail = refs.rail :: Frame\
+	local thumb = refs.thumb :: Frame\
+\
+	local function valueAt(x: number): number\
+		local left = rail.AbsolutePosition.X\
+		local width = math.max(1, rail.AbsoluteSize.X)\
+\
+		local fraction = math.clamp((x - left) / width, 0, 1)\
+\
+		return fields.minimum + (fields.maximum - fields.minimum) * fraction\
+	end\
+\
+	Hover.attach(scope, hit, function(hovering)\
+		if not fields.enabled then\
+			return\
+		end\
+\
+		Motion.animate(\
+			thumb,\
+			{ Size = UDim2.fromOffset(if hovering then THUMB + 3 else THUMB, if hovering then THUMB + 3 else THUMB) },\
+			theme:spec(\"hover\")\
+		)\
+	end)\
+\
+	scope:add(hit.InputBegan:Connect(function(input)\
+		if not fields.enabled then\
+			return\
+		end\
+\
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then\
+			return\
+		end\
+\
+		fields.dragging = true\
+\
+		Slider.commitValue(slider, valueAt(input.Position.X), true)\
+	end))\
+\
+	scope:add(UserInputService.InputChanged:Connect(function(input)\
+		if not fields.dragging then\
+			return\
+		end\
+\
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then\
+			return\
+		end\
+\
+		Slider.commitValue(slider, valueAt(input.Position.X), true)\
+	end))\
+\
+	scope:add(UserInputService.InputEnded:Connect(function(input)\
+		if not fields.dragging then\
+			return\
+		end\
+\
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then\
+			return\
+		end\
+\
+		fields.dragging = false\
+\
+		slider:emit(\"committed\", fields.current)\
+	end))\
+\
+	Slider.paint(fields, true)\
+\
+	return slider\
+end\
+\
+--- Snaps a raw value to the slider's range and step.\
+function Slider.quantise(self: Fields, value: number): number\
+	local clamped = math.clamp(value, self.minimum, self.maximum)\
+\
+	if self.step > 0 then\
+		clamped = self.minimum + math.round((clamped - self.minimum) / self.step) * self.step\
+	end\
+\
+	return math.clamp(clamped, self.minimum, self.maximum)\
+end\
+\
+--- Moves the fill and thumb to match the current value.\
+function Slider.paint(self: Fields, immediate: boolean?)\
+	local span = self.maximum - self.minimum\
+	local fraction = if span == 0 then 0 else (self.current - self.minimum) / span\
+\
+	local fill = self.refs.fill :: Frame\
+	local thumb = self.refs.thumb :: Frame\
+	local readout = self.refs.readout :: TextLabel\
+\
+	local fillTarget = { Size = UDim2.fromScale(fraction, 1) }\
+	local thumbTarget = { Position = UDim2.fromScale(fraction, 0.5) }\
+\
+	--// dragging is one-to-one; springing it would lag the pointer\
+	if immediate or self.dragging then\
+		Motion.set(fill, fillTarget)\
+		Motion.set(thumb, thumbTarget)\
+	else\
+		Motion.animate(fill, fillTarget, self.app.theme:spec(\"morph\"))\
+		Motion.animate(thumb, thumbTarget, self.app.theme:spec(\"morph\"))\
+	end\
+\
+	if self.showValue then\
+		readout.Text = if self.formatter\
+			then self.formatter(self.current)\
+			else string.format(if self.step > 0 and self.step % 1 == 0 then \"%d\" else \"%.2f\", self.current)\
+	end\
+end\
+\
+--- Sets the value, painting and firing `changed` if it actually moved.\
+function Slider.commitValue(self: Fields & Types.Slider, value: number, live: boolean?)\
+	local next = Slider.quantise(self, value)\
+\
+	if next == self.current then\
+		return\
+	end\
+\
+	self.current = next\
+\
+	Slider.paint(self, live)\
+\
+	self:emit(\"changed\", next)\
+end\
+\
+function Slider.setLabel(self: Fields & Types.Slider, label: Types.Bindable<string>): Types.Slider\
+	local text = self.refs.label :: TextLabel\
+\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local value = tostring(next)\
+\
+		self.labelText = value\
+		text.Text = value\
+	end)\
+\
+	return self\
+end\
+\
+function Slider.setRange(self: Fields & Types.Slider, minimum: number, maximum: number): Types.Slider\
+	self.minimum = minimum\
+	self.maximum = math.max(maximum, minimum)\
+	self.current = Slider.quantise(self, self.current)\
+\
+	Slider.paint(self, true)\
+\
+	return self\
+end\
+\
+function Slider.setStep(self: Fields & Types.Slider, step: number): Types.Slider\
+	self.step = math.max(0, step)\
+	self.current = Slider.quantise(self, self.current)\
+\
+	Slider.paint(self, true)\
+\
+	return self\
+end\
+\
+function Slider.setValue(self: Fields & Types.Slider, value: Types.Bindable<number>): Types.Slider\
+	Node.bind(self, \"value\", value, function(next: number)\
+		Slider.commitValue(self, tonumber(next) or 0)\
+	end)\
+\
+	return self\
+end\
+\
+--- Formats the readout. Defaults to two decimals, or whole numbers when the\
+--- step is an integer.\
+function Slider.setFormat(self: Fields & Types.Slider, format: (number) -> string): Types.Slider\
+	self.formatter = format\
+\
+	Slider.paint(self, true)\
+\
+	return self\
+end\
+\
+function Slider.setShowValue(self: Fields & Types.Slider, shown: boolean): Types.Slider\
+	self.showValue = shown ~= false\
+	;(self.refs.readout :: TextLabel).Visible = self.showValue\
+\
+	return self\
+end\
+\
+function Slider.onChanged(self: Fields & Types.Slider, handler: (number) -> ()): Types.Slider\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Slider.onCommitted(self: Fields & Types.Slider, handler: (number) -> ()): Types.Slider\
+	return self:on(\"committed\", handler)\
+end\
+\
+function Slider.value(self: Fields & Types.Slider): number\
+	return self.current\
+end\
+\
+function Slider.measure(self: Fields & Types.Slider, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local labelled = self.labelText ~= \"\" or self.showValue\
+\
+	local height = theme.size.control + (if labelled then theme.size.row else 0)\
+\
+	--// a rail needs room to be worth dragging; 180 is the floor, the label can\
+	--// push it wider, and fill stretches it in commit\
+	local natural = math.max(180, self.app.measure:width(self.labelText, theme.text.sm, theme.font.body) + 80)\
+	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), height)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Slider.commit(self: Fields & Types.Slider, inner: Vector2, vertical: boolean, share: number)\
+	local theme = self.app.theme\
+	local labelled = self.labelText ~= \"\" or self.showValue\
+\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	local top = if labelled then theme.size.row else 0\
+\
+	;(self.refs.label :: TextLabel).Visible = labelled\
+	;(self.refs.readout :: TextLabel).Visible = labelled and self.showValue\
+\
+	;(self.refs.rail :: Frame).Position = UDim2.new(0, 0, 0, top + theme.size.control / 2)\
+	;(self.refs.hit :: TextButton).Position = UDim2.fromOffset(0, top)\
+end\
+\
+Element.install(Slider)\
+\
+return Slider\
+"},
+{"Astrix/_Packages/Lume/Elements/Spacer","ModuleScript","--!strict\
+\
+--- Empty space. A fixed amount, or flexible so it eats whatever the panel has\
+--- left over — which is how you push one element to the far end of a row.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Element = require(script.Parent.Element)\
+\
+local Spacer = {}\
+Spacer.__index = Spacer\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	amount: number,\
+}\
+\
+--- Creates a spacer. Prefer `panel:spacer(size)`.\
+function Spacer.new(app: Types.App): Types.Spacer\
+	local scope = app.scope:child()\
+\
+	local root = Create.node(scope, {\
+		class = \"Frame\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.fromOffset(0, app.theme.space.sm),\
+			Name = \"Spacer\",\
+		},\
+	}) :: Frame\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root,\
+		refs = { root = root },\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"spacer\",\
+		desired = Vector2.new(0, app.theme.space.sm),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		amount = app.theme.space.sm,\
+	}\
+\
+	return setmetatable(fields, Spacer) :: any\
+end\
+\
+function Spacer.setAmount(self: Fields & Types.Spacer, amount: number): Types.Spacer\
+	self.amount = amount\
+\
+	return self:invalidate()\
+end\
+\
+--- A flexible spacer measures as nothing and grows into everything left over.\
+function Spacer.setFlexible(self: Fields & Types.Spacer, flexible: boolean): Types.Spacer\
+	self.grow = flexible ~= false\
+\
+	return self:invalidate()\
+end\
+\
+function Spacer.measure(self: Fields & Types.Spacer, _available: Vector2): Vector2\
+	local size = if self.grow then 0 else self.amount\
+\
+	self.desired = Vector2.new(size, size)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Spacer)\
+\
+return Spacer\
+"},
+{"Astrix/_Packages/Lume/Elements/Suggest","ModuleScript","--!strict\
+\
+--- Inline autocomplete. Filters a source against a query, highlights the\
+--- matched span in each row, and — when attached to a field — writes the\
+--- remainder of the best match into that field as a ghost hint.\
+---\
+--- The ghost hint is the whole point. Seeing the completion sitting in the\
+--- input, in place, is what makes an autocomplete feel like it is finishing\
+--- your sentence rather than offering you a menu.\
+---\
+--- Up and Down move the highlight, Tab accepts it, Enter accepts and submits.\
+--- @section Elements\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+local Text = require(script.Parent.Parent.Text)\
+\
+local Suggest = {}\
+Suggest.__index = Suggest\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	source: { Types.Option },\
+	matches: { Types.Option },\
+\
+	cursor: number,\
+	limit: number,\
+	query: string,\
+\
+	list: Types.List?,\
+	field: Types.Field?,\
+	matcher: ((string, string) -> (boolean, number))?,\
+}\
+\
+--// locals\
+local function normalise(entry: Types.Option | string): Types.Option\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	local option = entry :: Types.Option\
+\
+	return { id = option.id or option.text, text = option.text, icon = option.icon, description = option.description }\
+end\
+\
+--- Creates a suggestion list. Prefer `panel:suggest()`.\
+function Suggest.new(app: Types.App): Types.Suggest\
+	local scope = app.scope:child()\
+\
+	local root = Create.node(scope, {\
+		class = \"Frame\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, 0),\
+			Name = \"Suggest\",\
+		},\
+	}) :: Frame\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root,\
+		refs = { root = root },\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"suggest\",\
+		desired = Vector2.zero,\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		source = {},\
+		matches = {},\
+\
+		cursor = 0,\
+		limit = 8,\
+		query = \"\",\
+\
+		list = nil,\
+		field = nil,\
+		matcher = nil,\
+	}\
+\
+	local suggest = setmetatable(fields, Suggest) :: any\
+\
+	local List = require(script.Parent.List)\
+	local list = List.new(app)\
+\
+	list:setMaxRows(fields.limit)\
+	list:setSelectable(true)\
+	list:setRenderer(function(item)\
+		local theme = app.theme\
+\
+		return Text.highlight(item.text or \"\", fields.query, theme.rich.muted, theme.rich.accent)\
+	end)\
+	list:onActivated(function(item)\
+		Suggest.acceptItem(suggest, item.id :: string)\
+	end)\
+\
+	;(list :: any).owner = suggest\
+	;(list :: any).instance.Parent = root\
+\
+	fields.list = list\
+\
+	return suggest\
+end\
+\
+--- Re-runs the filter and repaints the list.\
+function Suggest.refilter(self: Fields & Types.Suggest)\
+	local scored: { { option: Types.Option, score: number } } = {}\
+	local match = self.matcher or Text.fuzzy\
+\
+	for _, option in self.source do\
+		local ok, score = match(option.text, self.query)\
+\
+		if ok then\
+			table.insert(scored, { option = option, score = score })\
+		end\
+	end\
+\
+	table.sort(scored, function(left, right)\
+		if left.score == right.score then\
+			return left.option.text < right.option.text\
+		end\
+\
+		return left.score < right.score\
+	end)\
+\
+	table.clear(self.matches)\
+\
+	for index = 1, math.min(#scored, self.limit) do\
+		table.insert(self.matches, scored[index].option)\
+	end\
+\
+	self.cursor = if #self.matches > 0 then 1 else 0\
+\
+	if self.list then\
+		self.list:setItems(self.matches :: any)\
+		self.list:setSelected(if self.cursor > 0 then self.matches[self.cursor].id else nil)\
+	end\
+\
+	Suggest.pushHint(self)\
+\
+	self.instance.Visible = #self.matches > 0\
+\
+	self:emit(\"highlighted\", self.matches[self.cursor])\
+	self:invalidate()\
+end\
+\
+--- Writes the unfinished part of the highlighted match into the attached\
+--- field, so it appears greyed out right after the caret.\
+function Suggest.pushHint(self: Fields)\
+	local field = self.field\
+\
+	if not field then\
+		return\
+	end\
+\
+	local option = self.matches[self.cursor]\
+\
+	if not option or self.query == \"\" then\
+		field:setHint(\"\")\
+\
+		return\
+	end\
+\
+	local lowered = string.lower(option.text)\
+	local typed = string.lower(self.query)\
+\
+	if string.sub(lowered, 1, #typed) ~= typed then\
+		--// a fuzzy match that is not a prefix has no meaningful remainder\
+		field:setHint(\"\")\
+\
+		return\
+	end\
+\
+	field:setHint(string.sub(option.text, #self.query + 1))\
+end\
+\
+function Suggest.setSource(\
+	self: Fields & Types.Suggest,\
+	source: Types.Bindable<{ Types.Option | string }>\
+): Types.Suggest\
+	Node.bind(self, \"source\", source, function(next: { Types.Option | string })\
+		local normalised: { Types.Option } = {}\
+\
+		for _, entry in next do\
+			table.insert(normalised, normalise(entry))\
+		end\
+\
+		self.source = normalised\
+\
+		Suggest.refilter(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Suggest.setQuery(self: Fields & Types.Suggest, query: Types.Bindable<string>): Types.Suggest\
+	Node.bind(self, \"query\", query, function(next: string)\
+		self.query = tostring(next)\
+\
+		Suggest.refilter(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Suggest.setLimit(self: Fields & Types.Suggest, limit: number): Types.Suggest\
+	self.limit = math.max(1, limit)\
+\
+	if self.list then\
+		self.list:setMaxRows(self.limit)\
+	end\
+\
+	Suggest.refilter(self)\
+\
+	return self\
+end\
+\
+--- Replaces the default subsequence matcher. Return whether it matched and a\
+--- score where lower sorts first.\
+function Suggest.setMatcher(\
+	self: Fields & Types.Suggest,\
+	matcher: (string, string) -> (boolean, number)\
+): Types.Suggest\
+	self.matcher = matcher\
+\
+	Suggest.refilter(self)\
+\
+	return self\
+end\
+\
+--- Wires a field to this suggestion list: its text drives the query, its ghost\
+--- hint shows the completion, and the arrow keys drive the highlight.\
+function Suggest.attach(self: Fields & Types.Suggest, field: Types.Field): Types.Suggest\
+	self.field = field\
+\
+	field:onChanged(function(text)\
+		self.query = text\
+\
+		Suggest.refilter(self)\
+	end)\
+\
+	self.scope:add(UserInputService.InputBegan:Connect(function(input, processed)\
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
+			return\
+		end\
+\
+		if #self.matches == 0 or not (field :: any).focused then\
+			return\
+		end\
+\
+		if input.KeyCode == Enum.KeyCode.Down then\
+			Suggest.next(self)\
+		elseif input.KeyCode == Enum.KeyCode.Up then\
+			Suggest.previous(self)\
+		elseif input.KeyCode == Enum.KeyCode.Tab and not processed then\
+			Suggest.accept(self)\
+		end\
+	end))\
+\
+	return self\
+end\
+\
+function Suggest.onAccepted(self: Fields & Types.Suggest, handler: (Types.Option) -> ()): Types.Suggest\
+	return self:on(\"accepted\", handler)\
+end\
+\
+function Suggest.onHighlighted(self: Fields & Types.Suggest, handler: (Types.Option?) -> ()): Types.Suggest\
+	return self:on(\"highlighted\", handler)\
+end\
+\
+--- Moves the highlight, wrapping at the ends.\
+function Suggest.next(self: Fields & Types.Suggest): Types.Suggest\
+	if #self.matches == 0 then\
+		return self\
+	end\
+\
+	self.cursor = (self.cursor % #self.matches) + 1\
+\
+	if self.list then\
+		self.list:setSelected(self.matches[self.cursor].id)\
+		self.list:scrollTo(self.cursor)\
+	end\
+\
+	Suggest.pushHint(self)\
+\
+	self:emit(\"highlighted\", self.matches[self.cursor])\
+\
+	return self\
+end\
+\
+function Suggest.previous(self: Fields & Types.Suggest): Types.Suggest\
+	if #self.matches == 0 then\
+		return self\
+	end\
+\
+	self.cursor = if self.cursor <= 1 then #self.matches else self.cursor - 1\
+\
+	if self.list then\
+		self.list:setSelected(self.matches[self.cursor].id)\
+		self.list:scrollTo(self.cursor)\
+	end\
+\
+	Suggest.pushHint(self)\
+\
+	self:emit(\"highlighted\", self.matches[self.cursor])\
+\
+	return self\
+end\
+\
+--- Accepts by id, used by row clicks.\
+function Suggest.acceptItem(self: Fields & Types.Suggest, id: string)\
+	for index, option in self.matches do\
+		if option.id == id then\
+			self.cursor = index\
+\
+			break\
+		end\
+	end\
+\
+	Suggest.accept(self)\
+end\
+\
+--- Commits the highlighted match into the attached field.\
+function Suggest.accept(self: Fields & Types.Suggest): Types.Suggest\
+	local option = self.matches[self.cursor]\
+\
+	if not option then\
+		return self\
+	end\
+\
+	if self.field then\
+		self.field:setText(option.text)\
+		self.field:setHint(\"\")\
+	end\
+\
+	self:emit(\"accepted\", option)\
+\
+	return self\
+end\
+\
+function Suggest.highlighted(self: Fields & Types.Suggest): Types.Option?\
+	return self.matches[self.cursor]\
+end\
+\
+function Suggest.measure(self: Fields & Types.Suggest, available: Vector2): Vector2\
+	if not self.list or #self.matches == 0 then\
+		self.desired = Vector2.new(available.X, 0)\
+		self.measured = true\
+\
+		return self.desired\
+	end\
+\
+	self.desired = self.list:measure(available)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Suggest.commit(self: Fields & Types.Suggest, inner: Vector2, vertical: boolean, share: number)\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	if self.list then\
+		self.list:commit(Vector2.new(width, height), true, 0)\
+	end\
+end\
+\
+function Suggest.destroy(self: Fields & Types.Suggest)\
+	if self.list then\
+		self.list:destroy()\
+\
+		self.list = nil\
+	end\
+\
+	Node.teardown(self)\
+end\
+\
+Element.install(Suggest)\
+\
+return Suggest\
+"},
+{"Astrix/_Packages/Lume/Elements/Tabs","ModuleScript","--!strict\
+\
+--- A row of tabs in one of three shapes: an underline, a pill, or a segmented\
+--- control.\
+---\
+--- All three share one indicator that springs between tabs rather than\
+--- redrawing. Watching the marker travel is what tells you which way you moved.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Tabs = {}\
+Tabs.__index = Tabs\
+\
+export type Variant = \"underline\" | \"pill\" | \"segmented\"\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	tabs: { Types.Tab },\
+	buttons: { TextButton },\
+	active: string?,\
+	variant: Variant,\
+	widths: { number },\
+}\
+\
+--// locals\
+local function normalise(entry: Types.Tab | string): Types.Tab\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	return entry :: Types.Tab\
+end\
+\
+--- Creates a tab strip. Prefer `panel:tabs()`.\
+function Tabs.new(app: Types.App): Types.Tabs\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Tabs\",\
+		},\
+		children = {\
+			{\
+				class = \"Frame\",\
+				ref = \"indicator\",\
+				props = {\
+					BackgroundColor3 = theme.color.accent,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(0, 1),\
+					Position = UDim2.new(0, 0, 1, 0),\
+					Size = UDim2.fromOffset(0, 2),\
+\
+					Name = \"Indicator\",\
+					ZIndex = 2,\
+				},\
+				children = { Create.corner(theme.radius.pill) },\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"strip\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					BorderSizePixel = 0,\
+					Size = UDim2.fromScale(1, 1),\
+					Name = \"Strip\",\
+					ZIndex = 3,\
+				},\
+				children = {\
+					Create.list(Enum.FillDirection.Horizontal, 0, {\
+						VerticalAlignment = Enum.VerticalAlignment.Center,\
+					}),\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"tabs\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		tabs = {},\
+		buttons = {},\
+		active = nil,\
+		variant = \"underline\",\
+		widths = {},\
+	}\
+\
+	return setmetatable(fields, Tabs) :: any\
+end\
+\
+--- Measures every tab label so the indicator can be placed exactly.\
+function Tabs.measureTabs(self: Fields)\
+	local theme = self.app.theme\
+\
+	table.clear(self.widths)\
+\
+	for index, tab in self.tabs do\
+		local width = self.app.measure:width(tab.text, theme.text.sm, theme.font.medium) + theme.space.md * 2\
+\
+		if tab.icon and tab.icon ~= \"\" then\
+			width += theme.size.icon + theme.space.xs\
+		end\
+\
+		self.widths[index] = math.ceil(width)\
+	end\
+end\
+\
+--- Moves the indicator to the active tab and recolours the labels.\
+function Tabs.paint(self: Fields, immediate: boolean?)\
+	local theme = self.app.theme\
+	local indicator = self.refs.indicator :: Frame\
+\
+	local offset = 0\
+	local target: { number }? = nil\
+\
+	for index, tab in self.tabs do\
+		local width = self.widths[index] or 0\
+		local button = self.buttons[index]\
+\
+		if button then\
+			local selected = tab.id == self.active\
+\
+			button.TextColor3 = if selected then theme.color.text else theme.color.textMuted\
+			button.TextTransparency = if selected then 0 else theme.transparency.muted\
+\
+			if self.variant == \"segmented\" then\
+				button.BackgroundTransparency = 1\
+			end\
+		end\
+\
+		if tab.id == self.active then\
+			target = { offset, width }\
+		end\
+\
+		offset += width\
+	end\
+\
+	if not target then\
+		indicator.Visible = false\
+\
+		return\
+	end\
+\
+	indicator.Visible = true\
+\
+	local geometry: { [string]: any }\
+\
+	if self.variant == \"underline\" then\
+		indicator.AnchorPoint = Vector2.new(0, 1)\
+\
+		geometry = {\
+			Position = UDim2.new(0, target[1], 1, 0),\
+			Size = UDim2.fromOffset(target[2], 2),\
+		}\
+	else\
+		indicator.AnchorPoint = Vector2.new(0, 0.5)\
+\
+		geometry = {\
+			Position = UDim2.new(0, target[1], 0.5, 0),\
+			Size = UDim2.new(0, target[2], 1, 0),\
+		}\
+	end\
+\
+	if immediate then\
+		Motion.set(indicator, geometry)\
+	else\
+		Motion.animate(indicator, geometry, theme:spec(\"morph\"))\
+	end\
+end\
+\
+--- Rebuilds the tab buttons. Called on `setTabs` only, not on selection.\
+function Tabs.rebuild(self: Fields & Types.Tabs)\
+	local theme = self.app.theme\
+	local strip = self.refs.strip :: Frame\
+\
+	for _, button in self.buttons do\
+		button:Destroy()\
+	end\
+\
+	table.clear(self.buttons)\
+\
+	Tabs.measureTabs(self)\
+\
+	for index, tab in self.tabs do\
+		local button = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundColor3 = theme.color.surfaceHover,\
+				BackgroundTransparency = 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.fromOffset(self.widths[index] or 0, theme.size.control),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.medium,\
+				TextSize = theme.text.sm,\
+				TextColor3 = theme.color.textMuted,\
+				TextTransparency = theme.transparency.muted,\
+\
+				Name = `Tab_{tab.id}`,\
+				Text = tab.text,\
+			},\
+			children = { Create.corner(theme.radius.sm) },\
+		}) :: TextButton\
+\
+		button.Parent = strip\
+\
+		self.buttons[index] = button\
+\
+		Hover.attach(self.scope, button, function(hovering)\
+			if tab.id == self.active then\
+				return\
+			end\
+\
+			Motion.animate(\
+				button,\
+				{ TextTransparency = if hovering then 0 else theme.transparency.muted },\
+				theme:spec(\"hover\")\
+			)\
+		end)\
+\
+		self.scope:add(button.Activated:Connect(function()\
+			if not self.enabled or self.active == tab.id then\
+				return\
+			end\
+\
+			self.active = tab.id\
+\
+			Tabs.paint(self)\
+\
+			self:emit(\"changed\", tab.id)\
+		end))\
+	end\
+\
+	if not self.active and self.tabs[1] then\
+		self.active = self.tabs[1].id\
+	end\
+\
+	Tabs.paint(self, true)\
+end\
+\
+function Tabs.setTabs(self: Fields & Types.Tabs, tabs: Types.Bindable<{ Types.Tab | string }>): Types.Tabs\
+	Node.bind(self, \"tabs\", tabs, function(next: { Types.Tab | string })\
+		local normalised: { Types.Tab } = {}\
+\
+		for _, entry in next do\
+			table.insert(normalised, normalise(entry))\
+		end\
+\
+		self.tabs = normalised\
+\
+		Tabs.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Tabs.setValue(self: Fields & Types.Tabs, id: Types.Bindable<string>): Types.Tabs\
+	Node.bind(self, \"value\", id, function(next: string)\
+		if self.active == next then\
+			return\
+		end\
+\
+		self.active = next\
+\
+		Tabs.paint(self)\
+\
+		self:emit(\"changed\", next)\
+	end)\
+\
+	return self\
+end\
+\
+function Tabs.setVariant(self: Fields & Types.Tabs, variant: Variant): Types.Tabs\
+	local theme = self.app.theme\
+	local indicator = self.refs.indicator :: Frame\
+\
+	self.variant = variant\
+\
+	local corner = indicator:FindFirstChildOfClass(\"UICorner\")\
+\
+	if corner then\
+		corner.CornerRadius = if variant == \"pill\" then UDim.new(1, 0) else UDim.new(0, theme.radius.sm)\
+	end\
+\
+	if variant == \"segmented\" then\
+		local root = self.instance :: Frame\
+\
+		root.BackgroundColor3 = theme.color.surfaceSunken\
+		root.BackgroundTransparency = 0.4\
+\
+		if not root:FindFirstChildOfClass(\"UICorner\") then\
+			Create.node(self.scope, Create.corner(theme.radius.md)).Parent = root\
+		end\
+	else\
+		(self.instance :: Frame).BackgroundTransparency = 1\
+	end\
+\
+	Tabs.paint(self, true)\
+\
+	return self\
+end\
+\
+function Tabs.onChanged(self: Fields & Types.Tabs, handler: (string) -> ()): Types.Tabs\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Tabs.value(self: Fields & Types.Tabs): string?\
+	return self.active\
+end\
+\
+function Tabs.measure(self: Fields & Types.Tabs, available: Vector2): Vector2\
+	local total = 0\
+\
+	for _, width in self.widths do\
+		total += width\
+	end\
+\
+	local width = math.min(total, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), self.app.theme.size.control)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Tabs)\
+\
+return Tabs\
+"},
+{"Astrix/_Packages/Lume/Elements/Toggle","ModuleScript","--!strict\
+\
+--- A boolean, as a sliding switch or a checkbox, with an optional description\
+--- line under the label.\
+---\
+--- The switch thumb is a spring, not a tween. Flicking it twice quickly bends\
+--- the travel instead of restarting it, which is the difference between a\
+--- control that feels responsive and one that feels queued.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Toggle = {}\
+Toggle.__index = Toggle\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	--// `on`, not `value`, so it cannot shadow the `value()` method\
+	on: boolean,\
+	labelText: string,\
+	descriptionText: string,\
+	style: \"switch\" | \"checkbox\",\
+}\
+\
+local SWITCH_WIDTH = 40\
+local SWITCH_HEIGHT = 22\
+local CHECKBOX_SIZE = 20\
+\
+--- Creates a toggle. Prefer `panel:toggle(label)`.\
+function Toggle.new(app: Types.App): Types.Toggle\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Toggle\",\
+		},\
+		children = {\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Position = UDim2.fromOffset(0, 0),\
+					Size = UDim2.new(1, -(SWITCH_WIDTH + theme.space.md), 0, theme.size.row),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.text,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Center,\
+\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"description\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Position = UDim2.fromOffset(0, theme.size.row),\
+					Size = UDim2.new(1, -(SWITCH_WIDTH + theme.space.md), 0, theme.size.hint),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.xs,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+					TextYAlignment = Enum.TextYAlignment.Top,\
+					TextWrapped = true,\
+\
+					Visible = false,\
+					Name = \"Description\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"track\",\
+				props = {\
+					BackgroundColor3 = theme.color.track,\
+					BackgroundTransparency = theme.transparency.track,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(1, 0.5),\
+					Position = UDim2.new(1, 0, 0, theme.size.row / 2),\
+					Size = UDim2.fromOffset(SWITCH_WIDTH, SWITCH_HEIGHT),\
+\
+					Name = \"Track\",\
+				},\
+				children = {\
+					Create.corner(theme.radius.pill),\
+					{\
+						class = \"UIStroke\",\
+						ref = \"trackStroke\",\
+						props = {\
+							ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+							Color = theme.color.border,\
+							Thickness = theme.stroke.hairline,\
+							Transparency = theme.transparency.border,\
+						},\
+					},\
+					{\
+						class = \"Frame\",\
+						ref = \"thumb\",\
+						props = {\
+							BackgroundColor3 = theme.color.textMuted,\
+							BorderSizePixel = 0,\
+\
+							AnchorPoint = Vector2.new(0, 0.5),\
+							Position = UDim2.new(0, 3, 0.5, 0),\
+							Size = UDim2.fromOffset(theme.size.thumb + 2, theme.size.thumb + 2),\
+\
+							Name = \"Thumb\",\
+						},\
+						children = { Create.corner(theme.radius.pill) },\
+					},\
+				},\
+			},\
+			{\
+				class = \"TextButton\",\
+				ref = \"hit\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutoButtonColor = false,\
+					Size = UDim2.fromScale(1, 1),\
+					Name = \"Hit\",\
+					Text = \"\",\
+					ZIndex = 4,\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"toggle\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		on = false,\
+		labelText = \"\",\
+		descriptionText = \"\",\
+		style = \"switch\",\
+	}\
+\
+	local toggle = setmetatable(fields, Toggle) :: any\
+\
+	local hit = refs.hit :: TextButton\
+\
+	Hover.attach(scope, hit, function(hovering)\
+		if not fields.enabled then\
+			return\
+		end\
+\
+		Motion.animate(\
+			refs.track :: Frame,\
+			{ BackgroundTransparency = if hovering then theme.transparency.track - 0.12 else theme.transparency.track },\
+			theme:spec(\"hover\")\
+		)\
+	end)\
+\
+	scope:add(hit.Activated:Connect(function()\
+		if fields.enabled then\
+			Toggle.flip(toggle)\
+		end\
+	end))\
+\
+	Toggle.paint(fields, true)\
+\
+	return toggle\
+end\
+\
+--- Moves the thumb and recolours the track for the current state.\
+function Toggle.paint(self: Fields, immediate: boolean?)\
+	local theme = self.app.theme\
+\
+	local track = self.refs.track :: Frame\
+	local thumb = self.refs.thumb :: Frame\
+	local stroke = self.refs.trackStroke :: UIStroke\
+\
+	if self.style == \"checkbox\" then\
+		track.Size = UDim2.fromOffset(CHECKBOX_SIZE, CHECKBOX_SIZE)\
+		thumb.Size = UDim2.fromOffset(CHECKBOX_SIZE - 8, CHECKBOX_SIZE - 8)\
+		thumb.AnchorPoint = Vector2.new(0.5, 0.5)\
+\
+		local target = {\
+			BackgroundColor3 = if self.on then theme.color.accent else theme.color.track,\
+			BackgroundTransparency = if self.on then 0 else theme.transparency.track,\
+		}\
+\
+		local thumbTarget = {\
+			Position = UDim2.fromScale(0.5, 0.5),\
+			BackgroundTransparency = if self.on then 0 else 1,\
+			BackgroundColor3 = theme.color.accentText,\
+		}\
+\
+		if immediate then\
+			Motion.set(track, target)\
+			Motion.set(thumb, thumbTarget)\
+		else\
+			Motion.animate(track, target, theme:spec(\"hover\"))\
+			Motion.animate(thumb, thumbTarget, theme:spec(\"morph\"))\
+		end\
+\
+		stroke.Transparency = if self.on then 1 else theme.transparency.border\
+\
+		return\
+	end\
+\
+	track.Size = UDim2.fromOffset(SWITCH_WIDTH, SWITCH_HEIGHT)\
+	thumb.AnchorPoint = Vector2.new(0, 0.5)\
+	thumb.Size = UDim2.fromOffset(theme.size.thumb + 2, theme.size.thumb + 2)\
+\
+	local travel = SWITCH_WIDTH - (theme.size.thumb + 2) - 3\
+\
+	local trackTarget = {\
+		BackgroundColor3 = if self.on then theme.color.accent else theme.color.track,\
+		BackgroundTransparency = if self.on then 0 else theme.transparency.track,\
+	}\
+\
+	local thumbTarget = {\
+		Position = UDim2.new(0, if self.on then travel else 3, 0.5, 0),\
+		BackgroundColor3 = if self.on then theme.color.accentText else theme.color.textMuted,\
+	}\
+\
+	if immediate then\
+		Motion.set(track, trackTarget)\
+		Motion.set(thumb, thumbTarget)\
+	else\
+		Motion.animate(track, trackTarget, theme:spec(\"hover\"))\
+		Motion.animate(thumb, thumbTarget, theme:spec(\"morph\"))\
+	end\
+\
+	stroke.Transparency = if self.on then 1 else theme.transparency.border\
+end\
+\
+function Toggle.setLabel(self: Fields & Types.Toggle, label: Types.Bindable<string>): Types.Toggle\
+	local text = self.refs.label :: TextLabel\
+\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local value = tostring(next)\
+\
+		self.labelText = value\
+		text.Text = value\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Toggle.setDescription(self: Fields & Types.Toggle, description: Types.Bindable<string>): Types.Toggle\
+	local text = self.refs.description :: TextLabel\
+\
+	Node.bind(self, \"description\", description, function(next: string)\
+		local value = tostring(next)\
+\
+		self.descriptionText = value\
+\
+		text.Text = value\
+		text.Visible = value ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Toggle.setValue(self: Fields & Types.Toggle, value: Types.Bindable<boolean>): Types.Toggle\
+	Node.bind(self, \"value\", value, function(next: boolean)\
+		local resolved = next == true\
+\
+		if self.on == resolved then\
+			return\
+		end\
+\
+		self.on = resolved\
+\
+		Toggle.paint(self)\
+\
+		self:emit(\"changed\", resolved)\
+	end)\
+\
+	return self\
+end\
+\
+function Toggle.setStyle(self: Fields & Types.Toggle, style: \"switch\" | \"checkbox\"): Types.Toggle\
+	self.style = style\
+\
+	Toggle.paint(self, true)\
+\
+	return self:invalidate()\
+end\
+\
+function Toggle.onChanged(self: Fields & Types.Toggle, handler: (boolean) -> ()): Types.Toggle\
+	return self:on(\"changed\", handler)\
+end\
+\
+--- Flips the state and fires `changed`.\
+function Toggle.flip(self: Fields & Types.Toggle): Types.Toggle\
+	self.on = not self.on\
+\
+	Toggle.paint(self)\
+\
+	self:emit(\"changed\", self.on)\
+\
+	return self\
+end\
+\
+function Toggle.value(self: Fields & Types.Toggle): boolean\
+	return self.on\
+end\
+\
+function Toggle.measure(self: Fields & Types.Toggle, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local control = if self.style == \"checkbox\" then CHECKBOX_SIZE else SWITCH_WIDTH\
+\
+	local ceiling = math.max(1, available.X - self.margin * 2)\
+	local natural = self.app.measure:width(self.labelText, theme.text.sm, theme.font.body)\
+		+ control\
+		+ theme.space.md\
+\
+	local width = math.min(natural, ceiling)\
+	local height = theme.size.control\
+\
+	if self.descriptionText ~= \"\" then\
+		--// the description wraps, so its height depends on the width we settle\
+		--// on, not on the width we would have liked\
+		local textWidth = math.max(1, ceiling - control - theme.space.md)\
+		local bounds = self.app.measure:text(self.descriptionText, theme.text.xs, theme.font.body, textWidth)\
+\
+		height = theme.size.row + bounds.Y + theme.space.xs\
+		width = ceiling\
+	end\
+\
+	self.desired = Vector2.new(math.ceil(width), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+--- Keeps the label column clear of the switch at whatever width we ended up.\
+function Toggle.commit(self: Fields & Types.Toggle, inner: Vector2, vertical: boolean, share: number)\
+	local theme = self.app.theme\
+\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+	local height = self.desired.Y + (if self.grow then share else 0)\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	local control = if self.style == \"checkbox\" then CHECKBOX_SIZE else SWITCH_WIDTH\
+	local column = math.max(0, width - control - theme.space.md)\
+\
+	;(self.refs.label :: TextLabel).Size = UDim2.new(0, column, 0, theme.size.row)\
+	;(self.refs.description :: TextLabel).Size =\
+		UDim2.new(0, column, 0, math.max(0, height - theme.size.row))\
+end\
+\
+Element.install(Toggle)\
+\
+return Toggle\
+"},
+{"Astrix/_Packages/Lume/Input","Folder",nil},
+{"Astrix/_Packages/Lume/Input/Drag","ModuleScript","--!strict\
+\
+--- Dragging, one-to-one with the pointer.\
+---\
+--- Movement is assigned straight to `Position` rather than routed through the\
+--- motion driver: a dragged panel that lags its cursor by even two frames feels\
+--- broken. The spring only comes back on release, when the panel settles into\
+--- the viewport if the throw took it past the edge.\
+--- @section Input\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Placement = require(script.Parent.Parent.Layout.Placement)\
+local Signal = require(script.Parent.Parent.Core.Signal)\
+local Motion = require(script.Parent.Parent.Motion)\
+\
+type Scope = Types.Scope\
+\
+local Drag = {}\
+Drag.__index = Drag\
+\
+export type Options = {\
+	handles: { GuiObject }?,\
+	scope: Scope?,\
+	bounds: boolean?,\
+	inset: number?,\
+	axis: (\"x\" | \"y\")?,\
+}\
+\
+export type Fields = {\
+	app: Types.App,\
+	target: GuiObject,\
+	scopeRef: Scope,\
+\
+	moved: Types.Signal,\
+	started: Types.Signal,\
+	ended: Types.Signal,\
+\
+	active: boolean,\
+	enabled: boolean,\
+\
+	origin: Vector2,\
+	anchor: UDim2,\
+	bounded: boolean,\
+	inset: number,\
+	axis: (\"x\" | \"y\")?,\
+}\
+\
+local DRAG_INPUTS: { [Enum.UserInputType]: boolean } = {\
+	[Enum.UserInputType.MouseButton1] = true,\
+	[Enum.UserInputType.Touch] = true,\
+}\
+\
+local MOVE_INPUTS: { [Enum.UserInputType]: boolean } = {\
+	[Enum.UserInputType.MouseMovement] = true,\
+	[Enum.UserInputType.Touch] = true,\
+}\
+\
+--- Makes `target` draggable by the given handles, or by itself if none are\
+--- given.\
+function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Types.DragHandle\
+	local settings = options or {}\
+	local scope = (settings.scope or app.scope):child()\
+\
+	local self: Fields = {\
+		app = app,\
+		target = target,\
+		scopeRef = scope,\
+\
+		moved = Signal.new(),\
+		started = Signal.new(),\
+		ended = Signal.new(),\
+\
+		active = false,\
+		enabled = true,\
+\
+		origin = Vector2.zero,\
+		anchor = target.Position,\
+		bounded = settings.bounds ~= false,\
+		inset = settings.inset or app.theme.space.sm,\
+		axis = settings.axis,\
+	}\
+\
+	local handle = setmetatable(self, Drag) :: any\
+\
+	scope:add(self.moved)\
+	scope:add(self.started)\
+	scope:add(self.ended)\
+\
+	local function begin(input: InputObject)\
+		if not self.enabled or self.active then\
+			return\
+		end\
+\
+		self.active = true\
+		self.origin = Vector2.new(input.Position.X, input.Position.Y)\
+		self.anchor = target.Position\
+\
+		--// a panel mid-flight would otherwise keep animating out from under\
+		--// the cursor\
+		Motion.stop(target, \"Position\")\
+\
+		self.started:fire(self.anchor)\
+	end\
+\
+	local function move(input: InputObject)\
+		if not self.active then\
+			return\
+		end\
+\
+		local point = Vector2.new(input.Position.X, input.Position.Y)\
+		local delta = point - self.origin\
+\
+		if self.axis == \"x\" then\
+			delta = Vector2.new(delta.X, 0)\
+		elseif self.axis == \"y\" then\
+			delta = Vector2.new(0, delta.Y)\
+		end\
+\
+		local next = UDim2.new(\
+			self.anchor.X.Scale,\
+			self.anchor.X.Offset + delta.X,\
+			self.anchor.Y.Scale,\
+			self.anchor.Y.Offset + delta.Y\
+		)\
+\
+		target.Position = next\
+\
+		self.moved:fire(next)\
+	end\
+\
+	local function finish()\
+		if not self.active then\
+			return\
+		end\
+\
+		self.active = false\
+\
+		local settled = target.Position\
+\
+		if self.bounded then\
+			settled = Placement.clamp(\
+				target.Position,\
+				target.AnchorPoint,\
+				target.AbsoluteSize,\
+				app:viewport(),\
+				self.inset\
+			)\
+\
+			if settled ~= target.Position then\
+				Motion.animate(target, { Position = settled }, app.theme:spec(\"drag\"))\
+			end\
+		end\
+\
+		self.ended:fire(settled)\
+	end\
+\
+	for _, region in settings.handles or { target } do\
+		scope:add(region.InputBegan:Connect(function(input)\
+			if DRAG_INPUTS[input.UserInputType] then\
+				begin(input)\
+			end\
+		end))\
+	end\
+\
+	scope:add(UserInputService.InputChanged:Connect(function(input)\
+		if MOVE_INPUTS[input.UserInputType] then\
+			move(input)\
+		end\
+	end))\
+\
+	scope:add(UserInputService.InputEnded:Connect(function(input)\
+		if DRAG_INPUTS[input.UserInputType] then\
+			finish()\
+		end\
+	end))\
+\
+	scope:add(function()\
+		self.active = false\
+	end)\
+\
+	return handle\
+end\
+\
+--- Whether a drag is in progress.\
+function Drag.dragging(self: Fields & Types.DragHandle): boolean\
+	return self.active\
+end\
+\
+function Drag.setEnabled(self: Fields & Types.DragHandle, enabled: boolean)\
+	self.enabled = enabled\
+\
+	if not enabled then\
+		self.active = false\
+	end\
+end\
+\
+--- Resyncs the drag origin after the panel was moved by something else (a\
+--- stack reflow, a viewport resize). Without this the next drag would snap\
+--- back to where the panel used to be.\
+function Drag.setPosition(self: Fields & Types.DragHandle, position: UDim2)\
+	self.anchor = position\
+end\
+\
+function Drag.destroy(self: Fields & Types.DragHandle)\
+	self.active = false\
+	self.enabled = false\
+\
+	if self.scopeRef then\
+		self.scopeRef:destroy()\
+	end\
+end\
+\
+return Drag\
+"},
+{"Astrix/_Packages/Lume/Input/Focus","ModuleScript","--!strict\
+\
+--- The app's focus ring: which element currently owns keyboard input, and\
+--- whether a text field is capturing keystrokes.\
+---\
+--- Key bindings consult `typing()` before firing, so an activation key bound\
+--- to `F` does not toggle the console every time somebody types the letter F\
+--- into a search box.\
+--- @section Input\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Signal = require(script.Parent.Parent.Core.Signal)\
+\
+local Focus = {}\
+Focus.__index = Focus\
+\
+export type Fields = {\
+	app: Types.App,\
+	current: any,\
+	changed: Types.Signal,\
+	capturing: boolean,\
+}\
+\
+export type Focus = typeof(setmetatable({} :: Fields, Focus))\
+\
+--- Creates the focus ring for an app.\
+function Focus.new(app: Types.App): Focus\
+	local self: Fields = {\
+		app = app,\
+		current = nil,\
+		changed = Signal.new(),\
+		capturing = false,\
+	}\
+\
+	local focus = setmetatable(self, Focus)\
+\
+	app.scope:add(self.changed)\
+\
+	app.scope:add(UserInputService.TextBoxFocused:Connect(function()\
+		self.capturing = true\
+	end))\
+\
+	app.scope:add(UserInputService.TextBoxFocusReleased:Connect(function()\
+		self.capturing = false\
+	end))\
+\
+	return focus\
+end\
+\
+--- Moves focus. Passing nil clears it.\
+function Focus.set(self: Focus, element: any)\
+	if self.current == element then\
+		return\
+	end\
+\
+	local previous = self.current\
+\
+	self.current = element\
+\
+	self.changed:fire(element, previous)\
+end\
+\
+--- Clears focus.\
+function Focus.clear(self: Focus)\
+	Focus.set(self, nil)\
+end\
+\
+--- The focused element, if any.\
+function Focus.get(self: Focus): any\
+	return self.current\
+end\
+\
+--- Whether the element owns focus right now.\
+function Focus.owns(self: Focus, element: any): boolean\
+	return self.current == element\
+end\
+\
+--- Whether a text field is currently capturing keystrokes.\
+function Focus.typing(self: Focus): boolean\
+	return self.capturing\
+end\
+\
+return Focus\
+"},
+{"Astrix/_Packages/Lume/Input/Hover","ModuleScript","--!strict\
+\
+--- Hover and press state, wired the boring way so it is right on every device.\
+---\
+--- Two details this handles that hand-rolled `MouseEnter` wiring usually does\
+--- not: a pointer that leaves by way of the element being hidden or destroyed\
+--- still reports \"not hovering\", and touch reports a press without ever\
+--- reporting a hover.\
+--- @section Input\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+type Scope = Types.Scope\
+\
+local Hover = {}\
+\
+--- Reports hover changes for a GuiObject. Returns a reader for the current\
+--- state.\
+function Hover.attach(scope: Scope, instance: GuiObject, onChange: (boolean) -> ()): () -> boolean\
+	local hovering = false\
+\
+	local function report(next: boolean)\
+		if hovering == next then\
+			return\
+		end\
+\
+		hovering = next\
+\
+		onChange(next)\
+	end\
+\
+	scope:add(instance.MouseEnter:Connect(function()\
+		report(true)\
+	end))\
+\
+	scope:add(instance.MouseLeave:Connect(function()\
+		report(false)\
+	end))\
+\
+	--// an element hidden mid-hover never fires MouseLeave\
+	scope:add(instance:GetPropertyChangedSignal(\"Visible\"):Connect(function()\
+		if not instance.Visible then\
+			report(false)\
+		end\
+	end))\
+\
+	scope:add(function()\
+		report(false)\
+	end)\
+\
+	return function()\
+		return hovering\
+	end\
+end\
+\
+--- Reports press changes for a GuiObject, on mouse and touch alike.\
+function Hover.press(scope: Scope, instance: GuiObject, onChange: (boolean) -> ()): () -> boolean\
+	local pressed = false\
+\
+	local function report(next: boolean)\
+		if pressed == next then\
+			return\
+		end\
+\
+		pressed = next\
+\
+		onChange(next)\
+	end\
+\
+	scope:add(instance.InputBegan:Connect(function(input)\
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then\
+			report(true)\
+		end\
+	end))\
+\
+	scope:add(instance.InputEnded:Connect(function(input)\
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then\
+			report(false)\
+		end\
+	end))\
+\
+	scope:add(instance.MouseLeave:Connect(function()\
+		report(false)\
+	end))\
+\
+	scope:add(function()\
+		report(false)\
+	end)\
+\
+	return function()\
+		return pressed\
+	end\
+end\
+\
+return Hover\
+"},
+{"Astrix/_Packages/Lume/Input/Keys","ModuleScript","--!strict\
+\
+--- Keyboard bindings, single keys or chords.\
+---\
+--- A chord fires when its last key goes down while the rest are already held,\
+--- so `{LeftControl, K}` triggers on K and not on Control. Bindings are skipped\
+--- while a text field is capturing input unless they opt out.\
+--- @section Input\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+local Keys = {}\
+Keys.__index = Keys\
+\
+export type Binding = {\
+	keys: { Enum.KeyCode },\
+	handler: () -> (),\
+	whileTyping: boolean,\
+	live: boolean,\
+}\
+\
+export type Fields = {\
+	app: Types.App,\
+	bindings: { Binding },\
+}\
+\
+export type Keys = typeof(setmetatable({} :: Fields, Keys))\
+\
+--- Creates the key binder for an app.\
+function Keys.new(app: Types.App): Keys\
+	local self: Fields = {\
+		app = app,\
+		bindings = {},\
+	}\
+\
+	local binder = setmetatable(self, Keys)\
+\
+	app.scope:add(UserInputService.InputBegan:Connect(function(input, processed)\
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
+			return\
+		end\
+\
+		local typing = app.focus and app.focus:typing()\
+\
+		for _, binding in table.clone(self.bindings) do\
+			if not binding.live then\
+				continue\
+			end\
+\
+			if typing and not binding.whileTyping then\
+				continue\
+			end\
+\
+			--// `processed` is true whenever the engine already consumed the\
+			--// key, which includes every keystroke typed into a TextBox\
+			if processed and not binding.whileTyping then\
+				continue\
+			end\
+\
+			local last = binding.keys[#binding.keys]\
+\
+			if input.KeyCode ~= last then\
+				continue\
+			end\
+\
+			local satisfied = true\
+\
+			for index = 1, #binding.keys - 1 do\
+				if not UserInputService:IsKeyDown(binding.keys[index]) then\
+					satisfied = false\
+					break\
+				end\
+			end\
+\
+			if satisfied then\
+				local ok, err = pcall(binding.handler)\
+\
+				if not ok then\
+					warn(`[Lume] key handler errored: {err}`)\
+				end\
+			end\
+		end\
+	end))\
+\
+	return binder\
+end\
+\
+--- Binds a key or chord. The returned binding disconnects itself.\
+function Keys.bind(\
+	self: Keys,\
+	keys: { Enum.KeyCode } | Enum.KeyCode,\
+	handler: () -> (),\
+	whileTyping: boolean?\
+): Types.KeyBinding\
+	local list: { Enum.KeyCode } = if typeof(keys) == \"EnumItem\" then { keys :: Enum.KeyCode } else keys :: { Enum.KeyCode }\
+\
+	local binding: Binding = {\
+		keys = list,\
+		handler = handler,\
+		whileTyping = whileTyping == true,\
+		live = true,\
+	}\
+\
+	table.insert(self.bindings, binding)\
+\
+	return {\
+		keys = list,\
+		handler = handler,\
+		disconnect = function()\
+			binding.live = false\
+\
+			local index = table.find(self.bindings, binding)\
+\
+			if index then\
+				table.remove(self.bindings, index)\
+			end\
+		end,\
+	}\
+end\
+\
+--- Drops every binding.\
+function Keys.clear(self: Keys)\
+	table.clear(self.bindings)\
+end\
+\
+return Keys\
+"},
+{"Astrix/_Packages/Lume/Layout","Folder",nil},
+{"Astrix/_Packages/Lume/Layout/Autosize","ModuleScript","--!strict\
+\
+--- The layout pass. One function, run once per panel per frame, that turns a\
+--- panel's children into the size that panel should be.\
+---\
+--- The rule is: **measure, sum, clamp**. Children report what they want given\
+--- the room on offer, the panel adds them up along its axis, and the result is\
+--- clamped by the panel's own bounds and by how much screen is actually left\
+--- in the direction it grows. Roblox's own UIListLayout then places the\
+--- children inside that decided size — Lume never positions them itself.\
+---\
+--- Everything responsive about the library comes out of this: nothing has a\
+--- hardcoded size, so nothing has to be re-tuned per screen.\
+--- @section Layout\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+type Solution = Types.Solution\
+type Element = Types.Element\
+\
+local Autosize = {}\
+\
+export type Input = {\
+	children: { Element },\
+	vertical: boolean,\
+\
+	gap: number,\
+	padX: number,\
+	padY: number,\
+\
+	chrome: Vector2,\
+	room: Vector2,\
+\
+	minWidth: number,\
+	maxWidth: number,\
+	minHeight: number,\
+	maxHeight: number,\
+\
+	fixedWidth: number?,\
+	fixedHeight: number?,\
+}\
+\
+--- Runs one pass and reports the content size, the total size the panel wants,\
+--- and that total clamped to what it is allowed and what fits.\
+function Autosize.solve(input: Input): Solution\
+	local vertical = input.vertical\
+\
+	--// what a child may occupy, before it is asked what it wants\
+	local ceilingWidth = math.min(input.maxWidth, math.max(input.minWidth, input.room.X))\
+	local ceilingHeight = math.min(input.maxHeight, math.max(input.minHeight, input.room.Y))\
+\
+	local availableWidth = math.max(0, (input.fixedWidth or ceilingWidth) - input.padX * 2)\
+	local availableHeight = math.max(0, (input.fixedHeight or ceilingHeight) - input.padY * 2 - input.chrome.Y)\
+\
+	local available = Vector2.new(availableWidth, availableHeight)\
+\
+	local main = 0\
+	local cross = 0\
+	local visible = 0\
+	local growers = 0\
+\
+	for _, child in input.children do\
+		if not child.instance.Visible then\
+			continue\
+		end\
+\
+		local desired = child:measure(available)\
+		local margin = child.margin * 2\
+\
+		if vertical then\
+			main += desired.Y + margin\
+			cross = math.max(cross, desired.X + margin)\
+		else\
+			main += desired.X + margin\
+			cross = math.max(cross, desired.Y + margin)\
+		end\
+\
+		if child.grow then\
+			growers += 1\
+		end\
+\
+		visible += 1\
+	end\
+\
+	if visible > 1 then\
+		main += input.gap * (visible - 1)\
+	end\
+\
+	local content = if vertical then Vector2.new(cross, main) else Vector2.new(main, cross)\
+\
+	local total = Vector2.new(\
+		content.X + input.padX * 2,\
+		content.Y + input.padY * 2 + input.chrome.Y\
+	) + Vector2.new(input.chrome.X, 0)\
+\
+	local width = input.fixedWidth or math.clamp(total.X, input.minWidth, ceilingWidth)\
+	local height = input.fixedHeight or math.clamp(total.Y, input.minHeight, ceilingHeight)\
+\
+	local clamped = Vector2.new(math.floor(width + 0.5), math.floor(height + 0.5))\
+\
+	local overflow = if vertical then total.Y > clamped.Y + 0.5 else total.X > clamped.X + 0.5\
+\
+	--// a panel with growers never reports overflow on the main axis: the\
+	--// growers absorb the difference instead\
+	if growers > 0 and not overflow then\
+		overflow = false\
+	end\
+\
+	return {\
+		content = content,\
+		total = total,\
+		clamped = clamped,\
+		overflow = overflow,\
+	}\
+end\
+\
+--- Distributes leftover main-axis space across children that asked to grow.\
+--- Returns how much each grower gets; zero when nothing grows or nothing is\
+--- left over.\
+function Autosize.share(input: Input, solution: Solution): number\
+	local growers = 0\
+\
+	for _, child in input.children do\
+		if child.instance.Visible and child.grow then\
+			growers += 1\
+		end\
+	end\
+\
+	if growers == 0 then\
+		return 0\
+	end\
+\
+	local used = if input.vertical then solution.content.Y else solution.content.X\
+	local room = if input.vertical\
+		then solution.clamped.Y - input.padY * 2 - input.chrome.Y\
+		else solution.clamped.X - input.padX * 2\
+\
+	return math.max(0, room - used) / growers\
+end\
+\
+return Autosize\
+"},
+{"Astrix/_Packages/Lume/Layout/Measure","ModuleScript","--!strict\
+\
+--- Cached text measurement. Every element sizes itself through one of these\
+--- rather than calling TextService directly, so a theme change flushes a single\
+--- cache and a list of two hundred rows measures each distinct string once.\
+---\
+--- The cache is capped; passing it a stream of unique strings (a live clock,\
+--- say) degrades to plain measurement instead of growing without bound.\
+--- @section Layout\
+\
+local TextService = game:GetService(\"TextService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+local Measure = {}\
+Measure.__index = Measure\
+\
+local UNBOUNDED = Vector2.new(100000, 100000)\
+local CAPACITY = 4096\
+\
+export type Fields = {\
+	cache: { [string]: Vector2 },\
+	entries: number,\
+}\
+\
+--- Creates an empty measurement cache.\
+function Measure.new(): Types.Measurer\
+	local self: Fields = {\
+		cache = {},\
+		entries = 0,\
+	}\
+\
+	return setmetatable(self, Measure) :: any\
+end\
+\
+--- Measures a string. `width` bounds wrapping; omit it for a single line.\
+function Measure.text(\
+	self: Fields & Types.Measurer,\
+	text: string,\
+	size: number,\
+	font: Enum.Font,\
+	width: number?\
+): Vector2\
+	if text == \"\" then\
+		return Vector2.new(0, size)\
+	end\
+\
+	local key = `{size}|{font.Value}|{width or -1}|{text}`\
+	local hit = self.cache[key]\
+\
+	if hit then\
+		return hit\
+	end\
+\
+	local bounds = if width then Vector2.new(width, UNBOUNDED.Y) else UNBOUNDED\
+\
+	local ok, result = pcall(function()\
+		return TextService:GetTextSize(text, size, font, bounds)\
+	end)\
+\
+	local measured = if ok and result then result else Vector2.new(#text * size * 0.5, size)\
+\
+	if self.entries >= CAPACITY then\
+		self:flush()\
+	end\
+\
+	self.cache[key] = measured\
+	self.entries += 1\
+\
+	return measured\
+end\
+\
+--- Width of a single unwrapped line.\
+function Measure.width(self: Fields & Types.Measurer, text: string, size: number, font: Enum.Font): number\
+	return Measure.text(self, text, size, font).X\
+end\
+\
+--- Height of one line in this font and size.\
+function Measure.lineHeight(self: Fields & Types.Measurer, size: number, font: Enum.Font): number\
+	--// two lines measured together, halved: dodges the per-font padding that\
+	--// a single-line measurement folds into its height\
+	return math.ceil(Measure.text(self, \"Ag\\nAg\", size, font).Y / 2)\
+end\
+\
+--- Width of one space. Fonts do not expose this, so it is the difference\
+--- between a spaced and unspaced pair.\
+function Measure.spaceWidth(self: Fields & Types.Measurer, size: number, font: Enum.Font): number\
+	local spaced = Measure.width(self, \"a a\", size, font)\
+	local tight = Measure.width(self, \"aa\", size, font)\
+\
+	return math.max(0, spaced - tight)\
+end\
+\
+--- Drops every cached measurement. Called on restyle.\
+function Measure.flush(self: Fields & Types.Measurer)\
+	table.clear(self.cache)\
+\
+	self.entries = 0\
+end\
+\
+return Measure\
+"},
+{"Astrix/_Packages/Lume/Layout/Placement","ModuleScript","--!strict\
+\
+--- Anchoring, growth direction, and viewport-aware room.\
+---\
+--- The trick that keeps a growing panel from sliding around is doing nothing\
+--- clever at all: set `AnchorPoint` to the edge the panel is stuck to, and\
+--- Roblox keeps that edge fixed while the size changes. A bottom-anchored\
+--- panel grows upward for free.\
+---\
+--- What *does* need arithmetic is knowing how much room a panel has before it\
+--- runs into the edge of the screen, which is what `room` answers and what\
+--- every auto-sizing pass clamps against.\
+--- @section Layout\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+type Anchor = Types.Anchor\
+type Edge = Types.Edge\
+\
+local Placement = {}\
+\
+--// locals\
+local ANCHORS: { [string]: Vector2 } = {\
+	topLeft = Vector2.new(0, 0),\
+	top = Vector2.new(0.5, 0),\
+	topRight = Vector2.new(1, 0),\
+	left = Vector2.new(0, 0.5),\
+	center = Vector2.new(0.5, 0.5),\
+	right = Vector2.new(1, 0.5),\
+	bottomLeft = Vector2.new(0, 1),\
+	bottom = Vector2.new(0.5, 1),\
+	bottomRight = Vector2.new(1, 1),\
+}\
+\
+--- The AnchorPoint for a named anchor.\
+function Placement.anchorPoint(anchor: Anchor): Vector2\
+	return ANCHORS[anchor] or ANCHORS.center\
+end\
+\
+--- Screen position for a named anchor, `inset` pixels in from the edges.\
+--- Pairs with `anchorPoint` for the same name.\
+function Placement.position(anchor: Anchor, inset: number, offset: Vector2?): UDim2\
+	local point = Placement.anchorPoint(anchor)\
+	local shift = offset or Vector2.zero\
+\
+	local x = point.X\
+	local y = point.Y\
+\
+	local offsetX = shift.X + (if x == 0 then inset elseif x == 1 then -inset else 0)\
+	local offsetY = shift.Y + (if y == 0 then inset elseif y == 1 then -inset else 0)\
+\
+	return UDim2.new(x, offsetX, y, offsetY)\
+end\
+\
+--- Whether a GuiObject is anchored to the top half of its parent, and so grows\
+--- downward.\
+function Placement.isTop(instance: GuiObject): boolean\
+	return instance.AnchorPoint.Y < 0.5\
+end\
+\
+--- Which edge a GuiObject is stuck to on each axis.\
+function Placement.growth(instance: GuiObject): (Edge, Edge)\
+	local point = instance.AnchorPoint\
+\
+	local horizontal: Edge = if point.X < 0.5 then \"left\" elseif point.X > 0.5 then \"right\" else \"left\"\
+	local vertical: Edge = if point.Y < 0.5 then \"top\" elseif point.Y > 0.5 then \"bottom\" else \"top\"\
+\
+	return horizontal, vertical\
+end\
+\
+--- How much room a GuiObject has to grow into before it hits the viewport,\
+--- given where it sits and which edges it is anchored to.\
+---\
+--- A bottom-anchored panel 300px up the screen has 300 minus the inset to grow\
+--- into. A centred one has twice the smaller of its two gaps.\
+function Placement.room(instance: GuiObject, viewport: Vector2, inset: number): Vector2\
+	local point = instance.AnchorPoint\
+	local absolute = instance.AbsolutePosition\
+	local size = instance.AbsoluteSize\
+\
+	--// the anchored edge, in viewport space\
+	local pinX = absolute.X + size.X * point.X\
+	local pinY = absolute.Y + size.Y * point.Y\
+\
+	local roomX: number\
+	local roomY: number\
+\
+	if point.X == 0 then\
+		roomX = viewport.X - pinX - inset\
+	elseif point.X == 1 then\
+		roomX = pinX - inset\
+	else\
+		roomX = 2 * math.min(pinX, viewport.X - pinX) - inset * 2\
+	end\
+\
+	if point.Y == 0 then\
+		roomY = viewport.Y - pinY - inset\
+	elseif point.Y == 1 then\
+		roomY = pinY - inset\
+	else\
+		roomY = 2 * math.min(pinY, viewport.Y - pinY) - inset * 2\
+	end\
+\
+	return Vector2.new(math.max(0, roomX), math.max(0, roomY))\
+end\
+\
+--- Keeps the anchored edge fixed when AnchorPoint cannot do it — used when a\
+--- panel is positioned by a stack rather than by its own anchor.\
+function Placement.shift(position: UDim2, anchorPoint: Vector2, delta: Vector2): UDim2\
+	local x = position.X.Offset - delta.X * (1 - anchorPoint.X)\
+	local y = position.Y.Offset - delta.Y * (1 - anchorPoint.Y)\
+\
+	return UDim2.new(position.X.Scale, x, position.Y.Scale, y)\
+end\
+\
+--- Centres a size in its parent.\
+function Placement.center(): (UDim2, Vector2)\
+	return UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5)\
+end\
+\
+--- Positions `size` next to `target` on `side`, flipping to the opposite side\
+--- when there is not enough room, and sliding along the cross axis to stay on\
+--- screen. This is popover, dropdown and tooltip placement in one function.\
+---\
+--- Coordinates come back relative to `layer`, so the result drops straight\
+--- into a child of that layer.\
+function Placement.attach(\
+	layer: GuiObject,\
+	target: GuiObject,\
+	size: Vector2,\
+	side: Edge,\
+	gap: number,\
+	viewport: Vector2,\
+	inset: number\
+): (UDim2, Vector2)\
+	local origin = layer.AbsolutePosition\
+\
+	local targetPosition = target.AbsolutePosition\
+	local targetSize = target.AbsoluteSize\
+\
+	local left = targetPosition.X\
+	local top = targetPosition.Y\
+	local right = left + targetSize.X\
+	local bottom = top + targetSize.Y\
+\
+	local resolved = side\
+\
+	--// flip when the preferred side would run off the screen and the opposite\
+	--// side has more room\
+	if side == \"bottom\" and bottom + gap + size.Y > viewport.Y - inset and top - gap - size.Y > inset then\
+		resolved = \"top\"\
+	elseif side == \"top\" and top - gap - size.Y < inset and bottom + gap + size.Y < viewport.Y - inset then\
+		resolved = \"bottom\"\
+	elseif side == \"right\" and right + gap + size.X > viewport.X - inset and left - gap - size.X > inset then\
+		resolved = \"left\"\
+	elseif side == \"left\" and left - gap - size.X < inset and right + gap + size.X < viewport.X - inset then\
+		resolved = \"right\"\
+	end\
+\
+	local x: number\
+	local y: number\
+\
+	if resolved == \"bottom\" then\
+		x, y = left, bottom + gap\
+	elseif resolved == \"top\" then\
+		x, y = left, top - gap - size.Y\
+	elseif resolved == \"right\" then\
+		x, y = right + gap, top\
+	else\
+		x, y = left - gap - size.X, top\
+	end\
+\
+	--// slide along the cross axis to stay inside the viewport\
+	x = math.clamp(x, inset, math.max(inset, viewport.X - inset - size.X))\
+	y = math.clamp(y, inset, math.max(inset, viewport.Y - inset - size.Y))\
+\
+	return UDim2.fromOffset(x - origin.X, y - origin.Y), Vector2.zero\
+end\
+\
+--- Pushes a position back inside the viewport, accounting for AnchorPoint.\
+function Placement.clamp(\
+	position: UDim2,\
+	anchorPoint: Vector2,\
+	size: Vector2,\
+	viewport: Vector2,\
+	inset: number\
+): UDim2\
+	local pinX = viewport.X * position.X.Scale + position.X.Offset\
+	local pinY = viewport.Y * position.Y.Scale + position.Y.Offset\
+\
+	local left = pinX - size.X * anchorPoint.X\
+	local top = pinY - size.Y * anchorPoint.Y\
+\
+	local clampedLeft = math.clamp(left, inset, math.max(inset, viewport.X - inset - size.X))\
+	local clampedTop = math.clamp(top, inset, math.max(inset, viewport.Y - inset - size.Y))\
+\
+	return UDim2.new(\
+		position.X.Scale,\
+		position.X.Offset + (clampedLeft - left),\
+		position.Y.Scale,\
+		position.Y.Offset + (clampedTop - top)\
+	)\
+end\
+\
+return Placement\
+"},
+{"Astrix/_Packages/Lume/Layout/Stack","ModuleScript","--!strict\
+\
+--- Panels laid out in sequence from a shared anchor, each one pushed along by\
+--- the size of the ones before it.\
+---\
+--- Because every member keeps its own AnchorPoint, a bottom-anchored stack\
+--- grows upward and the bottom member never moves — new panels appear above\
+--- the one you were already looking at rather than shoving it off the screen.\
+--- @section Layout\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Placement = require(script.Parent.Placement)\
+\
+type Panel = Types.Panel\
+type Anchor = Types.Anchor\
+type MotionSpec = Types.MotionSpec\
+\
+local Stack = {}\
+Stack.__index = Stack\
+\
+export type Fields = {\
+	app: Types.App,\
+	anchor: Anchor,\
+	axis: Types.Axis,\
+	gap: number,\
+	origin: UDim2?,\
+	members: { Panel },\
+	dead: boolean,\
+}\
+\
+--// locals\
+--- Which way members march away from the anchor.\
+local function direction(anchor: Anchor): Vector2\
+	if anchor == \"bottom\" or anchor == \"bottomLeft\" or anchor == \"bottomRight\" then\
+		return Vector2.new(0, -1)\
+	elseif anchor == \"top\" or anchor == \"topLeft\" or anchor == \"topRight\" then\
+		return Vector2.new(0, 1)\
+	elseif anchor == \"right\" then\
+		return Vector2.new(-1, 0)\
+	elseif anchor == \"left\" then\
+		return Vector2.new(1, 0)\
+	end\
+\
+	return Vector2.new(0, 1)\
+end\
+\
+--- Creates a stack anchored to an edge.\
+function Stack.new(app: Types.App, anchor: Anchor?): Types.Stack\
+	local resolved: Anchor = anchor or \"bottom\"\
+\
+	local self: Fields = {\
+		app = app,\
+		anchor = resolved,\
+		axis = if resolved == \"left\" or resolved == \"right\" then \"horizontal\" else \"vertical\",\
+		gap = app.theme.space.sm,\
+		origin = nil,\
+		members = {},\
+		dead = false,\
+	}\
+\
+	return setmetatable(self, Stack) :: any\
+end\
+\
+--- Adds a panel to the end of the stack and reflows.\
+function Stack.add(self: Fields & Types.Stack, panel: Panel): Types.Stack\
+	if table.find(self.members, panel) then\
+		return self\
+	end\
+\
+	table.insert(self.members, panel)\
+\
+	panel.stack = self :: any\
+	panel.anchor = self.anchor\
+	panel.instance.AnchorPoint = Placement.anchorPoint(self.anchor)\
+\
+	Stack.reflow(self)\
+\
+	return self\
+end\
+\
+--- Removes a panel and reflows the rest.\
+function Stack.remove(self: Fields & Types.Stack, panel: Panel): Types.Stack\
+	local index = table.find(self.members, panel)\
+\
+	if not index then\
+		return self\
+	end\
+\
+	table.remove(self.members, index)\
+\
+	panel.stack = nil\
+\
+	Stack.reflow(self)\
+\
+	return self\
+end\
+\
+function Stack.setGap(self: Fields & Types.Stack, gap: number): Types.Stack\
+	self.gap = gap\
+\
+	return Stack.reflow(self)\
+end\
+\
+--- Overrides where the first member sits. Defaults to the anchor's own\
+--- position with the app's edge inset.\
+function Stack.setOrigin(self: Fields & Types.Stack, position: UDim2): Types.Stack\
+	self.origin = position\
+\
+	return Stack.reflow(self)\
+end\
+\
+--- Repositions every member. Cheap enough to call from any panel resize.\
+function Stack.reflow(self: Fields & Types.Stack, spec: (MotionSpec | string)?): Types.Stack\
+	if self.dead then\
+		return self\
+	end\
+\
+	local step = direction(self.anchor)\
+	local vertical = self.axis == \"vertical\"\
+\
+	local origin = self.origin or Placement.position(self.anchor, self.app.theme.space.lg)\
+	local cursor = 0\
+\
+	for _, panel in self.members do\
+		if not panel.instance.Visible then\
+			continue\
+		end\
+\
+		local position = UDim2.new(\
+			origin.X.Scale,\
+			origin.X.Offset + step.X * cursor,\
+			origin.Y.Scale,\
+			origin.Y.Offset + step.Y * cursor\
+		)\
+\
+		panel.settled = position\
+		panel:moveTo(position)\
+\
+		local size = panel.instance.AbsoluteSize\
+\
+		cursor += (if vertical then size.Y else size.X) + self.gap\
+	end\
+\
+	return self\
+end\
+\
+function Stack.destroy(self: Fields & Types.Stack)\
+	self.dead = true\
+\
+	for _, panel in self.members do\
+		panel.stack = nil\
+	end\
+\
+	table.clear(self.members)\
+end\
+\
+return Stack\
+"},
+{"Astrix/_Packages/Lume/Layout/Virtual","ModuleScript","--!strict\
+\
+--- Windowing arithmetic for long lists: which rows are on screen, where they\
+--- sit on the canvas, and how tall the canvas has to be.\
+---\
+--- No instances are created here. A list keeps a pool of row instances and\
+--- asks this module which slice of its data those rows should be showing —\
+--- which is why scrolling ten thousand items costs the same as scrolling ten.\
+--- @section Layout\
+\
+local Virtual = {}\
+\
+--- The slice of indices to render for a scroll offset, padded by `buffer` rows\
+--- on each side so a fast scroll does not reveal empty space.\
+function Virtual.range(\
+	scrollTop: number,\
+	viewHeight: number,\
+	rowHeight: number,\
+	count: number,\
+	buffer: number?\
+): (number, number)\
+	if count <= 0 or rowHeight <= 0 or viewHeight <= 0 then\
+		return 1, 0\
+	end\
+\
+	local pad = buffer or 4\
+\
+	local first = math.max(1, math.floor(scrollTop / rowHeight) + 1 - pad)\
+	local last = math.min(count, math.ceil((scrollTop + viewHeight) / rowHeight) + pad)\
+\
+	return first, last\
+end\
+\
+--- Total canvas height for a uniform-row list.\
+function Virtual.canvas(count: number, rowHeight: number): number\
+	return math.max(0, count * rowHeight)\
+end\
+\
+--- Y offset of a row index on the canvas.\
+function Virtual.offset(index: number, rowHeight: number): number\
+	return (index - 1) * rowHeight\
+end\
+\
+--- Which row sits under a canvas Y coordinate.\
+function Virtual.indexAt(y: number, rowHeight: number, count: number): number\
+	if rowHeight <= 0 then\
+		return 1\
+	end\
+\
+	return math.clamp(math.floor(y / rowHeight) + 1, 1, math.max(1, count))\
+end\
+\
+--- Scroll offset that brings `index` into view, given where the view is now.\
+--- Scrolls the minimum distance: already-visible rows do not move the view.\
+function Virtual.scrollTo(index: number, rowHeight: number, viewHeight: number, scrollTop: number): number\
+	local top = Virtual.offset(index, rowHeight)\
+	local bottom = top + rowHeight\
+\
+	if top < scrollTop then\
+		return top\
+	end\
+\
+	if bottom > scrollTop + viewHeight then\
+		return bottom - viewHeight\
+	end\
+\
+	return scrollTop\
+end\
+\
+--- How far a variable-height list has to scroll to reach index `target`,\
+--- summing measured heights. Falls back to `rowHeight` for unmeasured rows.\
+function Virtual.offsetVariable(heights: { number }, target: number, rowHeight: number): number\
+	local total = 0\
+\
+	for index = 1, math.min(target - 1, #heights) do\
+		total += heights[index] or rowHeight\
+	end\
+\
+	if target - 1 > #heights then\
+		total += (target - 1 - #heights) * rowHeight\
+	end\
+\
+	return total\
+end\
+\
+--- Whether a scroll position counts as pinned to the bottom, within a\
+--- tolerance. Lists use this to decide whether new content should follow the\
+--- view down or leave the user where they were reading.\
+function Virtual.pinned(scrollTop: number, viewHeight: number, canvasHeight: number, tolerance: number?): boolean\
+	local slack = tolerance or 4\
+\
+	return scrollTop + viewHeight >= canvasHeight - slack\
+end\
+\
+return Virtual\
+"},
+{"Astrix/_Packages/Lume/Motion","ModuleScript","--!strict\
+\
+--- The one motion driver. Every animated property in Lume goes through here,\
+--- which is what keeps a panel's shell, its shadow and its children from\
+--- drifting out of sync.\
+---\
+--- Two paths, chosen by the spec:\
+---\
+--- * **Tween** (`duration` + `easing`) — handed to TweenService. Cheap, no\
+---   per-frame Lua, correct for one-shot fades and presses.\
+--- * **Spring** (`stiffness` + `damping`) — stepped here, one channel per\
+---   instance-property. Retargeting keeps velocity, so a size that changes\
+---   three times while the panel is still moving bends smoothly instead of\
+---   restarting. Anything content-driven should be a spring.\
+---\
+--- Starting a tween on a property cancels its spring and vice versa, so the\
+--- two paths can never fight over the same value.\
+--- @section Motion\
+\
+local RunService = game:GetService(\"RunService\")\
+local TweenService = game:GetService(\"TweenService\")\
+\
+local Types = require(script.Parent.Types)\
+local Signal = require(script.Parent.Core.Signal)\
+local Easing = require(script.Easing)\
+local Spring = require(script.Spring)\
+\
+type MotionSpec = Types.MotionSpec\
+\
+local Motion = {}\
+\
+--// locals\
+type Channel = {\
+	instance: Instance,\
+	property: string,\
+	kind: string,\
+	springs: { Spring.Spring },\
+	target: any,\
+	owner: any,\
+}\
+\
+type AnimationFields = {\
+	completed: Types.Signal,\
+	channels: { Channel },\
+	pending: number,\
+	clean: boolean,\
+	done: boolean,\
+	tween: Tween?,\
+	instance: Instance?,\
+	goals: { [string]: any }?,\
+}\
+\
+local Animation = {}\
+Animation.__index = Animation\
+\
+--// registry: instance -> property -> channel\
+local live: { [Instance]: { [string]: Channel } } = {}\
+local watched: { [Instance]: boolean } = {}\
+\
+local stepping: RBXScriptConnection? = nil\
+local channelCount = 0\
+\
+local function decompose(value: any): ({ number }?, string)\
+	local kind = typeof(value)\
+\
+	if kind == \"number\" then\
+		return { value }, kind\
+	elseif kind == \"UDim\" then\
+		return { value.Scale, value.Offset }, kind\
+	elseif kind == \"UDim2\" then\
+		return { value.X.Scale, value.X.Offset, value.Y.Scale, value.Y.Offset }, kind\
+	elseif kind == \"Vector2\" then\
+		return { value.X, value.Y }, kind\
+	elseif kind == \"Vector3\" then\
+		return { value.X, value.Y, value.Z }, kind\
+	elseif kind == \"Color3\" then\
+		return { value.R, value.G, value.B }, kind\
+	elseif kind == \"Rect\" then\
+		return { value.Min.X, value.Min.Y, value.Max.X, value.Max.Y }, kind\
+	end\
+\
+	return nil, kind\
+end\
+\
+local function compose(kind: string, parts: { number }): any\
+	if kind == \"number\" then\
+		return parts[1]\
+	elseif kind == \"UDim\" then\
+		return UDim.new(parts[1], parts[2])\
+	elseif kind == \"UDim2\" then\
+		return UDim2.new(parts[1], parts[2], parts[3], parts[4])\
+	elseif kind == \"Vector2\" then\
+		return Vector2.new(parts[1], parts[2])\
+	elseif kind == \"Vector3\" then\
+		return Vector3.new(parts[1], parts[2], parts[3])\
+	elseif kind == \"Color3\" then\
+		return Color3.new(math.clamp(parts[1], 0, 1), math.clamp(parts[2], 0, 1), math.clamp(parts[3], 0, 1))\
+	elseif kind == \"Rect\" then\
+		return Rect.new(parts[1], parts[2], parts[3], parts[4])\
+	end\
+\
+	return nil\
+end\
+\
+local function assign(instance: Instance, property: string, value: any)\
+	local ok, err = pcall(function()\
+		(instance :: any)[property] = value\
+	end)\
+\
+	if not ok then\
+		warn(`[Lume] motion could not set {instance.ClassName}.{property}: {err}`)\
+	end\
+end\
+\
+local function read(instance: Instance, property: string): any\
+	local ok, value = pcall(function()\
+		return (instance :: any)[property]\
+	end)\
+\
+	return if ok then value else nil\
+end\
+\
+local function drop(channel: Channel)\
+	local properties = live[channel.instance]\
+\
+	if not properties then\
+		return\
+	end\
+\
+	if properties[channel.property] == channel then\
+		properties[channel.property] = nil\
+		channelCount -= 1\
+	end\
+\
+	if next(properties) == nil then\
+		live[channel.instance] = nil\
+	end\
+end\
+\
+local function release(channel: Channel, finished: boolean)\
+	local owner = channel.owner\
+\
+	channel.owner = nil\
+\
+	if owner then\
+		Animation.resolve(owner, channel, finished)\
+	end\
+end\
+\
+local function step(delta: number)\
+	for instance, properties in live do\
+		for property, channel in properties do\
+			local parts = table.create(#channel.springs)\
+			local settled = true\
+\
+			for index, spring in channel.springs do\
+				spring:step(delta)\
+\
+				if not spring:settled() then\
+					settled = false\
+				end\
+\
+				parts[index] = spring.position\
+			end\
+\
+			if settled then\
+				assign(instance, property, channel.target)\
+				drop(channel)\
+				release(channel, true)\
+			else\
+				assign(instance, property, compose(channel.kind, parts))\
+			end\
+		end\
+	end\
+\
+	if channelCount <= 0 and stepping then\
+		stepping:Disconnect()\
+		stepping = nil\
+	end\
+end\
+\
+local function ensureStepping()\
+	if stepping then\
+		return\
+	end\
+\
+	local signal = if RunService:IsClient() then RunService.RenderStepped else RunService.Heartbeat\
+\
+	stepping = signal:Connect(step)\
+end\
+\
+--- Drops every channel on an instance the moment it is destroyed, so a torn\
+--- down panel cannot keep the stepper alive.\
+local function watch(instance: Instance)\
+	if watched[instance] then\
+		return\
+	end\
+\
+	watched[instance] = true\
+\
+	instance.Destroying:Connect(function()\
+		watched[instance] = nil\
+\
+		local properties = live[instance]\
+\
+		if not properties then\
+			return\
+		end\
+\
+		for _, channel in properties do\
+			channelCount -= 1\
+			release(channel, false)\
+		end\
+\
+		live[instance] = nil\
+	end)\
+end\
+\
+--// animation\
+local function newAnimation(): AnimationFields & Types.Animation\
+	local self: AnimationFields = {\
+		completed = Signal.new(),\
+		channels = {},\
+		pending = 0,\
+		clean = true,\
+		done = false,\
+		tween = nil,\
+		instance = nil,\
+		goals = nil,\
+	}\
+\
+	return setmetatable(self, Animation) :: any\
+end\
+\
+local function finishAnimation(self: AnimationFields & Types.Animation, finished: boolean)\
+	if self.done then\
+		return\
+	end\
+\
+	self.done = true\
+\
+	self.completed:fire(finished)\
+end\
+\
+function Animation.resolve(self: AnimationFields & Types.Animation, _channel: Channel, finished: boolean)\
+	if not finished then\
+		self.clean = false\
+	end\
+\
+	self.pending -= 1\
+\
+	if self.pending <= 0 then\
+		finishAnimation(self, self.clean)\
+	end\
+end\
+\
+--- Whether the animation is still running.\
+function Animation.active(self: AnimationFields & Types.Animation): boolean\
+	return not self.done\
+end\
+\
+--- Stops where it is. `completed` fires with `false`.\
+function Animation.cancel(self: AnimationFields & Types.Animation)\
+	if self.done then\
+		return\
+	end\
+\
+	if self.tween then\
+		self.tween:Cancel()\
+	end\
+\
+	for _, channel in self.channels do\
+		if channel.owner == self then\
+			channel.owner = nil\
+			drop(channel)\
+		end\
+	end\
+\
+	self.clean = false\
+\
+	finishAnimation(self, false)\
+end\
+\
+--- Jumps straight to the target. `completed` fires with `true`.\
+function Animation.finish(self: AnimationFields & Types.Animation)\
+	if self.done then\
+		return\
+	end\
+\
+	if self.tween then\
+		self.tween:Cancel()\
+	end\
+\
+	for _, channel in self.channels do\
+		if channel.owner == self then\
+			channel.owner = nil\
+\
+			assign(channel.instance, channel.property, channel.target)\
+			drop(channel)\
+		end\
+	end\
+\
+	if self.instance and self.goals then\
+		for property, value in self.goals do\
+			assign(self.instance, property, value)\
+		end\
+	end\
+\
+	finishAnimation(self, true)\
+end\
+\
+--// public api\
+--- Stops motion on one property, or on every property of an instance.\
+function Motion.stop(instance: Instance, property: string?)\
+	local properties = live[instance]\
+\
+	if not properties then\
+		return\
+	end\
+\
+	if property then\
+		local channel = properties[property]\
+\
+		if channel then\
+			drop(channel)\
+			release(channel, false)\
+		end\
+\
+		return\
+	end\
+\
+	for _, channel in properties do\
+		drop(channel)\
+		release(channel, false)\
+	end\
+end\
+\
+--- Assigns properties instantly, cancelling any motion on them first.\
+function Motion.set(instance: Instance, props: { [string]: any })\
+	for property, value in props do\
+		Motion.stop(instance, property)\
+		assign(instance, property, value)\
+	end\
+end\
+\
+--- Animates `props` toward their targets. The spec decides tween or spring.\
+function Motion.animate(instance: Instance, props: { [string]: any }, spec: MotionSpec): Types.Animation\
+	local animation = newAnimation()\
+\
+	if spec.stiffness then\
+		local stiffness = spec.stiffness\
+		local damping = spec.damping or (2 * math.sqrt(stiffness))\
+\
+		watch(instance)\
+\
+		local properties = live[instance]\
+\
+		if not properties then\
+			properties = {}\
+			live[instance] = properties\
+		end\
+\
+		for property, target in props do\
+			local parts, kind = decompose(target)\
+\
+			if not parts then\
+				--// not a springable datatype (an enum, a string, a boolean);\
+				--// there is no meaningful midpoint, so it lands immediately\
+				Motion.stop(instance, property)\
+				assign(instance, property, target)\
+				continue\
+			end\
+\
+			local channel = properties[property]\
+\
+			if channel and channel.kind == kind and #channel.springs == #parts then\
+				--// retarget in place: position and velocity survive, which is\
+				--// the entire point of the spring path\
+				if channel.owner and channel.owner ~= animation then\
+					release(channel, false)\
+				end\
+\
+				for index, spring in channel.springs do\
+					spring:retune(stiffness, damping)\
+					spring:setTarget(parts[index])\
+				end\
+\
+				channel.target = target\
+				channel.owner = animation\
+			else\
+				if channel then\
+					drop(channel)\
+					release(channel, false)\
+				end\
+\
+				local currentParts = decompose(read(instance, property)) or parts\
+				local springs = table.create(#parts)\
+\
+				for index, goal in parts do\
+					local spring = Spring.new(currentParts[index] or goal, stiffness, damping)\
+\
+					spring:setTarget(goal)\
+\
+					springs[index] = spring\
+				end\
+\
+				channel = {\
+					instance = instance,\
+					property = property,\
+					kind = kind,\
+					springs = springs,\
+					target = target,\
+					owner = animation,\
+				}\
+\
+				properties[property] = channel\
+				channelCount += 1\
+			end\
+\
+			table.insert(animation.channels, channel)\
+			animation.pending += 1\
+		end\
+\
+		if animation.pending == 0 then\
+			finishAnimation(animation, true)\
+		else\
+			ensureStepping()\
+		end\
+\
+		return animation\
+	end\
+\
+	local duration = spec.duration or 0\
+\
+	--// tween path: springs on these properties would fight the tween, so they\
+	--// are cancelled before it starts\
+	for property in props do\
+		Motion.stop(instance, property)\
+	end\
+\
+	if duration <= 0 then\
+		for property, value in props do\
+			assign(instance, property, value)\
+		end\
+\
+		finishAnimation(animation, true)\
+\
+		return animation\
+	end\
+\
+	local style, direction = Easing.resolve(spec.easing)\
+\
+	local ok, tween = pcall(function()\
+		return TweenService:Create(instance, TweenInfo.new(duration, style, direction), props)\
+	end)\
+\
+	if not ok or not tween then\
+		for property, value in props do\
+			assign(instance, property, value)\
+		end\
+\
+		finishAnimation(animation, true)\
+\
+		return animation\
+	end\
+\
+	animation.tween = tween\
+	animation.instance = instance\
+	animation.goals = props\
+\
+	tween.Completed:Connect(function(state)\
+		finishAnimation(animation, state == Enum.PlaybackState.Completed)\
+	end)\
+\
+	tween:Play()\
+\
+	return animation\
+end\
+\
+--- Adds velocity to a live spring channel without moving it. Use on drag\
+--- release to carry the throw into the settle.\
+function Motion.impulse(instance: Instance, property: string, velocity: any)\
+	local properties = live[instance]\
+	local channel = properties and properties[property]\
+\
+	if not channel then\
+		return\
+	end\
+\
+	local parts = decompose(velocity)\
+\
+	if not parts then\
+		return\
+	end\
+\
+	for index, spring in channel.springs do\
+		spring:impulse(parts[index] or 0)\
+	end\
+\
+	ensureStepping()\
+end\
+\
+--- Whether anything is currently animating on this instance.\
+function Motion.busy(instance: Instance, property: string?): boolean\
+	local properties = live[instance]\
+\
+	if not properties then\
+		return false\
+	end\
+\
+	if property then\
+		return properties[property] ~= nil\
+	end\
+\
+	return next(properties) ~= nil\
+end\
+\
+return Motion\
+"},
+{"Astrix/_Packages/Lume/Motion/Easing","ModuleScript","--!strict\
+\
+--- Easing names, in two forms: the Roblox enum pair used by the tween path,\
+--- and pure numeric curves used anywhere a value has to be shaped by hand\
+--- (gradients, indeterminate progress, hand-rolled sweeps).\
+---\
+--- Names read `<direction><Style>` — `outQuint`, `inOutQuad`, `inBack` — with\
+--- `linear` as the one special case.\
+--- @section Motion\
+\
+local Easing = {}\
+\
+--// locals\
+local STYLES: { [string]: Enum.EasingStyle } = {\
+	linear = Enum.EasingStyle.Linear,\
+	sine = Enum.EasingStyle.Sine,\
+	quad = Enum.EasingStyle.Quad,\
+	cubic = Enum.EasingStyle.Cubic,\
+	quart = Enum.EasingStyle.Quart,\
+	quint = Enum.EasingStyle.Quint,\
+	expo = Enum.EasingStyle.Exponential,\
+	exponential = Enum.EasingStyle.Exponential,\
+	circ = Enum.EasingStyle.Circular,\
+	circular = Enum.EasingStyle.Circular,\
+	back = Enum.EasingStyle.Back,\
+	elastic = Enum.EasingStyle.Elastic,\
+	bounce = Enum.EasingStyle.Bounce,\
+}\
+\
+local DIRECTIONS: { [string]: Enum.EasingDirection } = {\
+	[\"in\"] = Enum.EasingDirection.In,\
+	out = Enum.EasingDirection.Out,\
+	inout = Enum.EasingDirection.InOut,\
+}\
+\
+--- Splits `outQuint` into its direction and style enums. Unknown names fall\
+--- back to `Out` / `Quad` with a warning rather than erroring mid-animation.\
+function Easing.resolve(name: string?): (Enum.EasingStyle, Enum.EasingDirection)\
+	if not name or name == \"\" then\
+		return Enum.EasingStyle.Quad, Enum.EasingDirection.Out\
+	end\
+\
+	local lowered = string.lower(name)\
+\
+	if lowered == \"linear\" then\
+		return Enum.EasingStyle.Linear, Enum.EasingDirection.Out\
+	end\
+\
+	local direction = \"out\"\
+	local style = lowered\
+\
+	if string.sub(lowered, 1, 5) == \"inout\" then\
+		direction, style = \"inout\", string.sub(lowered, 6)\
+	elseif string.sub(lowered, 1, 3) == \"out\" then\
+		direction, style = \"out\", string.sub(lowered, 4)\
+	elseif string.sub(lowered, 1, 2) == \"in\" then\
+		direction, style = \"in\", string.sub(lowered, 3)\
+	end\
+\
+	local resolvedStyle = STYLES[style]\
+\
+	if not resolvedStyle then\
+		warn(`[Lume] unknown easing '{name}'`)\
+\
+		return Enum.EasingStyle.Quad, Enum.EasingDirection.Out\
+	end\
+\
+	return resolvedStyle, DIRECTIONS[direction] or Enum.EasingDirection.Out\
+end\
+\
+--// numeric curves, all on the unit interval\
+function Easing.linear(t: number): number\
+	return t\
+end\
+\
+function Easing.outQuad(t: number): number\
+	return 1 - (1 - t) * (1 - t)\
+end\
+\
+function Easing.outCubic(t: number): number\
+	local inverse = 1 - t\
+\
+	return 1 - inverse * inverse * inverse\
+end\
+\
+function Easing.outQuint(t: number): number\
+	local inverse = 1 - t\
+\
+	return 1 - inverse ^ 5\
+end\
+\
+function Easing.outExpo(t: number): number\
+	return if t >= 1 then 1 else 1 - 2 ^ (-10 * t)\
+end\
+\
+function Easing.outBack(t: number, overshoot: number?): number\
+	local amount = overshoot or 1.70158\
+	local inverse = t - 1\
+\
+	return 1 + (amount + 1) * inverse ^ 3 + amount * inverse ^ 2\
+end\
+\
+function Easing.inOutQuad(t: number): number\
+	if t < 0.5 then\
+		return 2 * t * t\
+	end\
+\
+	return 1 - ((-2 * t + 2) ^ 2) / 2\
+end\
+\
+function Easing.inOutSine(t: number): number\
+	return -(math.cos(math.pi * t) - 1) / 2\
+end\
+\
+--- Smoothstep, the curve most useful for fades that should not read as linear.\
+function Easing.smooth(t: number): number\
+	local clamped = math.clamp(t, 0, 1)\
+\
+	return clamped * clamped * (3 - 2 * clamped)\
+end\
+\
+--- Frame-rate independent exponential approach. `smoothing` is the fraction of\
+--- the remaining distance left after one second.\
+function Easing.approach(current: number, target: number, smoothing: number, delta: number): number\
+	return target + (current - target) * smoothing ^ delta\
+end\
+\
+return Easing\
+"},
+{"Astrix/_Packages/Lume/Motion/Spring","ModuleScript","--!strict\
+\
+--- A scalar damped-harmonic-oscillator solver, stepped analytically so the\
+--- result is identical at 30fps and 240fps.\
+---\
+--- This is what makes retargeting feel right: changing `target` mid-flight\
+--- keeps the current position *and velocity*, so the motion bends toward the\
+--- new destination instead of restarting from a standstill.\
+--- @section Motion\
+\
+local Spring = {}\
+Spring.__index = Spring\
+\
+export type Fields = {\
+	position: number,\
+	velocity: number,\
+	target: number,\
+\
+	frequency: number,\
+	ratio: number,\
+}\
+\
+export type Spring = typeof(setmetatable({} :: Fields, Spring))\
+\
+local EPSILON_POSITION = 0.0005\
+local EPSILON_VELOCITY = 0.0005\
+\
+--- Creates a spring resting at `position`.\
+---\
+--- `stiffness` sets the frequency, `damping` the damping *coefficient*: a\
+--- ratio of exactly 1 is critical (no overshoot), below 1 overshoots, above 1\
+--- crawls in.\
+function Spring.new(position: number, stiffness: number, damping: number): Spring\
+	local frequency = math.sqrt(math.max(stiffness, 0.0001))\
+\
+	local self: Fields = {\
+		position = position,\
+		velocity = 0,\
+		target = position,\
+\
+		frequency = frequency,\
+		ratio = damping / (2 * frequency),\
+	}\
+\
+	return setmetatable(self, Spring)\
+end\
+\
+--- Retunes an in-flight spring without disturbing its state.\
+function Spring.retune(self: Spring, stiffness: number, damping: number)\
+	local frequency = math.sqrt(math.max(stiffness, 0.0001))\
+\
+	self.frequency = frequency\
+	self.ratio = damping / (2 * frequency)\
+end\
+\
+--- Advances the spring. Returns the new position.\
+function Spring.step(self: Spring, delta: number): number\
+	if delta <= 0 then\
+		return self.position\
+	end\
+\
+	--// a long frame (streaming hitch, tab restore) integrated in one go reads\
+	--// as a teleport; cap it so the motion stays continuous instead\
+	local dt = math.min(delta, 1 / 20)\
+\
+	local offset = self.position - self.target\
+	local velocity = self.velocity\
+\
+	local frequency = self.frequency\
+	local ratio = self.ratio\
+\
+	local position: number\
+	local nextVelocity: number\
+\
+	if ratio < 1 then\
+		--// underdamped: oscillates in\
+		local damped = frequency * math.sqrt(1 - ratio * ratio)\
+		local decay = math.exp(-ratio * frequency * dt)\
+\
+		local cosine = math.cos(damped * dt)\
+		local sine = math.sin(damped * dt)\
+\
+		local first = offset\
+		local second = (velocity + ratio * frequency * offset) / damped\
+\
+		position = decay * (first * cosine + second * sine)\
+		nextVelocity = decay\
+			* (-ratio * frequency * (first * cosine + second * sine) + damped * (second * cosine - first * sine))\
+	elseif ratio == 1 then\
+		--// critically damped: the fastest approach with no overshoot\
+		local decay = math.exp(-frequency * dt)\
+\
+		local first = offset\
+		local second = velocity + frequency * offset\
+\
+		position = (first + second * dt) * decay\
+		nextVelocity = decay * (second - frequency * (first + second * dt))\
+	else\
+		--// overdamped: two real roots, no oscillation\
+		local root = frequency * math.sqrt(ratio * ratio - 1)\
+\
+		local slow = -frequency * ratio + root\
+		local fast = -frequency * ratio - root\
+\
+		local second = (velocity - slow * offset) / (fast - slow)\
+		local first = offset - second\
+\
+		local slowDecay = math.exp(slow * dt)\
+		local fastDecay = math.exp(fast * dt)\
+\
+		position = first * slowDecay + second * fastDecay\
+		nextVelocity = first * slow * slowDecay + second * fast * fastDecay\
+	end\
+\
+	self.position = position + self.target\
+	self.velocity = nextVelocity\
+\
+	return self.position\
+end\
+\
+--- Points the spring somewhere new, keeping position and velocity.\
+function Spring.setTarget(self: Spring, target: number)\
+	self.target = target\
+end\
+\
+--- Adds velocity without moving the spring — a flick.\
+function Spring.impulse(self: Spring, velocity: number)\
+	self.velocity += velocity\
+end\
+\
+--- Teleports the spring, killing its velocity.\
+function Spring.reset(self: Spring, position: number)\
+	self.position = position\
+	self.velocity = 0\
+	self.target = position\
+end\
+\
+--- Whether the spring has arrived and stopped.\
+function Spring.settled(self: Spring): boolean\
+	return math.abs(self.position - self.target) < EPSILON_POSITION and math.abs(self.velocity) < EPSILON_VELOCITY\
+end\
+\
+--- Snaps to the target and clears velocity.\
+function Spring.finish(self: Spring)\
+	self.position = self.target\
+	self.velocity = 0\
+end\
+\
+return Spring\
+"},
+{"Astrix/_Packages/Lume/Panel","ModuleScript","--!strict\
+\
+--- A panel is every surface Lume draws. Window, command bar, dropdown,\
+--- tooltip, modal, toast — one implementation, configured by preset.\
+---\
+--- It does three things nothing else does:\
+---\
+--- * **Sizes itself from its children.** One pass per frame: ask each child\
+---   what it wants, sum along the axis, clamp against both the panel's own\
+---   bounds and the room left on screen, animate to the result.\
+--- * **Grows away from what it is stuck to.** AnchorPoint does the work; a\
+---   bottom-anchored panel expands upward and its bottom edge never moves.\
+--- * **Morphs.** A pill-shaped bar becomes a rounded rectangle the moment it\
+---   has enough content to stop being one row tall.\
+---\
+--- Panels are also elements, so nesting one inside another is how stacking,\
+--- popovers and inline cards are all the same code path.\
+--- @section Panel\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Types)\
+\
+local Autosize = require(script.Parent.Layout.Autosize)\
+local Placement = require(script.Parent.Layout.Placement)\
+\
+local Element = require(script.Parent.Elements.Element)\
+local Node = require(script.Parent.Core.Node)\
+local Motion = require(script.Parent.Motion)\
+local Drag = require(script.Parent.Input.Drag)\
+\
+local Presets = require(script.Presets)\
+local Chrome = require(script.Chrome)\
+\
+type Panel = Types.Panel\
+type Bindable<T> = Types.Bindable<T>\
+\
+local Panel = {}\
+Panel.__index = Panel\
+\
+--// locals\
+local DISMISS_INPUTS: { [Enum.UserInputType]: boolean } = {\
+	[Enum.UserInputType.MouseButton1] = true,\
+	[Enum.UserInputType.Touch] = true,\
+}\
+\
+--- Resolves a token name against a theme group, passing numbers through.\
+local function token(group: { [string]: number }, name: string?, fallback: number): number\
+	if not name then\
+		return fallback\
+	end\
+\
+	return group[name] or fallback\
+end\
+\
+local function contains(instance: GuiObject, point: Vector2): boolean\
+	if not instance.Visible then\
+		return false\
+	end\
+\
+	local position = instance.AbsolutePosition\
+	local size = instance.AbsoluteSize\
+\
+	return point.X >= position.X\
+		and point.X <= position.X + size.X\
+		and point.Y >= position.Y\
+		and point.Y <= position.Y + size.Y\
+end\
+\
+--- The offset a panel slides in from — a short hop against its growth\
+--- direction, so it reads as arriving from the edge it is anchored to.\
+local function entryOffset(anchor: Types.Anchor, distance: number): Vector2\
+	if anchor == \"bottom\" or anchor == \"bottomLeft\" or anchor == \"bottomRight\" then\
+		return Vector2.new(0, distance)\
+	elseif anchor == \"top\" or anchor == \"topLeft\" or anchor == \"topRight\" then\
+		return Vector2.new(0, -distance)\
+	elseif anchor == \"left\" then\
+		return Vector2.new(-distance, 0)\
+	elseif anchor == \"right\" then\
+		return Vector2.new(distance, 0)\
+	end\
+\
+	return Vector2.new(0, distance)\
+end\
+\
+local function adopt(self: Panel, element: Types.Element): Types.Element\
+	element.owner = self\
+\
+	table.insert(self.children, element)\
+\
+	element.instance.LayoutOrder = #self.children\
+	element.instance.Parent = self.content\
+\
+	self:refresh()\
+\
+	return element\
+end\
+\
+--// public api\
+--- Creates a panel. Prefer `app:panel(preset)`.\
+function Panel.new(app: Types.App, preset: Types.Preset?): Panel\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local titleHeight = theme.size.title\
+	local root, refs = Chrome.build(app, scope, titleHeight)\
+\
+	local initial = Vector2.new(320, theme.size.control)\
+\
+	local fields: Types.NodeFields & Types.ElementFields & Types.PanelFields = {\
+		--// node\
+		app = app,\
+		scope = scope,\
+		instance = root,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		--// element\
+		kind = \"panel\",\
+		desired = initial,\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		--// panel\
+		preset = \"plain\",\
+		anchor = \"center\",\
+		axis = \"vertical\",\
+		layer = \"default\",\
+\
+		content = refs.content :: ScrollingFrame,\
+		children = {},\
+		panels = {},\
+\
+		titleHeight = titleHeight,\
+		hasTitle = false,\
+		scrollable = true,\
+		dismissable = false,\
+		dirty = false,\
+		mounted = false,\
+\
+		backdrop = nil,\
+		attachTarget = nil,\
+		attachSide = \"bottom\",\
+		attachGap = theme.space.xs,\
+\
+		gap = theme.space.sm,\
+		padX = theme.space.md,\
+		padY = theme.space.md,\
+\
+		minWidth = 0,\
+		maxWidth = 9999,\
+		minHeight = 0,\
+		maxHeight = 9999,\
+		fixedWidth = nil,\
+		fixedHeight = nil,\
+\
+		inset = theme.space.lg,\
+		radius = theme.radius.md,\
+		pill = false,\
+\
+		opened = false,\
+		solving = false,\
+		seq = 0,\
+\
+		target = initial,\
+		settled = root.Position,\
+\
+		stack = nil,\
+		drag = nil,\
+		shadow = nil,\
+	}\
+\
+	local panel = setmetatable(fields, Panel) :: any\
+\
+	panel.shadow = Chrome.shadow(app, scope)\
+\
+	--// the shadow follows the panel by watching its geometry, so it stays glued\
+	--// through every frame of an animation rather than only at the ends\
+	if panel.shadow then\
+		local function track()\
+			Chrome.track(panel.shadow, root, theme.shadow.spread, theme.shadow.offset)\
+		end\
+\
+		scope:add(root:GetPropertyChangedSignal(\"Size\"):Connect(track))\
+		scope:add(root:GetPropertyChangedSignal(\"Position\"):Connect(track))\
+		scope:add(root:GetPropertyChangedSignal(\"Visible\"):Connect(track))\
+		scope:add(root:GetPropertyChangedSignal(\"AnchorPoint\"):Connect(track))\
+	end\
+\
+	scope:add(refs.close.Activated:Connect(function()\
+		panel:close()\
+	end))\
+\
+	table.insert(app.panels, panel)\
+\
+	scope:add(function()\
+		local index = table.find(app.panels, panel)\
+\
+		if index then\
+			table.remove(app.panels, index)\
+		end\
+	end)\
+\
+	Panel.setPreset(panel, preset or \"window\")\
+\
+	return panel\
+end\
+\
+--// shell\
+--- Applies a preset's defaults. Anything set afterwards wins.\
+function Panel.setPreset(self: Panel, preset: Types.Preset): Panel\
+	local theme = self.app.theme\
+	local config = Presets.get(preset)\
+\
+	self.preset = preset\
+\
+	self.axis = config.axis or \"vertical\"\
+	self.layer = config.layer or \"default\"\
+\
+	self.gap = token(theme.space, config.gap, theme.space.sm)\
+	self.padX = token(theme.space, config.padX, theme.space.md)\
+	self.padY = token(theme.space, config.padY, theme.space.md)\
+	self.inset = token(theme.space, config.inset, theme.space.lg)\
+\
+	self.radius = token(theme.radius, config.radius, theme.radius.md)\
+	self.pill = config.pill == true\
+\
+	self.minWidth = config.minWidth or 0\
+	self.maxWidth = config.maxWidth or 9999\
+	self.minHeight = config.minHeight or 0\
+	self.maxHeight = config.maxHeight or 9999\
+	self.fixedWidth = config.width\
+\
+	self.dismissable = config.dismissable == true\
+\
+	self.instance.BackgroundColor3 = theme.color[config.color or \"surface\"] or theme.color.surface\
+	self.instance.BackgroundTransparency = theme.transparency[config.transparency or \"surface\"]\
+		or theme.transparency.surface\
+	self.instance.ClipsDescendants = config.clip ~= false\
+\
+	Panel.setAnchor(self, config.anchor or \"center\")\
+	Panel.setBorder(self, config.border == true)\
+	Panel.setShadow(self, config.shadow == true)\
+	Panel.setDraggable(self, config.draggable == true)\
+	Panel.setCloseButton(self, config.closeButton == true)\
+\
+	self.hasTitle = config.title == true\
+	self.refs.titlebar.Visible = self.hasTitle\
+\
+	if config.backdrop then\
+		Panel.ensureBackdrop(self)\
+	end\
+\
+	local layout = self.refs.layout :: UIListLayout\
+\
+	layout.FillDirection = if self.axis == \"vertical\"\
+		then Enum.FillDirection.Vertical\
+		else Enum.FillDirection.Horizontal\
+	layout.VerticalAlignment = if self.axis == \"vertical\"\
+		then Enum.VerticalAlignment.Top\
+		else Enum.VerticalAlignment.Center\
+\
+	Panel.applySpacing(self)\
+\
+	return self:refresh()\
+end\
+\
+--- Pushes padding and gap onto the content layout instances.\
+function Panel.applySpacing(self: Panel)\
+	local padding = self.refs.padding :: UIPadding\
+	local layout = self.refs.layout :: UIListLayout\
+\
+	padding.PaddingLeft = UDim.new(0, self.padX)\
+	padding.PaddingRight = UDim.new(0, self.padX)\
+	padding.PaddingTop = UDim.new(0, self.padY)\
+	padding.PaddingBottom = UDim.new(0, self.padY)\
+\
+	layout.Padding = UDim.new(0, self.gap)\
+end\
+\
+function Panel.setTitle(self: Panel, title: Bindable<string>): Panel\
+	local label = self.refs.titleText :: TextLabel\
+\
+	self.hasTitle = true\
+	self.refs.titlebar.Visible = true\
+\
+	Node.bind(self, \"title\", title, function(next: string)\
+		label.Text = tostring(next)\
+	end)\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setSubtitle(self: Panel, subtitle: Bindable<string>): Panel\
+	local label = self.refs.subtitle :: TextLabel\
+\
+	label.Visible = true\
+\
+	Node.bind(self, \"subtitle\", subtitle, function(next: string)\
+		label.Text = tostring(next)\
+		label.Visible = next ~= nil and next ~= \"\"\
+	end)\
+\
+	return self\
+end\
+\
+function Panel.setIcon(self: Panel, image: Bindable<string>): Panel\
+	local icon = self.refs.titleIcon :: ImageLabel\
+\
+	Node.bind(self, \"titleIcon\", image, function(next: string)\
+		icon.Image = tostring(next)\
+		icon.Visible = next ~= nil and next ~= \"\"\
+	end)\
+\
+	return self\
+end\
+\
+--- Anchors the panel to an edge or the centre of its layer. The AnchorPoint is\
+--- what makes growth happen in the right direction, so this is a layout call\
+--- as much as a positioning one.\
+function Panel.setAnchor(self: Panel, anchor: Types.Anchor, offset: Vector2?): Panel\
+	self.anchor = anchor\
+\
+	local point = Placement.anchorPoint(anchor)\
+	local position = Placement.position(anchor, self.inset, offset)\
+\
+	self.instance.AnchorPoint = point\
+	self.instance.Position = position\
+\
+	self.settled = position\
+\
+	if self.drag then\
+		self.drag:setPosition(position)\
+	end\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setLayer(self: Panel, layer: string): Panel\
+	self.layer = layer\
+\
+	if self.mounted and not self.owner then\
+		self:mount(self.app:surface(layer))\
+	end\
+\
+	return self\
+end\
+\
+function Panel.setRadius(self: Panel, radius: number | \"pill\"): Panel\
+	if radius == \"pill\" then\
+		self.pill = true\
+		self.radius = self.app.theme.radius.lg\
+	else\
+		self.pill = false\
+		self.radius = radius :: number\
+	end\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setColor(self: Panel, color: Bindable<Color3>): Panel\
+	Node.bind(self, \"color\", color, function(next: Color3)\
+		self.instance.BackgroundColor3 = next\
+	end)\
+\
+	return self\
+end\
+\
+function Panel.setTransparency(self: Panel, transparency: Bindable<number>): Panel\
+	Node.bind(self, \"transparency\", transparency, function(next: number)\
+		self.instance.BackgroundTransparency = next\
+	end)\
+\
+	return self\
+end\
+\
+function Panel.setBorder(self: Panel, enabled: boolean): Panel\
+	local stroke = self.refs.stroke :: UIStroke\
+\
+	stroke.Enabled = enabled ~= false\
+\
+	return self\
+end\
+\
+function Panel.setShadow(self: Panel, enabled: boolean): Panel\
+	if self.shadow then\
+		self.shadow.Visible = enabled ~= false and self.instance.Visible\
+	end\
+\
+	return self\
+end\
+\
+function Panel.setClip(self: Panel, enabled: boolean): Panel\
+	self.instance.ClipsDescendants = enabled ~= false\
+\
+	return self\
+end\
+\
+--// layout\
+function Panel.setAxis(self: Panel, axis: Types.Axis): Panel\
+	self.axis = axis\
+\
+	local layout = self.refs.layout :: UIListLayout\
+\
+	layout.FillDirection = if axis == \"vertical\" then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal\
+	layout.VerticalAlignment = if axis == \"vertical\" then Enum.VerticalAlignment.Top else Enum.VerticalAlignment.Center\
+\
+	self.content.ScrollingDirection = if axis == \"vertical\"\
+		then Enum.ScrollingDirection.Y\
+		else Enum.ScrollingDirection.X\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setGap(self: Panel, gap: number): Panel\
+	self.gap = gap\
+\
+	Panel.applySpacing(self)\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setPadding(self: Panel, x: number, y: number?): Panel\
+	self.padX = x\
+	self.padY = y or x\
+\
+	Panel.applySpacing(self)\
+\
+	return self:refresh()\
+end\
+\
+--- A fixed width, or `\"auto\"` to size from content.\
+function Panel.setWidth(self: Panel, width: number | \"auto\"): Panel\
+	self.fixedWidth = if width == \"auto\" then nil else width :: number\
+\
+	return self:refresh()\
+end\
+\
+--- A fixed height, or `\"auto\"` to size from content.\
+function Panel.setHeight(self: Panel, height: number | \"auto\"): Panel\
+	self.fixedHeight = if height == \"auto\" then nil else height :: number\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setMinSize(self: Panel, width: number, height: number): Panel\
+	self.minWidth = width\
+	self.minHeight = height\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setMaxSize(self: Panel, width: number, height: number): Panel\
+	self.maxWidth = width\
+	self.maxHeight = height\
+\
+	return self:refresh()\
+end\
+\
+--- How close the panel may come to the edge of the screen before its own\
+--- maximum size starts giving way.\
+function Panel.setInset(self: Panel, inset: number): Panel\
+	self.inset = inset\
+\
+	return self:refresh()\
+end\
+\
+function Panel.setScroll(self: Panel, enabled: boolean): Panel\
+	self.scrollable = enabled ~= false\
+\
+	return self:refresh()\
+end\
+\
+--// behaviour\
+function Panel.setDraggable(self: Panel, enabled: boolean): Panel\
+	if not enabled then\
+		if self.drag then\
+			self.drag:destroy()\
+\
+			self.drag = nil\
+		end\
+\
+		return self\
+	end\
+\
+	if self.drag then\
+		return self\
+	end\
+\
+	--// drag by the titlebar when there is one, so content interaction never\
+	--// moves the panel out from under the pointer\
+	local handles = if self.hasTitle then { self.refs.titlebar :: GuiObject } else { self.instance :: GuiObject }\
+\
+	self.drag = Drag.attach(self.app, self.instance, {\
+		handles = handles,\
+		scope = self.scope,\
+	})\
+\
+	local handle = self.drag :: Types.DragHandle\
+\
+	self.scope:add(handle.ended:connect(function(position: UDim2)\
+		self.settled = position\
+\
+		self:emit(\"moved\", position)\
+	end))\
+\
+	return self\
+end\
+\
+--- Close when a click lands outside the panel.\
+function Panel.setDismissable(self: Panel, enabled: boolean): Panel\
+	self.dismissable = enabled ~= false\
+\
+	return self\
+end\
+\
+function Panel.setCloseButton(self: Panel, enabled: boolean): Panel\
+	self.refs.close.Visible = enabled ~= false\
+\
+	return self\
+end\
+\
+--- Creates the dimming backdrop a modal sits on.\
+function Panel.ensureBackdrop(self: Panel): Frame\
+	if self.backdrop then\
+		return self.backdrop\
+	end\
+\
+	local theme = self.app.theme\
+	local frame = Instance.new(\"Frame\")\
+\
+	frame.BackgroundColor3 = theme.color.overlay\
+	frame.BackgroundTransparency = 1\
+	frame.BorderSizePixel = 0\
+	frame.Size = UDim2.fromScale(1, 1)\
+	frame.ZIndex = 0\
+	frame.Visible = false\
+	frame.Name = \"Backdrop\"\
+	frame.Parent = self.app:surface(self.layer)\
+\
+	self.scope:add(frame)\
+\
+	self.backdrop = frame\
+\
+	return frame\
+end\
+\
+--- Positions the panel next to another instance, flipping sides when it would\
+--- run off screen. This is what makes a dropdown a dropdown.\
+function Panel.attachTo(\
+	self: Panel,\
+	target: GuiObject | Types.Element | Panel,\
+	side: Types.Edge?,\
+	gap: number?\
+): Panel\
+	local instance: GuiObject\
+\
+	if typeof(target) == \"Instance\" then\
+		instance = target\
+	else\
+		instance = (target :: Types.Element).instance\
+	end\
+\
+	self.attachTarget = instance\
+	self.attachSide = side or \"bottom\"\
+	self.attachGap = gap or self.app.theme.space.xs\
+\
+	return self:refresh()\
+end\
+\
+--// children\
+function Panel.add(self: Panel, child: Types.Element | Panel): Panel\
+	adopt(self, child :: Types.Element)\
+\
+	if (child :: any).kind == \"panel\" then\
+		table.insert(self.panels, child :: Panel)\
+	end\
+\
+	return self\
+end\
+\
+function Panel.remove(self: Panel, child: Types.Element | Panel): Panel\
+	local index = table.find(self.children, child :: Types.Element)\
+\
+	if index then\
+		table.remove(self.children, index)\
+	end\
+\
+	local nested = table.find(self.panels, child :: Panel)\
+\
+	if nested then\
+		table.remove(self.panels, nested)\
+	end\
+\
+	;(child :: Types.Element).owner = nil\
+	;(child :: Types.Element).instance.Parent = nil\
+\
+	return self:refresh()\
+end\
+\
+--- Destroys every child. The panel itself survives.\
+function Panel.clear(self: Panel): Panel\
+	for index = #self.children, 1, -1 do\
+		self.children[index]:destroy()\
+	end\
+\
+	table.clear(self.children)\
+	table.clear(self.panels)\
+\
+	return self:refresh()\
+end\
+\
+--// lifecycle\
+function Panel.isOpen(self: Panel): boolean\
+	return self.opened\
+end\
+\
+--- Shows the panel: fades the group in and slides it a short way from the edge\
+--- it is anchored to.\
+function Panel.open(self: Panel): Panel\
+	if self.opened or self.dead then\
+		return self\
+	end\
+\
+	self.opened = true\
+\
+	if not self.mounted then\
+		self:mount(self.app:surface(self.layer))\
+	end\
+\
+	self.instance.Visible = true\
+\
+	if self.backdrop then\
+		self.backdrop.Visible = true\
+\
+		Motion.set(self.backdrop, { BackgroundTransparency = 1 })\
+		Motion.animate(\
+			self.backdrop,\
+			{ BackgroundTransparency = self.app.theme.transparency.overlay },\
+			self.app.theme:spec(\"enter\")\
 		)\
 	end\
 \
-	local module = require(found :: ModuleScript)\
+	Panel.refreshNow(self)\
 \
-	cache[name] = module\
+	local settled = self.settled\
+	local hop = entryOffset(self.anchor, 12)\
 \
-	return module\
+	Motion.set(self.instance, {\
+		GroupTransparency = 1,\
+		Position = UDim2.new(settled.X.Scale, settled.X.Offset + hop.X, settled.Y.Scale, settled.Y.Offset + hop.Y),\
+	})\
+\
+	self:animate({ GroupTransparency = 0 }, \"enter\")\
+\
+	Motion.animate(self.instance, { Position = settled }, self.app.theme:spec(\"reveal\"))\
+\
+	if self.dismissable then\
+		Panel.armDismiss(self)\
+	end\
+\
+	self:emit(\"opened\")\
+\
+	return self\
 end\
 \
---- Lume, the UI library Astrix renders through.\
-function Packages.Lume(): any\
-	return Packages.Get(\"Lume\")\
+--- Hides the panel. The instance survives; call `destroy` to be rid of it.\
+function Panel.close(self: Panel): Panel\
+	if not self.opened or self.dead then\
+		return self\
+	end\
+\
+	self.opened = false\
+\
+	if self.backdrop then\
+		local fade = Motion.animate(self.backdrop, { BackgroundTransparency = 1 }, self.app.theme:spec(\"exit\"))\
+\
+		fade.completed:once(function()\
+			if not self.opened and self.backdrop then\
+				self.backdrop.Visible = false\
+			end\
+		end)\
+	end\
+\
+	local animation = self:animate({ GroupTransparency = 1 }, \"exit\")\
+\
+	animation.completed:once(function()\
+		--// reopened while the fade was still running: leave it visible\
+		if not self.opened and not self.dead then\
+			self.instance.Visible = false\
+		end\
+	end)\
+\
+	self:emit(\"closed\")\
+\
+	return self\
 end\
 \
-return Packages\
+function Panel.toggleOpen(self: Panel): Panel\
+	return if self.opened then Panel.close(self) else Panel.open(self)\
+end\
+\
+--- Watches for a click outside the panel while it is open.\
+function Panel.armDismiss(self: Panel)\
+	local disconnect: Types.Unsubscribe? = nil\
+\
+	local connection = UserInputService.InputBegan:Connect(function(input)\
+		if not DISMISS_INPUTS[input.UserInputType] or not self.opened then\
+			return\
+		end\
+\
+		local point = Vector2.new(input.Position.X, input.Position.Y)\
+\
+		if contains(self.instance, point) then\
+			return\
+		end\
+\
+		if self.attachTarget and contains(self.attachTarget, point) then\
+			return\
+		end\
+\
+		self:close()\
+	end)\
+\
+	self.scope:add(connection)\
+\
+	local unsubscribe = Node.signal(self, \"closed\"):once(function()\
+		connection:Disconnect()\
+\
+		if disconnect then\
+			disconnect()\
+		end\
+	end)\
+\
+	disconnect = unsubscribe\
+end\
+\
+--// layout pass\
+--- Schedules a layout pass. Coalesced to one per frame, so calling it from a\
+--- keystroke handler is free.\
+function Panel.refresh(self: Panel): Panel\
+	if self.dead then\
+		return self\
+	end\
+\
+	self.dirty = true\
+\
+	if self.solving then\
+		return self\
+	end\
+\
+	self.solving = true\
+\
+	task.defer(function()\
+		if self.dead then\
+			return\
+		end\
+\
+		self.solving = false\
+\
+		if self.dirty then\
+			Panel.refreshNow(self)\
+		end\
+	end)\
+\
+	return self\
+end\
+\
+--- Runs the layout pass immediately.\
+---\
+--- Measure every visible child, sum along the axis, clamp against the panel's\
+--- bounds *and* the room left on screen, then animate the shell to the result\
+--- while the children are committed into it.\
+function Panel.refreshNow(self: Panel): Panel\
+	if self.dead then\
+		return self\
+	end\
+\
+	self.dirty = false\
+	self.seq += 1\
+\
+	local theme = self.app.theme\
+	local vertical = self.axis == \"vertical\"\
+	local chromeHeight = if self.hasTitle then self.titleHeight else 0\
+\
+	--// how much screen is left in the direction this panel grows. Before the\
+	--// first frame AbsolutePosition is meaningless, so fall back to the whole\
+	--// viewport rather than clamping everything to zero\
+	local viewport = self.app:viewport()\
+	local room = Placement.room(self.instance, viewport, self.inset)\
+\
+	if room.X < 1 or room.Y < 1 or not self.mounted then\
+		room = Vector2.new(viewport.X - self.inset * 2, viewport.Y - self.inset * 2)\
+	end\
+\
+	local input: Autosize.Input = {\
+		children = self.children,\
+		vertical = vertical,\
+\
+		gap = self.gap,\
+		padX = self.padX,\
+		padY = self.padY,\
+\
+		chrome = Vector2.new(0, chromeHeight),\
+		room = room,\
+\
+		minWidth = self.minWidth,\
+		maxWidth = self.maxWidth,\
+		minHeight = math.max(self.minHeight, chromeHeight),\
+		maxHeight = self.maxHeight,\
+\
+		fixedWidth = self.fixedWidth,\
+		fixedHeight = self.fixedHeight,\
+	}\
+\
+	local solution = Autosize.solve(input)\
+	local share = Autosize.share(input, solution)\
+\
+	local inner = Vector2.new(\
+		math.max(0, solution.clamped.X - self.padX * 2),\
+		math.max(0, solution.clamped.Y - self.padY * 2 - chromeHeight)\
+	)\
+\
+	for _, child in self.children do\
+		if child.instance.Visible then\
+			child:commit(inner, vertical, if child.grow then share else 0)\
+		end\
+	end\
+\
+	--// content region sits under the titlebar and owns the scroll\
+	self.content.Position = UDim2.fromOffset(0, chromeHeight)\
+	self.content.Size = UDim2.new(1, 0, 1, -chromeHeight)\
+\
+	self.content.CanvasSize = if vertical\
+		then UDim2.fromOffset(0, solution.content.Y + self.padY * 2)\
+		else UDim2.fromOffset(solution.content.X + self.padX * 2, 0)\
+\
+	local scrolling = solution.overflow and self.scrollable\
+\
+	self.content.ScrollingEnabled = scrolling\
+	self.content.ScrollBarThickness = if scrolling then 3 else 0\
+	self.content.ScrollBarImageTransparency = if scrolling then 0.5 else 1\
+\
+	self.target = solution.clamped\
+	self.desired = solution.clamped\
+\
+	--// a nested panel is placed by its parent's list layout, so it sets its\
+	--// size directly and leaves position alone\
+	if self.owner then\
+		self.instance.Size = UDim2.fromOffset(solution.clamped.X, solution.clamped.Y)\
+	else\
+		self:animate({ Size = UDim2.fromOffset(solution.clamped.X, solution.clamped.Y) }, \"layout\")\
+	end\
+\
+	--// the morph: pill while it is one row tall, rounded rectangle once it has\
+	--// grown into something with content.\
+	--\
+	--// \"one row tall\" is measured against this panel's own padding plus one\
+	--// control, not against a global token — a panel with roomier padding is\
+	--// still a single row, and should still be a pill\
+	local corner = self.refs.corner :: UICorner\
+	local singleRow = self.padY * 2 + theme.size.control + chromeHeight\
+\
+	local radius = if self.pill and solution.clamped.Y <= singleRow + 1\
+		then solution.clamped.Y / 2\
+		else self.radius\
+\
+	Motion.animate(corner, { CornerRadius = UDim.new(0, radius) }, theme:spec(\"morph\"))\
+\
+	if self.attachTarget then\
+		Panel.reposition(self)\
+	end\
+\
+	Chrome.track(self.shadow, self.instance, theme.shadow.spread, theme.shadow.offset)\
+\
+	if self.stack then\
+		self.stack:reflow()\
+	end\
+\
+	self:emit(\"resized\", solution.clamped)\
+\
+	return self\
+end\
+\
+--- Recomputes an attached panel's position against its target.\
+function Panel.reposition(self: Panel)\
+	local target = self.attachTarget\
+\
+	if not target or not target.Parent then\
+		return\
+	end\
+\
+	local layer = self.instance.Parent\
+\
+	if not layer or not layer:IsA(\"GuiObject\") then\
+		return\
+	end\
+\
+	local position, anchor = Placement.attach(\
+		layer,\
+		target,\
+		self.target,\
+		self.attachSide,\
+		self.attachGap,\
+		self.app:viewport(),\
+		self.inset\
+	)\
+\
+	self.instance.AnchorPoint = anchor\
+	self.settled = position\
+\
+	if self.opened then\
+		Motion.animate(self.instance, { Position = position }, self.app.theme:spec(\"layout\"))\
+	else\
+		self.instance.Position = position\
+	end\
+end\
+\
+--// placement\
+function Panel.mount(self: Panel, parent: Instance | Panel): Panel\
+	if typeof(parent) == \"Instance\" then\
+		self.instance.Parent = parent\
+\
+		if self.shadow then\
+			self.shadow.Parent = parent\
+		end\
+	else\
+		local host = parent :: Panel\
+\
+		self.instance.AnchorPoint = Vector2.zero\
+		self.instance.Position = UDim2.fromOffset(0, 0)\
+\
+		host:add(self)\
+\
+		if self.shadow then\
+			self.shadow.Parent = host.content\
+		end\
+	end\
+\
+	self.mounted = true\
+\
+	return self:refresh()\
+end\
+\
+function Panel.center(self: Panel): Panel\
+	return Panel.setAnchor(self, \"center\")\
+end\
+\
+function Panel.moveTo(self: Panel, position: UDim2): Panel\
+	self.settled = position\
+\
+	if self.drag then\
+		self.drag:setPosition(position)\
+	end\
+\
+	Motion.animate(self.instance, { Position = position }, self.app.theme:spec(\"layout\"))\
+\
+	return self\
+end\
+\
+--- Raises the panel above its siblings on the same layer.\
+function Panel.front(self: Panel): Panel\
+	local parent = self.instance.Parent\
+\
+	if not parent then\
+		return self\
+	end\
+\
+	local highest = 0\
+\
+	for _, sibling in parent:GetChildren() do\
+		if sibling:IsA(\"GuiObject\") and sibling ~= self.instance then\
+			highest = math.max(highest, sibling.ZIndex)\
+		end\
+	end\
+\
+	self.instance.ZIndex = highest + 1\
+\
+	if self.shadow then\
+		self.shadow.ZIndex = highest\
+	end\
+\
+	return self\
+end\
+\
+--// element interface: a panel nested in a panel is just an element\
+function Panel.measure(self: Panel, available: Vector2): Vector2\
+	if self.dirty then\
+		Panel.refreshNow(self)\
+	end\
+\
+	if self.fill then\
+		return Vector2.new(available.X, self.target.Y)\
+	end\
+\
+	return self.target\
+end\
+\
+function Panel.commit(self: Panel, inner: Vector2, vertical: boolean, _share: number)\
+	if not self.fill then\
+		return\
+	end\
+\
+	local width = if vertical then math.max(0, inner.X - self.margin * 2) else self.target.X\
+	local height = if vertical then self.target.Y else math.max(0, inner.Y - self.margin * 2)\
+\
+	self.instance.Size = UDim2.fromOffset(width, height)\
+end\
+\
+--// factories\
+local Elements = nil :: any\
+\
+local function elements()\
+	if not Elements then\
+		Elements = require(script.Parent.Elements)\
+	end\
+\
+	return Elements\
+end\
+\
+function Panel.label(self: Panel, text: Bindable<string>?): Types.Label\
+	local element = elements().Label.new(self.app)\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.icon(self: Panel, image: Bindable<string>?): Types.Icon\
+	local element = elements().Icon.new(self.app)\
+\
+	if image ~= nil then\
+		element:setImage(image)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.button(self: Panel, text: Bindable<string>?): Types.Button\
+	local element = elements().Button.new(self.app)\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.field(self: Panel, placeholder: Bindable<string>?): Types.Field\
+	local element = elements().Field.new(self.app)\
+\
+	if placeholder ~= nil then\
+		element:setPlaceholder(placeholder)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.toggle(self: Panel, label: Bindable<string>?): Types.Toggle\
+	local element = elements().Toggle.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.slider(self: Panel, label: Bindable<string>?): Types.Slider\
+	local element = elements().Slider.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.select(self: Panel, label: Bindable<string>?): Types.Select\
+	local element = elements().Select.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.list(self: Panel): Types.List\
+	return adopt(self, elements().List.new(self.app) :: any) :: any\
+end\
+\
+function Panel.divider(self: Panel): Types.Divider\
+	return adopt(self, elements().Divider.new(self.app) :: any) :: any\
+end\
+\
+function Panel.spacer(self: Panel, size: number?): Types.Spacer\
+	local element = elements().Spacer.new(self.app)\
+\
+	if size ~= nil then\
+		element:setAmount(size)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.group(self: Panel, axis: Types.Axis?): Types.Group\
+	local element = elements().Group.new(self.app)\
+\
+	if axis ~= nil then\
+		element:setAxis(axis)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.progress(self: Panel): Types.Progress\
+	return adopt(self, elements().Progress.new(self.app) :: any) :: any\
+end\
+\
+function Panel.tabs(self: Panel): Types.Tabs\
+	return adopt(self, elements().Tabs.new(self.app) :: any) :: any\
+end\
+\
+function Panel.chips(self: Panel): Types.Chips\
+	return adopt(self, elements().Chips.new(self.app) :: any) :: any\
+end\
+\
+function Panel.suggest(self: Panel): Types.Suggest\
+	return adopt(self, elements().Suggest.new(self.app) :: any) :: any\
+end\
+\
+function Panel.menu(self: Panel): Types.Menu\
+	return adopt(self, elements().Menu.new(self.app) :: any) :: any\
+end\
+\
+function Panel.badge(self: Panel, text: Bindable<string>?): Types.Badge\
+	local element = elements().Badge.new(self.app)\
+\
+	if text ~= nil then\
+		element:setText(text)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.scroll(self: Panel): Types.Scroll\
+	return adopt(self, elements().Scroll.new(self.app) :: any) :: any\
+end\
+\
+function Panel.keybind(self: Panel, label: Bindable<string>?): Types.Keybind\
+	local element = elements().Keybind.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+--- Nests a panel inside this one. The child is laid out by this panel's list\
+--- layout and keeps its own content-driven sizing.\
+function Panel.panel(self: Panel, preset: Types.Preset?): Panel\
+	local child = Panel.new(self.app, preset or \"card\")\
+\
+	child:mount(self)\
+	child.instance.Visible = true\
+	child.opened = true\
+\
+	return child\
+end\
+\
+--- Destroys the panel and everything in it. Children are taken down first so\
+--- their own teardown still sees a live parent.\
+function Panel.destroy(self: Panel)\
+	if self.dead then\
+		return\
+	end\
+\
+	for index = #self.children, 1, -1 do\
+		local child = self.children[index]\
+\
+		if child ~= (self :: any) then\
+			child:destroy()\
+		end\
+	end\
+\
+	table.clear(self.children)\
+	table.clear(self.panels)\
+\
+	if self.stack then\
+		self.stack:remove(self)\
+	end\
+\
+	if self.drag then\
+		self.drag:destroy()\
+\
+		self.drag = nil\
+	end\
+\
+	if self.shadow then\
+		self.shadow:Destroy()\
+\
+		self.shadow = nil\
+	end\
+\
+	if self.backdrop then\
+		self.backdrop:Destroy()\
+\
+		self.backdrop = nil\
+	end\
+\
+	Node.teardown(self)\
+end\
+\
+Element.install(Panel)\
+\
+return Panel\
 "},
+{"Astrix/_Packages/Lume/Panel/Chrome","ModuleScript","--!strict\
+\
+--- The panel shell: root surface, corner, border, titlebar, content region and\
+--- shadow.\
+---\
+--- The root is a CanvasGroup so opening and closing is one `GroupTransparency`\
+--- animation instead of a fade per descendant — which is also why children\
+--- never have to opt into the panel's own fade.\
+---\
+--- The shadow is a *sibling* of the root, not a child. A child would be inside\
+--- the group's render target and clipped by its corner radius, which is the\
+--- opposite of what a shadow is for.\
+--- @section Panel\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+\
+local Chrome = {}\
+\
+export type Refs = {\
+	root: CanvasGroup,\
+	corner: UICorner,\
+	stroke: UIStroke,\
+\
+	titlebar: Frame,\
+	titleIcon: ImageLabel,\
+	titleText: TextLabel,\
+	subtitle: TextLabel,\
+	close: TextButton,\
+\
+	content: ScrollingFrame,\
+	padding: UIPadding,\
+	layout: UIListLayout,\
+}\
+\
+--- Builds the shell and returns the root plus every ref by name.\
+function Chrome.build(app: Types.App, scope: Types.Scope, titleHeight: number): (CanvasGroup, Types.Refs)\
+	local theme = app.theme\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"CanvasGroup\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundColor3 = theme.color.surface,\
+			BackgroundTransparency = theme.transparency.surface,\
+			BorderSizePixel = 0,\
+\
+			AnchorPoint = Vector2.new(0.5, 0.5),\
+			Position = UDim2.fromScale(0.5, 0.5),\
+			Size = UDim2.fromOffset(320, theme.size.control),\
+\
+			GroupTransparency = 0,\
+			ClipsDescendants = true,\
+			Name = \"Panel\",\
+			Visible = false,\
+		},\
+		children = {\
+			--// both carry refs: the panel animates the corner every layout pass\
+			--// (the pill-to-rectangle morph) and toggles the stroke on preset\
+			{\
+				class = \"UICorner\",\
+				ref = \"corner\",\
+				props = { CornerRadius = UDim.new(0, theme.radius.md) },\
+			},\
+			{\
+				class = \"UIStroke\",\
+				ref = \"stroke\",\
+				props = {\
+					ApplyStrokeMode = Enum.ApplyStrokeMode.Border,\
+					LineJoinMode = Enum.LineJoinMode.Round,\
+					Color = theme.color.border,\
+					Thickness = theme.stroke.hairline,\
+					Transparency = theme.transparency.border,\
+				},\
+			},\
+\
+			{\
+				class = \"Frame\",\
+				ref = \"titlebar\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					BorderSizePixel = 0,\
+					Size = UDim2.new(1, 0, 0, titleHeight),\
+					Name = \"Titlebar\",\
+					Visible = false,\
+					ZIndex = 3,\
+				},\
+				children = {\
+					Create.padding(theme.space.md, 0),\
+					Create.list(Enum.FillDirection.Horizontal, theme.space.sm, {\
+						VerticalAlignment = Enum.VerticalAlignment.Center,\
+					}),\
+					{\
+						class = \"ImageLabel\",\
+						ref = \"titleIcon\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							ImageTransparency = theme.transparency.muted,\
+							ImageColor3 = theme.color.textMuted,\
+							ScaleType = Enum.ScaleType.Fit,\
+\
+							Size = UDim2.fromOffset(theme.size.icon, theme.size.icon),\
+							LayoutOrder = 1,\
+							Visible = false,\
+							Name = \"Icon\",\
+							Image = \"\",\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"titleText\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							AutomaticSize = Enum.AutomaticSize.X,\
+							Size = UDim2.fromOffset(0, titleHeight),\
+\
+							Font = theme.font.medium,\
+							TextSize = theme.text.sm,\
+							TextColor3 = theme.color.text,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							LayoutOrder = 2,\
+							Name = \"Title\",\
+							Text = \"\",\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"subtitle\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							AutomaticSize = Enum.AutomaticSize.X,\
+							Size = UDim2.fromOffset(0, titleHeight),\
+\
+							Font = theme.font.body,\
+							TextSize = theme.text.xs,\
+							TextColor3 = theme.color.textGhost,\
+							TextTransparency = theme.transparency.ghost,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							LayoutOrder = 3,\
+							Visible = false,\
+							Name = \"Subtitle\",\
+							Text = \"\",\
+						},\
+					},\
+				},\
+			},\
+\
+			{\
+				class = \"TextButton\",\
+				ref = \"close\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutoButtonColor = false,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(1, 0),\
+					Position = UDim2.new(1, -6, 0, 0),\
+					Size = UDim2.fromOffset(titleHeight, titleHeight),\
+\
+					Font = theme.font.medium,\
+					TextSize = theme.text.md,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+\
+					Visible = false,\
+					Name = \"Close\",\
+					Text = \"×\",\
+					ZIndex = 5,\
+				},\
+			},\
+\
+			{\
+				class = \"ScrollingFrame\",\
+				ref = \"content\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					BorderSizePixel = 0,\
+\
+					Position = UDim2.fromOffset(0, 0),\
+					Size = UDim2.new(1, 0, 1, 0),\
+\
+					ScrollingDirection = Enum.ScrollingDirection.Y,\
+					ScrollBarImageColor3 = theme.color.borderStrong,\
+					ScrollBarImageTransparency = 1,\
+					ScrollBarThickness = 0,\
+					ScrollingEnabled = false,\
+					CanvasSize = UDim2.fromOffset(0, 0),\
+\
+					ClipsDescendants = true,\
+					Name = \"Content\",\
+					ZIndex = 2,\
+				},\
+				children = {\
+					{\
+						class = \"UIPadding\",\
+						ref = \"padding\",\
+						props = {\
+							PaddingLeft = UDim.new(0, theme.space.md),\
+							PaddingRight = UDim.new(0, theme.space.md),\
+							PaddingTop = UDim.new(0, theme.space.md),\
+							PaddingBottom = UDim.new(0, theme.space.md),\
+						},\
+					},\
+					{\
+						class = \"UIListLayout\",\
+						ref = \"layout\",\
+						props = {\
+							SortOrder = Enum.SortOrder.LayoutOrder,\
+							FillDirection = Enum.FillDirection.Vertical,\
+							Padding = UDim.new(0, theme.space.sm),\
+							HorizontalAlignment = Enum.HorizontalAlignment.Left,\
+							VerticalAlignment = Enum.VerticalAlignment.Top,\
+						},\
+					},\
+				},\
+			},\
+		},\
+	})\
+\
+	return root :: CanvasGroup, refs\
+end\
+\
+--- Creates the shadow, or nothing at all when the theme has no shadow image.\
+--- Shipping without a baked asset id is deliberate; point `theme.shadow.image`\
+--- at your own nine-sliced soft shadow and every panel picks it up.\
+function Chrome.shadow(app: Types.App, scope: Types.Scope): ImageLabel?\
+	local shadow = app.theme.shadow\
+\
+	if not shadow.image or shadow.image == \"\" then\
+		return nil\
+	end\
+\
+	local instance = Instance.new(\"ImageLabel\")\
+\
+	instance.BackgroundTransparency = 1\
+	instance.BorderSizePixel = 0\
+\
+	instance.Image = shadow.image\
+	instance.ImageColor3 = shadow.color\
+	instance.ImageTransparency = shadow.transparency\
+\
+	instance.ScaleType = Enum.ScaleType.Slice\
+	instance.SliceCenter = shadow.slice\
+	instance.SliceScale = 1\
+\
+	instance.Name = \"Shadow\"\
+	instance.ZIndex = 0\
+\
+	scope:add(instance)\
+\
+	return instance\
+end\
+\
+--- Glues a shadow to its panel. Called whenever the panel's geometry changes.\
+function Chrome.track(shadow: ImageLabel?, target: GuiObject, spread: number, offset: Vector2)\
+	if not shadow then\
+		return\
+	end\
+\
+	local position = target.Position\
+	local anchor = target.AnchorPoint\
+\
+	shadow.AnchorPoint = anchor\
+	shadow.Visible = target.Visible\
+\
+	shadow.Size = UDim2.new(\
+		target.Size.X.Scale,\
+		target.Size.X.Offset + spread * 2,\
+		target.Size.Y.Scale,\
+		target.Size.Y.Offset + spread * 2\
+	)\
+\
+	--// growing by `spread` on all four sides moves the anchor point by\
+	--// spread * (2a - 1): nothing when centred, a full spread when edge-anchored\
+	shadow.Position = UDim2.new(\
+		position.X.Scale,\
+		position.X.Offset + offset.X + spread * (2 * anchor.X - 1),\
+		position.Y.Scale,\
+		position.Y.Offset + offset.Y + spread * (2 * anchor.Y - 1)\
+	)\
+end\
+\
+return Chrome\
+"},
+{"Astrix/_Packages/Lume/Panel/Presets","ModuleScript","--!strict\
+\
+--- Presets are configuration, not subclasses. A window, a command bar, a\
+--- tooltip and a modal are the same Panel with different numbers, which is why\
+--- they all get content-driven sizing, anchored growth and the morphing radius\
+--- without any of them implementing it.\
+---\
+--- Values are resolved against the theme at apply time, so a preset can say\
+--- `radius = \"lg\"` and mean whatever the current theme calls large.\
+--- @section Presets\
+\
+local Types = require(script.Parent.Parent.Types)\
+\
+export type Preset = {\
+	anchor: Types.Anchor?,\
+	layer: string?,\
+	axis: Types.Axis?,\
+\
+	radius: string?,\
+	pill: boolean?,\
+\
+	padX: string?,\
+	padY: string?,\
+	gap: string?,\
+	inset: string?,\
+\
+	width: number?,\
+	minWidth: number?,\
+	maxWidth: number?,\
+	minHeight: number?,\
+	maxHeight: number?,\
+\
+	title: boolean?,\
+	border: boolean?,\
+	shadow: boolean?,\
+	clip: boolean?,\
+	draggable: boolean?,\
+	dismissable: boolean?,\
+	closeButton: boolean?,\
+	backdrop: boolean?,\
+\
+	color: string?,\
+	transparency: string?,\
+}\
+\
+--// locals\
+local Presets: { [string]: Preset } = {\
+	--// a floating, draggable, titled surface. The default shape.\
+	window = {\
+		anchor = \"center\",\
+		layer = \"default\",\
+		axis = \"vertical\",\
+\
+		radius = \"lg\",\
+		padX = \"md\",\
+		padY = \"md\",\
+		gap = \"sm\",\
+		inset = \"lg\",\
+\
+		width = 360,\
+		minWidth = 200,\
+		maxWidth = 720,\
+		minHeight = 80,\
+		maxHeight = 640,\
+\
+		title = true,\
+		border = true,\
+		shadow = true,\
+		clip = true,\
+		draggable = true,\
+		dismissable = false,\
+		closeButton = true,\
+\
+		color = \"surface\",\
+		transparency = \"surface\",\
+	},\
+\
+	--// the command bar: one pill-shaped row that morphs into a rounded panel\
+	--// the moment it has output to show\
+	bar = {\
+		anchor = \"bottom\",\
+		layer = \"raised\",\
+		axis = \"vertical\",\
+\
+		radius = \"lg\",\
+		pill = true,\
+		padX = \"md\",\
+		padY = \"sm\",\
+		gap = \"xs\",\
+		inset = \"xl\",\
+\
+		width = 520,\
+		minWidth = 280,\
+		maxWidth = 900,\
+		minHeight = 0,\
+		maxHeight = 480,\
+\
+		title = false,\
+		border = false,\
+		shadow = true,\
+		clip = true,\
+		draggable = true,\
+		dismissable = false,\
+		closeButton = false,\
+\
+		color = \"surfaceRaised\",\
+		transparency = \"surface\",\
+	},\
+\
+	--// anchored to something else: dropdowns, autocompletes, pickers\
+	popover = {\
+		anchor = \"topLeft\",\
+		layer = \"popover\",\
+		axis = \"vertical\",\
+\
+		radius = \"md\",\
+		padX = \"xs\",\
+		padY = \"xs\",\
+		gap = \"none\",\
+		inset = \"sm\",\
+\
+		minWidth = 120,\
+		maxWidth = 520,\
+		maxHeight = 320,\
+\
+		title = false,\
+		border = true,\
+		shadow = true,\
+		clip = true,\
+		draggable = false,\
+		dismissable = true,\
+		closeButton = false,\
+\
+		color = \"surfaceRaised\",\
+		transparency = \"surfaceRaised\",\
+	},\
+\
+	tooltip = {\
+		anchor = \"topLeft\",\
+		layer = \"tooltip\",\
+		axis = \"vertical\",\
+\
+		radius = \"sm\",\
+		padX = \"sm\",\
+		padY = \"xs\",\
+		gap = \"none\",\
+		inset = \"sm\",\
+\
+		maxWidth = 280,\
+\
+		title = false,\
+		border = false,\
+		shadow = true,\
+		clip = true,\
+		draggable = false,\
+		dismissable = false,\
+		closeButton = false,\
+\
+		color = \"surfaceRaised\",\
+		transparency = \"surfaceRaised\",\
+	},\
+\
+	modal = {\
+		anchor = \"center\",\
+		layer = \"modal\",\
+		axis = \"vertical\",\
+\
+		radius = \"lg\",\
+		padX = \"lg\",\
+		padY = \"lg\",\
+		gap = \"md\",\
+		inset = \"xl\",\
+\
+		width = 420,\
+		minWidth = 260,\
+		maxWidth = 640,\
+		maxHeight = 560,\
+\
+		title = true,\
+		border = true,\
+		shadow = true,\
+		clip = true,\
+		draggable = false,\
+		dismissable = true,\
+		closeButton = true,\
+		backdrop = true,\
+\
+		color = \"surface\",\
+		transparency = \"surfaceRaised\",\
+	},\
+\
+	toast = {\
+		anchor = \"bottomRight\",\
+		layer = \"toast\",\
+		axis = \"horizontal\",\
+\
+		radius = \"md\",\
+		padX = \"md\",\
+		padY = \"sm\",\
+		gap = \"sm\",\
+		inset = \"lg\",\
+\
+		minWidth = 200,\
+		maxWidth = 420,\
+\
+		title = false,\
+		border = true,\
+		shadow = true,\
+		clip = true,\
+		draggable = false,\
+		dismissable = true,\
+		closeButton = false,\
+\
+		color = \"surfaceRaised\",\
+		transparency = \"surfaceRaised\",\
+	},\
+\
+	--// an inline surface: no floating, no drag, meant to be nested\
+	card = {\
+		anchor = \"topLeft\",\
+		layer = \"default\",\
+		axis = \"vertical\",\
+\
+		radius = \"md\",\
+		padX = \"md\",\
+		padY = \"md\",\
+		gap = \"sm\",\
+		inset = \"none\",\
+\
+		minWidth = 0,\
+		maxWidth = 9999,\
+\
+		title = false,\
+		border = true,\
+		shadow = false,\
+		clip = true,\
+		draggable = false,\
+		dismissable = false,\
+		closeButton = false,\
+\
+		color = \"surfaceRaised\",\
+		transparency = \"surfaceRaised\",\
+	},\
+\
+	--// edge-attached drawer, full width along its anchor\
+	sheet = {\
+		anchor = \"bottom\",\
+		layer = \"modal\",\
+		axis = \"vertical\",\
+\
+		radius = \"xl\",\
+		padX = \"lg\",\
+		padY = \"lg\",\
+		gap = \"md\",\
+		inset = \"none\",\
+\
+		minWidth = 320,\
+		maxWidth = 9999,\
+		maxHeight = 600,\
+\
+		title = true,\
+		border = false,\
+		shadow = true,\
+		clip = true,\
+		draggable = false,\
+		dismissable = true,\
+		closeButton = true,\
+		backdrop = true,\
+\
+		color = \"surface\",\
+		transparency = \"surface\",\
+	},\
+\
+	--// no opinions at all\
+	plain = {\
+		anchor = \"topLeft\",\
+		layer = \"default\",\
+		axis = \"vertical\",\
+\
+		radius = \"none\",\
+		padX = \"none\",\
+		padY = \"none\",\
+		gap = \"none\",\
+		inset = \"none\",\
+\
+		title = false,\
+		border = false,\
+		shadow = false,\
+		clip = false,\
+		draggable = false,\
+		dismissable = false,\
+		closeButton = false,\
+\
+		color = \"surface\",\
+		transparency = \"surface\",\
+	},\
+}\
+\
+local Module = {}\
+\
+--- Looks a preset up by name, falling back to `window`.\
+function Module.get(name: Types.Preset): Preset\
+	return Presets[name] or Presets.window\
+end\
+\
+--- Every preset name, for tooling and docs.\
+function Module.names(): { string }\
+	local names = {}\
+\
+	for name in Presets do\
+		table.insert(names, name)\
+	end\
+\
+	table.sort(names)\
+\
+	return names\
+end\
+\
+return Module\
+"},
+{"Astrix/_Packages/Lume/Text","ModuleScript","--!strict\
+\
+--- Text helpers shared by the elements: RichText escaping, tag stripping for\
+--- measurement, truncation, and match highlighting.\
+---\
+--- Stripping matters more than it looks. `GetTextSize` does not parse RichText,\
+--- so measuring `<b>hello</b>` measures seventeen characters and the element\
+--- comes out a third too wide. Every element that renders rich text measures\
+--- the stripped form instead.\
+--- @section Core\
+\
+local Text = {}\
+\
+local ESCAPES: { [string]: string } = {\
+	[\"&\"] = \"&amp;\",\
+	[\"<\"] = \"&lt;\",\
+	[\">\"] = \"&gt;\",\
+	['\"'] = \"&quot;\",\
+	[\"'\"] = \"&apos;\",\
+}\
+\
+--- Escapes a string so RichText renders it literally.\
+function Text.escape(text: string): string\
+	return (string.gsub(text, \"[&<>\\\"']\", ESCAPES))\
+end\
+\
+--- Removes RichText tags, leaving what the user will actually see. Used for\
+--- measurement, never for display.\
+function Text.strip(text: string): string\
+	local without = string.gsub(text, \"<[^<>]->\", \"\")\
+\
+	without = string.gsub(without, \"&lt;\", \"<\")\
+	without = string.gsub(without, \"&gt;\", \">\")\
+	without = string.gsub(without, \"&quot;\", '\"')\
+	without = string.gsub(without, \"&apos;\", \"'\")\
+	without = string.gsub(without, \"&amp;\", \"&\")\
+\
+	return without\
+end\
+\
+--- Cuts a string to `limit` characters, ending in an ellipsis.\
+function Text.truncate(text: string, limit: number): string\
+	if limit <= 0 or #text <= limit then\
+		return text\
+	end\
+\
+	return string.sub(text, 1, math.max(1, limit - 1)) .. \"…\"\
+end\
+\
+--- Wraps a span in a RichText colour tag.\
+function Text.color(text: string, hex: string): string\
+	return `<font color=\"{hex}\">{text}</font>`\
+end\
+\
+function Text.bold(text: string): string\
+	return `<b>{text}</b>`\
+end\
+\
+--- Highlights the first case-insensitive occurrence of `match` inside `text`,\
+--- dimming the rest. This is the autocomplete look.\
+function Text.highlight(text: string, match: string, base: string, accent: string): string\
+	if match == \"\" then\
+		return Text.color(Text.escape(text), base)\
+	end\
+\
+	local from, to = string.find(string.lower(text), string.lower(match), 1, true)\
+\
+	if not from then\
+		return Text.color(Text.escape(text), base)\
+	end\
+\
+	return Text.color(Text.escape(string.sub(text, 1, from - 1)), base)\
+		.. Text.color(Text.bold(Text.escape(string.sub(text, from, to))), accent)\
+		.. Text.color(Text.escape(string.sub(text, to + 1)), base)\
+end\
+\
+--- A simple subsequence score: does every character of `query` appear in\
+--- `candidate` in order, and how tightly packed are they? Returns whether it\
+--- matched and a score where lower is better.\
+function Text.fuzzy(candidate: string, query: string): (boolean, number)\
+	if query == \"\" then\
+		return true, 0\
+	end\
+\
+	local haystack = string.lower(candidate)\
+	local needle = string.lower(query)\
+\
+	local cursor = 1\
+	local score = 0\
+	local previous = 0\
+\
+	for index = 1, #needle do\
+		local character = string.sub(needle, index, index)\
+		local found = string.find(haystack, character, cursor, true)\
+\
+		if not found then\
+			return false, math.huge\
+		end\
+\
+		--// gaps between matched characters cost; a prefix match scores zero\
+		score += (found - previous - 1)\
+		previous = found\
+		cursor = found + 1\
+	end\
+\
+	return true, score\
+end\
+\
+return Text\
+"},
+{"Astrix/_Packages/Lume/Theme","ModuleScript","--!strict\
+\
+--- Themes are token tables with two operations: `extend` (deep-merge overrides\
+--- into a fresh theme) and `spec` (resolve a motion name to a motion spec).\
+---\
+--- Extending never mutates the parent, so a panel can hold a private theme\
+--- without leaking its overrides back into the app.\
+--- @section Theme\
+\
+local Types = require(script.Parent.Types)\
+local Tokens = require(script.Tokens)\
+\
+type Theme = Types.Theme\
+type MotionSpec = Types.MotionSpec\
+\
+local Theme = {}\
+Theme.__index = Theme\
+\
+--// locals\
+local function isPlain(value: any): boolean\
+	--// Color3, UDim2, Vector2 and friends are userdata, not tables, so a plain\
+	--// table here really is a token group worth recursing into\
+	return type(value) == \"table\" and getmetatable(value) == nil\
+end\
+\
+local function merge(base: { [string]: any }, overrides: { [string]: any }?): { [string]: any }\
+	local result: { [string]: any } = {}\
+\
+	for key, value in base do\
+		result[key] = if isPlain(value) then merge(value, nil) else value\
+	end\
+\
+	for key, value in overrides or {} do\
+		if isPlain(value) and isPlain(result[key]) then\
+			result[key] = merge(result[key], value)\
+		else\
+			result[key] = value\
+		end\
+	end\
+\
+	return result\
+end\
+\
+--// public api\
+--- Creates a theme from the default tokens plus optional overrides.\
+function Theme.new(overrides: { [string]: any }?): Theme\
+	local tokens = merge(Tokens, overrides)\
+\
+	return setmetatable(tokens, Theme) :: any\
+end\
+\
+--- Returns a new theme with `overrides` deep-merged in. The receiver is\
+--- untouched.\
+function Theme.extend(self: Theme, overrides: { [string]: any }): Theme\
+	return setmetatable(merge(self :: any, overrides), Theme) :: any\
+end\
+\
+--- Resolves a motion argument. A string names a theme spec, a table is used\
+--- as-is, and nothing at all falls back to `enter`.\
+function Theme.spec(self: Theme, named: (MotionSpec | string)?): MotionSpec\
+	if type(named) == \"string\" then\
+		local found = self.motion[named]\
+\
+		if not found then\
+			warn(`[Lume] unknown motion spec '{named}'`)\
+\
+			return self.motion.enter\
+		end\
+\
+		return found\
+	end\
+\
+	if type(named) == \"table\" then\
+		return named :: MotionSpec\
+	end\
+\
+	return self.motion.enter\
+end\
+\
+return Theme\
+"},
+{"Astrix/_Packages/Lume/Theme/Tokens","ModuleScript","--!strict\
+\
+--- The default token set. Components read from here and never from literals,\
+--- so one `app:restyle{…}` call restyles the whole tree.\
+---\
+--- These values are not an invention and no longer an estimate: they are read\
+--- straight out of the original console's `config.luau`. Surfaces are pure\
+--- black at `0.50` transparency, body text is white, and the greys, motion\
+--- durations, radii and sizes below are that file's literals.\
+---\
+--- The green is `successText`, not the body colour — a console shows a lot of\
+--- green because most of its output succeeded, not because its text is green.\
+--- @section Theme\
+\
+return {\
+	name = \"default\",\
+\
+	color = {\
+		--// pure black surfaces. The separation between layers comes from\
+		--// transparency, not from lightening each one — which is why the\
+		--// console reads as glass over the world instead of as grey boxes\
+		surface = Color3.fromRGB(0, 0, 0),\
+		surfaceRaised = Color3.fromRGB(0, 0, 0),\
+		surfaceSunken = Color3.fromRGB(0, 0, 0),\
+		surfaceHover = Color3.fromRGB(255, 255, 255),\
+		surfaceActive = Color3.fromRGB(255, 255, 255),\
+		overlay = Color3.fromRGB(0, 0, 0),\
+\
+		border = Color3.fromRGB(0, 0, 0),\
+		borderStrong = Color3.fromRGB(96, 96, 106),\
+\
+		--// inputText\
+		text = Color3.fromRGB(255, 255, 255),\
+		--// mutedText\
+		textMuted = Color3.fromRGB(159, 159, 159),\
+		--// hintGhost\
+		textGhost = Color3.fromRGB(110, 110, 110),\
+		textInverse = Color3.fromRGB(12, 12, 14),\
+		--// promptText\
+		prompt = Color3.fromRGB(210, 210, 210),\
+\
+		--// the console carries no brand colour of its own; this is a neutral\
+		--// accent for the controls Lume has and a console does not\
+		accent = Color3.fromRGB(126, 170, 255),\
+		accentMuted = Color3.fromRGB(74, 102, 156),\
+		accentText = Color3.fromRGB(12, 14, 20),\
+\
+		--// successText / warnText / errorText, exactly\
+		success = Color3.fromRGB(137, 255, 126),\
+		warn = Color3.fromRGB(255, 211, 106),\
+		danger = Color3.fromRGB(255, 126, 126),\
+\
+		track = Color3.fromRGB(255, 255, 255),\
+		selection = Color3.fromRGB(102, 209, 140),\
+	},\
+\
+	--// hex mirrors of the palette, for RichText spans\
+	rich = {\
+		text = \"#EEEEF2\",\
+		muted = \"#9292A0\",\
+		ghost = \"#60606A\",\
+		accent = \"#7EAAFF\",\
+		--// successRich / warnRich / errorRich / suggSub / suggMatch\
+		success = \"#89FF7E\",\
+		warn = \"#FFD36A\",\
+		danger = \"#FF7E7E\",\
+		sub = \"#CFCFCF\",\
+		match = \"#FFFFFF\",\
+	},\
+\
+	transparency = {\
+		--// transparency.panel — half, which is a lot more glass than it sounds\
+		surface = 0.5,\
+		--// transparency.suggPanel\
+		surfaceRaised = 0.42,\
+		overlay = 0.45,\
+		border = 0.35,\
+		text = 0,\
+		muted = 0.5,\
+		ghost = 0.6,\
+		--// transparency.dimText / transparency.arrow\
+		dim = 0.18,\
+		arrow = 0.35,\
+		track = 0.88,\
+		shadow = 0.8,\
+		disabled = 0.6,\
+	},\
+\
+	font = {\
+		body = Enum.Font.BuilderSans,\
+		medium = Enum.Font.BuilderSans,\
+		bold = Enum.Font.BuilderSansBold,\
+		mono = Enum.Font.Code,\
+	},\
+\
+	text = {\
+		xs = 11,\
+		sm = 13,\
+		md = 14,\
+		lg = 17,\
+		xl = 22,\
+		xxl = 28,\
+	},\
+\
+	space = {\
+		none = 0,\
+		--// layout.paddingY\
+		xs = 5,\
+		--// layout.itemGap\
+		sm = 6,\
+		--// layout.paddingX\
+		md = 12,\
+		lg = 16,\
+		--// viewportTopInset — how close a panel comes to the screen edge\
+		xl = 24,\
+		xxl = 32,\
+	},\
+\
+	radius = {\
+		xs = 4,\
+		sm = 6,\
+		--// suggestionRadius\
+		md = 10,\
+		--// outputRadius — what the pill morphs into\
+		lg = 12,\
+		xl = 20,\
+		pill = 999,\
+	},\
+\
+	stroke = {\
+		hairline = 1,\
+		thick = 2,\
+	},\
+\
+	size = {\
+		--// inputHeight — with paddingY 5 either side this makes a 34px pill\
+		control = 24,\
+		--// suggestionHeight\
+		row = 26,\
+		--// hintHeight\
+		hint = 17,\
+		--// historyLineHeight\
+		line = 14,\
+		icon = 18,\
+		touch = 44,\
+		--// panel.height\
+		bar = 34,\
+		title = 34,\
+		thumb = 14,\
+		rail = 4,\
+	},\
+\
+	--// shadow: opt-in. point `image` at your own 9-sliced soft shadow and every\
+	--// surface picks it up; leave it empty and no shadow instance is created.\
+	shadow = {\
+		--// the console's own soft shadow; swap it for your own or clear it\
+		image = \"rbxassetid://1316045217\",\
+		slice = Rect.new(10, 10, 118, 118),\
+		color = Color3.fromRGB(0, 0, 0),\
+		transparency = 0.8,\
+		spread = 22,\
+		offset = Vector2.new(0, 3),\
+	},\
+\
+	--// motion: `duration` + `easing` tweens, `stiffness` + `damping` springs.\
+	--// The tween durations are the console's own smooth times; anything whose\
+	--// target can change mid-flight stays a spring on purpose.\
+	motion = {\
+		instant = { duration = 0 },\
+\
+		--// openSmoothTime / collapseSmoothTime / expandSmoothTime\
+		enter = { duration = 0.46, easing = \"outQuint\" },\
+		exit = { duration = 0.38, easing = \"outQuad\" },\
+		expand = { duration = 0.34, easing = \"outQuint\" },\
+		hover = { duration = 0.12, easing = \"outQuad\" },\
+		press = { duration = 0.07, easing = \"outQuad\" },\
+		--// textFadeTime / exitFadeTime\
+		fade = { duration = 0.34, easing = \"outQuad\" },\
+		--// hintFadeTime\
+		hint = { duration = 0.22, easing = \"outQuad\" },\
+		--// itemSlideSmoothTime\
+		item = { duration = 0.3, easing = \"outQuad\" },\
+		--// listSmoothTime\
+		list = { duration = 0.28, easing = \"outQuad\" },\
+\
+		layout = { stiffness = 190, damping = 24 },\
+		morph = { stiffness = 210, damping = 26 },\
+		drag = { stiffness = 420, damping = 34 },\
+		reveal = { stiffness = 150, damping = 20 },\
+		snap = { stiffness = 600, damping = 40 },\
+	},\
+}\
+"},
+{"Astrix/_Packages/Lume/Types","ModuleScript","--!strict\
+\
+--- Every public type in Lume, in one place. Implementations annotate against\
+--- these records, so a class's runtime fields are declared here rather than\
+--- smuggled in behind an `any` cast.\
+---\
+--- The shape is deliberately two-layered: `*Fields` records hold state,\
+--- `*Api<T>` records hold the chained methods and are parameterised by the\
+--- concrete type so `Button:setName()` returns a `Button`, not a `Node`.\
+--- @section Core\
+\
+--// reactive\
+export type Unsubscribe = () -> ()\
+\
+--- A mutable reactive cell. Read with `get`, write with `set` or `update`.\
+export type Value<T> = {\
+	kind: \"value\",\
+\
+	get: (self: Value<T>) -> T,\
+	set: (self: Value<T>, value: T) -> (),\
+	update: (self: Value<T>, transform: (T) -> T) -> (),\
+	subscribe: (self: Value<T>, listener: (T) -> ()) -> Unsubscribe,\
+	destroy: (self: Value<T>) -> (),\
+}\
+\
+--- A derived cell. Recomputes when anything it read during evaluation changes.\
+export type Computed<T> = {\
+	kind: \"computed\",\
+\
+	get: (self: Computed<T>) -> T,\
+	subscribe: (self: Computed<T>, listener: (T) -> ()) -> Unsubscribe,\
+	destroy: (self: Computed<T>) -> (),\
+}\
+\
+export type Source<T> = Value<T> | Computed<T>\
+\
+--- Anything a setter accepts: a plain value, or a source that feeds it.\
+export type Bindable<T> = T | Source<T>\
+\
+--// lifecycle\
+export type Cleanup = (() -> ()) | Instance | RBXScriptConnection | { destroy: (any) -> () }\
+\
+--- Owns everything created under it. Destroying a scope unwinds instances,\
+--- connections, subscriptions and child scopes in reverse order.\
+export type Scope = {\
+	add: (self: Scope, item: Cleanup) -> Cleanup,\
+	child: (self: Scope) -> Scope,\
+	alive: (self: Scope) -> boolean,\
+	destroy: (self: Scope) -> (),\
+}\
+\
+export type Signal = {\
+	connect: (self: Signal, handler: (...any) -> ()) -> Unsubscribe,\
+	once: (self: Signal, handler: (...any) -> ()) -> Unsubscribe,\
+	fire: (self: Signal, ...any) -> (),\
+	count: (self: Signal) -> number,\
+	destroy: (self: Signal) -> (),\
+}\
+\
+--// construction\
+export type Descriptor = {\
+	class: string,\
+	ref: string?,\
+\
+	props: { [string]: any }?,\
+	events: { [string]: (...any) -> () }?,\
+	children: { Descriptor | Instance }?,\
+}\
+\
+export type Refs = { [string]: Instance }\
+\
+--// theme\
+--- A motion intent. `duration` + `easing` picks the tween path, `stiffness` +\
+--- `damping` picks the spring path. A spec with both prefers the spring.\
+export type MotionSpec = {\
+	duration: number?,\
+	easing: string?,\
+	stiffness: number?,\
+	damping: number?,\
+}\
+\
+export type ShadowTokens = {\
+	image: string,\
+	slice: Rect,\
+	color: Color3,\
+	transparency: number,\
+	spread: number,\
+	offset: Vector2,\
+}\
+\
+export type Theme = {\
+	name: string,\
+\
+	color: { [string]: Color3 },\
+	rich: { [string]: string },\
+	transparency: { [string]: number },\
+\
+	font: { [string]: Enum.Font },\
+	text: { [string]: number },\
+\
+	space: { [string]: number },\
+	radius: { [string]: number },\
+	stroke: { [string]: number },\
+	size: { [string]: number },\
+\
+	shadow: ShadowTokens,\
+	motion: { [string]: MotionSpec },\
+\
+	extend: (self: Theme, overrides: { [string]: any }) -> Theme,\
+	spec: (self: Theme, named: MotionSpec | string | nil) -> MotionSpec,\
+}\
+\
+--// motion\
+export type Animation = {\
+	completed: Signal,\
+\
+	active: (self: Animation) -> boolean,\
+	cancel: (self: Animation) -> (),\
+	finish: (self: Animation) -> (),\
+}\
+\
+--// layout\
+export type Edge = \"top\" | \"bottom\" | \"left\" | \"right\"\
+\
+export type Anchor =\
+	\"top\"\
+	| \"bottom\"\
+	| \"left\"\
+	| \"right\"\
+	| \"center\"\
+	| \"topLeft\"\
+	| \"topRight\"\
+	| \"bottomLeft\"\
+	| \"bottomRight\"\
+\
+export type Axis = \"vertical\" | \"horizontal\"\
+\
+--- Cached text measurement. Every element sizes itself through this rather\
+--- than calling TextService directly, so a theme change flushes one cache.\
+export type Measurer = {\
+	text: (self: Measurer, text: string, size: number, font: Enum.Font, width: number?) -> Vector2,\
+	width: (self: Measurer, text: string, size: number, font: Enum.Font) -> number,\
+	lineHeight: (self: Measurer, size: number, font: Enum.Font) -> number,\
+	spaceWidth: (self: Measurer, size: number, font: Enum.Font) -> number,\
+	flush: (self: Measurer) -> (),\
+}\
+\
+--- The result of one layout pass over a panel's children.\
+export type Solution = {\
+	content: Vector2,\
+	total: Vector2,\
+	clamped: Vector2,\
+	overflow: boolean,\
+}\
+\
+--// input\
+export type DragHandle = {\
+	moved: Signal,\
+	started: Signal,\
+	ended: Signal,\
+\
+	dragging: (self: DragHandle) -> boolean,\
+	setEnabled: (self: DragHandle, enabled: boolean) -> (),\
+	setPosition: (self: DragHandle, position: UDim2) -> (),\
+	destroy: (self: DragHandle) -> (),\
+}\
+\
+export type KeyBinding = {\
+	keys: { Enum.KeyCode },\
+	handler: () -> (),\
+	disconnect: () -> (),\
+}\
+\
+--// app\
+--- The one piece of shared state: host gui, theme, layers, measurement cache,\
+--- focus ring and key binder. One app per experience is the normal case.\
+export type App = {\
+	gui: LayerCollector,\
+	theme: Theme,\
+	scope: Scope,\
+	measure: Measurer,\
+\
+	layers: { [string]: Frame },\
+	panels: { Panel },\
+\
+	--- The focus ring (`Input/Focus`) and key binder (`Input/Keys`). Typed\
+	--- loosely here so the input modules can own their own concrete types\
+	--- without this file having to require them.\
+	focus: any,\
+	keys: any,\
+\
+	resized: Signal,\
+	themed: Signal,\
+\
+	viewport: (self: App) -> Vector2,\
+	surface: (self: App, layer: string) -> Frame,\
+	restyle: (self: App, overrides: { [string]: any }) -> Theme,\
+\
+	panel: (self: App, preset: Preset?) -> Panel,\
+	stack: (self: App, anchor: Anchor?) -> Stack,\
+\
+	bind: (self: App, keys: { Enum.KeyCode } | Enum.KeyCode, handler: () -> ()) -> KeyBinding,\
+	blur: (self: App) -> (),\
+\
+	destroy: (self: App) -> (),\
+}\
+\
+--// node: the shared base of Panel and Element\
+export type NodeFields = {\
+	app: App,\
+	scope: Scope,\
+	instance: GuiObject,\
+\
+	refs: Refs,\
+	bindings: { [string]: Unsubscribe },\
+	events: { [string]: Signal },\
+\
+	owner: Panel?,\
+	dead: boolean,\
+}\
+\
+export type NodeApi<T> = {\
+	setName: (self: T, name: string) -> T,\
+	setVisible: (self: T, visible: Bindable<boolean>) -> T,\
+	setSize: (self: T, size: Bindable<UDim2>) -> T,\
+	setPosition: (self: T, position: Bindable<UDim2>) -> T,\
+	setAnchorPoint: (self: T, anchor: Bindable<Vector2>) -> T,\
+	setZIndex: (self: T, index: Bindable<number>) -> T,\
+	setLayoutOrder: (self: T, order: Bindable<number>) -> T,\
+	setProps: (self: T, props: { [string]: any }) -> T,\
+\
+	on: (self: T, event: string, handler: (...any) -> ()) -> T,\
+	once: (self: T, event: string, handler: (...any) -> ()) -> T,\
+	emit: (self: T, event: string, ...any) -> T,\
+\
+	animate: (self: T, props: { [string]: any }, spec: (MotionSpec | string)?) -> Animation,\
+	get: (self: T) -> GuiObject,\
+	alive: (self: T) -> boolean,\
+	destroy: (self: T) -> (),\
+}\
+\
+--// element\
+export type ElementFields = {\
+	kind: string,\
+\
+	desired: Vector2,\
+	margin: number,\
+	fill: boolean,\
+	grow: boolean,\
+	enabled: boolean,\
+	measured: boolean,\
+}\
+\
+export type ElementApi<T> = {\
+	--- Desired size given the space the panel can offer. Panels call this;\
+	--- you rarely do.\
+	measure: (self: T, available: Vector2) -> Vector2,\
+\
+	--- Applies the size the panel decided on. Called by the panel immediately\
+	--- after solving, once the final inner width is known — which is the only\
+	--- point at which a `fill` element can be sized correctly.\
+	commit: (self: T, inner: Vector2, vertical: boolean, share: number) -> (),\
+\
+	--- Mark the element's size stale and schedule a panel layout pass.\
+	invalidate: (self: T) -> T,\
+\
+	--- Re-measure. Bubbles to whatever contains this element, so any element\
+	--- can host children without special-casing.\
+	refresh: (self: T) -> T,\
+\
+	setFill: (self: T, fill: boolean) -> T,\
+	setGrow: (self: T, grow: boolean) -> T,\
+	setMargin: (self: T, margin: number) -> T,\
+	setOrder: (self: T, order: number) -> T,\
+	setEnabled: (self: T, enabled: Bindable<boolean>) -> T,\
+	setTooltip: (self: T, text: Bindable<string>) -> T,\
+\
+	--- The panel hosting this element, if it is mounted in one.\
+	host: (self: T) -> Panel?,\
+}\
+\
+export type Element = NodeFields & ElementFields & NodeApi<Element> & ElementApi<Element>\
+\
+--// panel\
+export type Preset = \"window\" | \"bar\" | \"popover\" | \"tooltip\" | \"modal\" | \"toast\" | \"card\" | \"sheet\" | \"plain\"\
+\
+export type PanelFields = {\
+	preset: Preset,\
+	anchor: Anchor,\
+	axis: Axis,\
+	layer: string,\
+\
+	content: ScrollingFrame,\
+	children: { Element },\
+	panels: { Panel },\
+\
+	titleHeight: number,\
+	hasTitle: boolean,\
+	scrollable: boolean,\
+	dismissable: boolean,\
+	dirty: boolean,\
+	mounted: boolean,\
+\
+	backdrop: Frame?,\
+	attachTarget: GuiObject?,\
+	attachSide: Edge,\
+	attachGap: number,\
+\
+	gap: number,\
+	padX: number,\
+	padY: number,\
+\
+	minWidth: number,\
+	maxWidth: number,\
+	minHeight: number,\
+	maxHeight: number,\
+	fixedWidth: number?,\
+	fixedHeight: number?,\
+\
+	inset: number,\
+	radius: number,\
+	pill: boolean,\
+\
+	opened: boolean,\
+	solving: boolean,\
+	seq: number,\
+\
+	target: Vector2,\
+	settled: UDim2,\
+\
+	stack: Stack?,\
+	drag: DragHandle?,\
+	shadow: ImageLabel?,\
+}\
+\
+export type PanelApi<T> = {\
+	--// shell\
+	setPreset: (self: T, preset: Preset) -> T,\
+	setTitle: (self: T, title: Bindable<string>) -> T,\
+	setSubtitle: (self: T, subtitle: Bindable<string>) -> T,\
+	setIcon: (self: T, image: Bindable<string>) -> T,\
+	setAnchor: (self: T, anchor: Anchor, offset: Vector2?) -> T,\
+	setLayer: (self: T, layer: string) -> T,\
+	setRadius: (self: T, radius: number | \"pill\") -> T,\
+	setColor: (self: T, color: Bindable<Color3>) -> T,\
+	setTransparency: (self: T, transparency: Bindable<number>) -> T,\
+	setBorder: (self: T, enabled: boolean) -> T,\
+	setShadow: (self: T, enabled: boolean) -> T,\
+	setClip: (self: T, enabled: boolean) -> T,\
+\
+	--// layout\
+	setAxis: (self: T, axis: Axis) -> T,\
+	setGap: (self: T, gap: number) -> T,\
+	setPadding: (self: T, x: number, y: number?) -> T,\
+	setWidth: (self: T, width: number | \"auto\") -> T,\
+	setHeight: (self: T, height: number | \"auto\") -> T,\
+	setMinSize: (self: T, width: number, height: number) -> T,\
+	setMaxSize: (self: T, width: number, height: number) -> T,\
+	setInset: (self: T, inset: number) -> T,\
+	setScroll: (self: T, enabled: boolean) -> T,\
+\
+	--// behaviour\
+	setDraggable: (self: T, enabled: boolean) -> T,\
+	setDismissable: (self: T, enabled: boolean) -> T,\
+	setCloseButton: (self: T, enabled: boolean) -> T,\
+	attachTo: (self: T, target: GuiObject | Element | Panel, side: Edge?, gap: number?) -> T,\
+\
+	--// children\
+	add: (self: T, child: Element | Panel) -> T,\
+	remove: (self: T, child: Element | Panel) -> T,\
+	clear: (self: T) -> T,\
+\
+	--// child factories\
+	label: (self: T, text: Bindable<string>?) -> Label,\
+	icon: (self: T, image: Bindable<string>?) -> Icon,\
+	button: (self: T, text: Bindable<string>?) -> Button,\
+	field: (self: T, placeholder: Bindable<string>?) -> Field,\
+	toggle: (self: T, label: Bindable<string>?) -> Toggle,\
+	slider: (self: T, label: Bindable<string>?) -> Slider,\
+	select: (self: T, label: Bindable<string>?) -> Select,\
+	list: (self: T) -> List,\
+	divider: (self: T) -> Divider,\
+	spacer: (self: T, size: number?) -> Spacer,\
+	group: (self: T, axis: Axis?) -> Group,\
+	progress: (self: T) -> Progress,\
+	tabs: (self: T) -> Tabs,\
+	chips: (self: T) -> Chips,\
+	suggest: (self: T) -> Suggest,\
+	menu: (self: T) -> Menu,\
+	badge: (self: T, text: Bindable<string>?) -> Badge,\
+	scroll: (self: T) -> Scroll,\
+	keybind: (self: T, label: Bindable<string>?) -> Keybind,\
+	panel: (self: T, preset: Preset?) -> Panel,\
+\
+	--// lifecycle\
+	open: (self: T) -> T,\
+	close: (self: T) -> T,\
+	toggleOpen: (self: T) -> T,\
+	isOpen: (self: T) -> boolean,\
+\
+	--- Recompute this panel's size from its children. Coalesced to one pass\
+	--- per frame; call it freely.\
+	refresh: (self: T) -> T,\
+	--- Recompute immediately, skipping the deferred coalescing.\
+	refreshNow: (self: T) -> T,\
+\
+	mount: (self: T, parent: Instance | Panel) -> T,\
+	center: (self: T) -> T,\
+	moveTo: (self: T, position: UDim2) -> T,\
+	front: (self: T) -> T,\
+}\
+\
+export type Panel = NodeFields & PanelFields & NodeApi<Panel> & ElementApi<Panel> & PanelApi<Panel>\
+\
+--// stack: panels laid out in sequence from a shared anchor\
+export type Stack = {\
+	app: App,\
+	anchor: Anchor,\
+	axis: Axis,\
+	gap: number,\
+	members: { Panel },\
+\
+	add: (self: Stack, panel: Panel) -> Stack,\
+	remove: (self: Stack, panel: Panel) -> Stack,\
+	setGap: (self: Stack, gap: number) -> Stack,\
+	setOrigin: (self: Stack, position: UDim2) -> Stack,\
+	reflow: (self: Stack, spec: (MotionSpec | string)?) -> Stack,\
+	destroy: (self: Stack) -> (),\
+}\
+\
+--// elements\
+export type Label = NodeFields & ElementFields & NodeApi<Label> & ElementApi<Label> & {\
+	setText: (self: Label, text: Bindable<string>) -> Label,\
+	setColor: (self: Label, color: Bindable<Color3>) -> Label,\
+	setTextSize: (self: Label, size: number) -> Label,\
+	setFont: (self: Label, font: Enum.Font) -> Label,\
+	setAlign: (self: Label, horizontal: Enum.TextXAlignment, vertical: Enum.TextYAlignment?) -> Label,\
+	setWrapped: (self: Label, wrapped: boolean) -> Label,\
+	setRich: (self: Label, rich: boolean) -> Label,\
+	setMuted: (self: Label, muted: boolean) -> Label,\
+	setMaxLines: (self: Label, lines: number) -> Label,\
+	text: (self: Label) -> string,\
+}\
+\
+export type Icon = NodeFields & ElementFields & NodeApi<Icon> & ElementApi<Icon> & {\
+	setImage: (self: Icon, image: Bindable<string>) -> Icon,\
+	setColor: (self: Icon, color: Bindable<Color3>) -> Icon,\
+	setIconSize: (self: Icon, size: number) -> Icon,\
+	setScaleType: (self: Icon, scale: Enum.ScaleType) -> Icon,\
+	setRectOffset: (self: Icon, offset: Vector2, size: Vector2) -> Icon,\
+	setSpin: (self: Icon, spinning: boolean) -> Icon,\
+}\
+\
+export type Button = NodeFields & ElementFields & NodeApi<Button> & ElementApi<Button> & {\
+	setText: (self: Button, text: Bindable<string>) -> Button,\
+	setIcon: (self: Button, image: Bindable<string>) -> Button,\
+	setVariant: (self: Button, variant: \"solid\" | \"soft\" | \"ghost\" | \"outline\" | \"danger\") -> Button,\
+	setColor: (self: Button, color: Bindable<Color3>) -> Button,\
+	setRadius: (self: Button, radius: number | \"pill\") -> Button,\
+	setLoading: (self: Button, loading: Bindable<boolean>) -> Button,\
+	setFixedWidth: (self: Button, width: number) -> Button,\
+\
+	onClicked: (self: Button, handler: () -> ()) -> Button,\
+	onPressed: (self: Button, handler: () -> ()) -> Button,\
+	onReleased: (self: Button, handler: () -> ()) -> Button,\
+	onHovered: (self: Button, handler: (boolean) -> ()) -> Button,\
+\
+	click: (self: Button) -> Button,\
+}\
+\
+export type Field = NodeFields & ElementFields & NodeApi<Field> & ElementApi<Field> & {\
+	setText: (self: Field, text: Bindable<string>) -> Field,\
+	setPlaceholder: (self: Field, placeholder: Bindable<string>) -> Field,\
+	setPrefix: (self: Field, prefix: Bindable<string>) -> Field,\
+	setIcon: (self: Field, image: Bindable<string>) -> Field,\
+	setHint: (self: Field, hint: Bindable<string>) -> Field,\
+	setFont: (self: Field, font: Enum.Font) -> Field,\
+	setTextSize: (self: Field, size: number) -> Field,\
+	setMultiline: (self: Field, multiline: boolean) -> Field,\
+	setMasked: (self: Field, masked: boolean) -> Field,\
+	setMaxLength: (self: Field, length: number) -> Field,\
+	setClearOnSubmit: (self: Field, clear: boolean) -> Field,\
+	setValidator: (self: Field, validator: (string) -> (boolean, string?)) -> Field,\
+\
+	onChanged: (self: Field, handler: (string) -> ()) -> Field,\
+	onSubmitted: (self: Field, handler: (string) -> ()) -> Field,\
+	onFocused: (self: Field, handler: () -> ()) -> Field,\
+	onBlurred: (self: Field, handler: () -> ()) -> Field,\
+\
+	focus: (self: Field) -> Field,\
+	blur: (self: Field) -> Field,\
+	value: (self: Field) -> string,\
+}\
+\
+export type Toggle = NodeFields & ElementFields & NodeApi<Toggle> & ElementApi<Toggle> & {\
+	setLabel: (self: Toggle, label: Bindable<string>) -> Toggle,\
+	setDescription: (self: Toggle, description: Bindable<string>) -> Toggle,\
+	setValue: (self: Toggle, value: Bindable<boolean>) -> Toggle,\
+	setStyle: (self: Toggle, style: \"switch\" | \"checkbox\") -> Toggle,\
+\
+	onChanged: (self: Toggle, handler: (boolean) -> ()) -> Toggle,\
+\
+	flip: (self: Toggle) -> Toggle,\
+	value: (self: Toggle) -> boolean,\
+}\
+\
+export type Slider = NodeFields & ElementFields & NodeApi<Slider> & ElementApi<Slider> & {\
+	setLabel: (self: Slider, label: Bindable<string>) -> Slider,\
+	setRange: (self: Slider, min: number, max: number) -> Slider,\
+	setStep: (self: Slider, step: number) -> Slider,\
+	setValue: (self: Slider, value: Bindable<number>) -> Slider,\
+	setFormat: (self: Slider, format: (number) -> string) -> Slider,\
+	setShowValue: (self: Slider, shown: boolean) -> Slider,\
+\
+	onChanged: (self: Slider, handler: (number) -> ()) -> Slider,\
+	onCommitted: (self: Slider, handler: (number) -> ()) -> Slider,\
+\
+	value: (self: Slider) -> number,\
+}\
+\
+export type Option = { id: string, text: string, icon: string?, description: string? }\
+\
+export type Select = NodeFields & ElementFields & NodeApi<Select> & ElementApi<Select> & {\
+	setLabel: (self: Select, label: Bindable<string>) -> Select,\
+	setOptions: (self: Select, options: Bindable<{ Option | string }>) -> Select,\
+	setValue: (self: Select, id: Bindable<string?>) -> Select,\
+	setPlaceholder: (self: Select, placeholder: Bindable<string>) -> Select,\
+	setSearchable: (self: Select, searchable: boolean) -> Select,\
+	setMulti: (self: Select, multi: boolean) -> Select,\
+\
+	onChanged: (self: Select, handler: (string?, Option?) -> ()) -> Select,\
+	onOpened: (self: Select, handler: () -> ()) -> Select,\
+	onClosed: (self: Select, handler: () -> ()) -> Select,\
+\
+	value: (self: Select) -> string?,\
+	values: (self: Select) -> { string },\
+}\
+\
+export type ListItem = {\
+	id: string?,\
+	text: string?,\
+	icon: string?,\
+	description: string?,\
+	height: number?,\
+	data: any?,\
+}\
+\
+export type List = NodeFields & ElementFields & NodeApi<List> & ElementApi<List> & {\
+	setItems: (self: List, items: Bindable<{ ListItem | string }>) -> List,\
+	setRowHeight: (self: List, height: number) -> List,\
+	setFont: (self: List, font: Enum.Font) -> List,\
+	setTextSize: (self: List, size: number) -> List,\
+	setVirtual: (self: List, virtual: boolean) -> List,\
+	setMaxRows: (self: List, rows: number) -> List,\
+	setSelectable: (self: List, selectable: boolean) -> List,\
+	setSelected: (self: List, id: Bindable<string?>) -> List,\
+	setEmptyText: (self: List, text: Bindable<string>) -> List,\
+	setRenderer: (self: List, renderer: (ListItem, number) -> string) -> List,\
+\
+	onSelected: (self: List, handler: (ListItem, number) -> ()) -> List,\
+	onActivated: (self: List, handler: (ListItem, number) -> ()) -> List,\
+	onScrolled: (self: List, handler: (number) -> ()) -> List,\
+\
+	scrollTo: (self: List, index: number) -> List,\
+	scrollToBottom: (self: List) -> List,\
+	count: (self: List) -> number,\
+}\
+\
+export type Divider = NodeFields & ElementFields & NodeApi<Divider> & ElementApi<Divider> & {\
+	setLabel: (self: Divider, label: Bindable<string>) -> Divider,\
+	setThickness: (self: Divider, thickness: number) -> Divider,\
+	setColor: (self: Divider, color: Bindable<Color3>) -> Divider,\
+}\
+\
+export type Spacer = NodeFields & ElementFields & NodeApi<Spacer> & ElementApi<Spacer> & {\
+	setAmount: (self: Spacer, amount: number) -> Spacer,\
+	setFlexible: (self: Spacer, flexible: boolean) -> Spacer,\
+}\
+\
+export type Group = NodeFields & ElementFields & NodeApi<Group> & ElementApi<Group> & {\
+	setAxis: (self: Group, axis: Axis) -> Group,\
+	setGap: (self: Group, gap: number) -> Group,\
+	setAlign: (self: Group, horizontal: Enum.HorizontalAlignment, vertical: Enum.VerticalAlignment?) -> Group,\
+	setWrap: (self: Group, wrap: boolean) -> Group,\
+\
+	add: (self: Group, child: Element) -> Group,\
+	clear: (self: Group) -> Group,\
+\
+	label: (self: Group, text: Bindable<string>?) -> Label,\
+	icon: (self: Group, image: Bindable<string>?) -> Icon,\
+	button: (self: Group, text: Bindable<string>?) -> Button,\
+	field: (self: Group, placeholder: Bindable<string>?) -> Field,\
+	toggle: (self: Group, label: Bindable<string>?) -> Toggle,\
+	badge: (self: Group, text: Bindable<string>?) -> Badge,\
+	spacer: (self: Group, size: number?) -> Spacer,\
+	group: (self: Group, axis: Axis?) -> Group,\
+}\
+\
+export type Progress = NodeFields & ElementFields & NodeApi<Progress> & ElementApi<Progress> & {\
+	setValue: (self: Progress, value: Bindable<number>) -> Progress,\
+	setLabel: (self: Progress, label: Bindable<string>) -> Progress,\
+	setColor: (self: Progress, color: Bindable<Color3>) -> Progress,\
+	setIndeterminate: (self: Progress, indeterminate: boolean) -> Progress,\
+	setThickness: (self: Progress, thickness: number) -> Progress,\
+	setShowValue: (self: Progress, shown: boolean) -> Progress,\
+}\
+\
+export type Tab = { id: string, text: string, icon: string? }\
+\
+export type Tabs = NodeFields & ElementFields & NodeApi<Tabs> & ElementApi<Tabs> & {\
+	setTabs: (self: Tabs, tabs: Bindable<{ Tab | string }>) -> Tabs,\
+	setValue: (self: Tabs, id: Bindable<string>) -> Tabs,\
+	setVariant: (self: Tabs, variant: \"underline\" | \"pill\" | \"segmented\") -> Tabs,\
+\
+	onChanged: (self: Tabs, handler: (string) -> ()) -> Tabs,\
+\
+	value: (self: Tabs) -> string?,\
+}\
+\
+export type Chips = NodeFields & ElementFields & NodeApi<Chips> & ElementApi<Chips> & {\
+	setChips: (self: Chips, chips: Bindable<{ Option | string }>) -> Chips,\
+	setRemovable: (self: Chips, removable: boolean) -> Chips,\
+	setSelectable: (self: Chips, selectable: boolean) -> Chips,\
+	setSelected: (self: Chips, ids: Bindable<{ string }>) -> Chips,\
+	setWrap: (self: Chips, wrap: boolean) -> Chips,\
+\
+	onRemoved: (self: Chips, handler: (string) -> ()) -> Chips,\
+	onSelected: (self: Chips, handler: ({ string }) -> ()) -> Chips,\
+\
+	selected: (self: Chips) -> { string },\
+}\
+\
+export type Suggest = NodeFields & ElementFields & NodeApi<Suggest> & ElementApi<Suggest> & {\
+	setSource: (self: Suggest, source: Bindable<{ Option | string }>) -> Suggest,\
+	setQuery: (self: Suggest, query: Bindable<string>) -> Suggest,\
+	setLimit: (self: Suggest, limit: number) -> Suggest,\
+	setMatcher: (self: Suggest, matcher: (string, string) -> (boolean, number)) -> Suggest,\
+	attach: (self: Suggest, field: Field) -> Suggest,\
+\
+	onAccepted: (self: Suggest, handler: (Option) -> ()) -> Suggest,\
+	onHighlighted: (self: Suggest, handler: (Option?) -> ()) -> Suggest,\
+\
+	next: (self: Suggest) -> Suggest,\
+	previous: (self: Suggest) -> Suggest,\
+	accept: (self: Suggest) -> Suggest,\
+	highlighted: (self: Suggest) -> Option?,\
+}\
+\
+export type MenuItem = {\
+	id: string?,\
+	text: string,\
+	icon: string?,\
+	shortcut: string?,\
+	divider: boolean?,\
+	danger: boolean?,\
+	disabled: boolean?,\
+	action: (() -> ())?,\
+}\
+\
+export type Menu = NodeFields & ElementFields & NodeApi<Menu> & ElementApi<Menu> & {\
+	setItems: (self: Menu, items: { MenuItem | string }) -> Menu,\
+	openAt: (self: Menu, position: Vector2) -> Menu,\
+	closeMenu: (self: Menu) -> Menu,\
+\
+	onPicked: (self: Menu, handler: (MenuItem) -> ()) -> Menu,\
+}\
+\
+export type Badge = NodeFields & ElementFields & NodeApi<Badge> & ElementApi<Badge> & {\
+	setText: (self: Badge, text: Bindable<string>) -> Badge,\
+	setTone: (self: Badge, tone: \"neutral\" | \"accent\" | \"success\" | \"warn\" | \"danger\") -> Badge,\
+	setDot: (self: Badge, dot: boolean) -> Badge,\
+}\
+\
+export type Scroll = NodeFields & ElementFields & NodeApi<Scroll> & ElementApi<Scroll> & {\
+	setAxis: (self: Scroll, axis: Axis) -> Scroll,\
+	setGap: (self: Scroll, gap: number) -> Scroll,\
+	setMaxHeight: (self: Scroll, height: number) -> Scroll,\
+	setFade: (self: Scroll, enabled: boolean) -> Scroll,\
+	setBarVisible: (self: Scroll, visible: boolean) -> Scroll,\
+\
+	add: (self: Scroll, child: Element) -> Scroll,\
+	clear: (self: Scroll) -> Scroll,\
+	scrollToBottom: (self: Scroll) -> Scroll,\
+\
+	label: (self: Scroll, text: Bindable<string>?) -> Label,\
+	group: (self: Scroll, axis: Axis?) -> Group,\
+	list: (self: Scroll) -> List,\
+}\
+\
+export type Keybind = NodeFields & ElementFields & NodeApi<Keybind> & ElementApi<Keybind> & {\
+	setLabel: (self: Keybind, label: Bindable<string>) -> Keybind,\
+	setValue: (self: Keybind, key: Bindable<Enum.KeyCode?>) -> Keybind,\
+\
+	onChanged: (self: Keybind, handler: (Enum.KeyCode?) -> ()) -> Keybind,\
+\
+	value: (self: Keybind) -> Enum.KeyCode?,\
+}\
+\
+return {}\
+"},
+{"Astrix/_Packages/Substance","ModuleScript","-- MaterialSubstance\
+-- init.lua\
+-- Plinko Labs\
+\
+local Particle = require(script.Particle)\
+local React = require(script.React)\
+local Tools = require(script.Tools)\
+\
+local Substance = {}\
+\
+function Substance.Quark(name: string, definition: any)\
+	Particle.Quark(name, definition)\
+end\
+\
+function Substance.Gluon(name: string, schema: {[string]: any})\
+	Particle.Gluon(name, schema)\
+end\
+\
+function Substance.Define(name: string, schema: {[string]: any}): any\
+	return Particle.Define(name, schema)\
+end\
+\
+function Substance.Compose(name: string, atoms: {any}, eventType: string): any\
+	return Particle.Compose(name, atoms, eventType)\
+end\
+\
+function Substance.Post(name: string, payload: any, target: Player?): any\
+	return Particle.Dispatch.Post(name, payload, target)\
+end\
+\
+function Substance.Subscribe(name: string, handler: (any, Player?) -> any): any\
+	return Particle.Dispatch.Subscribe(name, handler)\
+end\
+\
+function Substance.Broadcast(name: string, payload: any, filter: ((Player) -> boolean)?)\
+	Particle.Dispatch.Broadcast(name, payload, filter)\
+end\
+\
+function Substance.Pre(name: string, hook: (any) -> any)\
+	Tools.Hooks.Pre(name, hook)\
+end\
+\
+function Substance.Hook(name: string, hook: (any) -> any)\
+	Tools.Hooks.Hook(name, hook)\
+end\
+\
+function Substance.LandLine(name: string, steps: {any}): any\
+	return Tools.LandLine(name, steps)\
+end\
+\
+function Substance.Batch(requests: {any}): any\
+	return Tools.Batch(requests)\
+end\
+\
+function Substance.Fission(trigger: string, targets: {any})\
+	Tools.Fission(trigger, targets)\
+end\
+\
+function Substance.River(name: string): any\
+	return React.River(name)\
+end\
+\
+function Substance.Flux(name: string, schema: {[string]: any}?, authority: string?): any\
+	return React.Flux(name, schema, authority)\
+end\
+\
+Substance.Fossil = Tools.Fossil\
+Substance.Type = Particle.Type\
+\
+return Substance\
+"},
+{"Astrix/_Packages/Substance/Async","ModuleScript","-- MaterialSubstance\
+-- Async/init.lua\
+-- Plinko Labs\
+\
+local Reaction = require(script.Reaction)\
+local Branch = require(script.Branch)\
+\
+return {\
+	Reaction = Reaction,\
+	Branch = Branch,\
+}\
+"},
+{"Astrix/_Packages/Substance/Async/Branch","ModuleScript","-- MaterialSubstance\
+-- Async/Branch.lua\
+-- Plinko Labs\
+\
+export type BranchTable = {[string]: (any) -> any}\
+\
+local Branch = {}\
+\
+function Branch.Resolve(value: any, table: BranchTable): any\
+	if type(value) == \"string\" and table[value] then\
+		return table[value](value)\
+	end\
+\
+	if type(value) == \"table\" and type(value.Branch) == \"string\" and table[value.Branch] then\
+		return table[value.Branch](value)\
+	end\
+\
+	if table.Default then\
+		return table.Default(value)\
+	end\
+\
+	return nil\
+end\
+\
+return Branch\
+"},
+{"Astrix/_Packages/Substance/Async/Promise","ModuleScript","--[[\
+	An implementation of Promises similar to Promise/A+.\
+]]\
+\
+local ERROR_NON_PROMISE_IN_LIST = \"Non-promise value passed into %s at index %s\"\
+local ERROR_NON_LIST = \"Please pass a list of promises to %s\"\
+local ERROR_NON_FUNCTION = \"Please pass a handler function to %s!\"\
+local MODE_KEY_METATABLE = { __mode = \"k\" }\
+\
+local function isCallable(value)\
+	if type(value) == \"function\" then\
+		return true\
+	end\
+\
+	if type(value) == \"table\" then\
+		local metatable = getmetatable(value)\
+		if metatable and type(rawget(metatable, \"__call\")) == \"function\" then\
+			return true\
+		end\
+	end\
+\
+	return false\
+end\
+\
+--[[\
+	Creates an enum dictionary with some metamethods to prevent common mistakes.\
+]]\
+local function makeEnum(enumName, members)\
+	local enum = {}\
+\
+	for _, memberName in ipairs(members) do\
+		enum[memberName] = memberName\
+	end\
+\
+	return setmetatable(enum, {\
+		__index = function(_, k)\
+			error(string.format(\"%s is not in %s!\", k, enumName), 2)\
+		end,\
+		__newindex = function()\
+			error(string.format(\"Creating new members in %s is not allowed!\", enumName), 2)\
+		end,\
+	})\
+end\
+\
+--[=[\
+	An object to represent runtime errors that occur during execution.\
+	Promises that experience an error like this will be rejected with\
+	an instance of this object.\
+\
+	@class Error\
+]=]\
+local Error\
+do\
+	Error = {\
+		Kind = makeEnum(\"Promise.Error.Kind\", {\
+			\"ExecutionError\",\
+			\"AlreadyCancelled\",\
+			\"NotResolvedInTime\",\
+			\"TimedOut\",\
+		}),\
+	}\
+	Error.__index = Error\
+\
+	function Error.new(options, parent)\
+		options = options or {}\
+		return setmetatable({\
+			error = tostring(options.error) or \"[This error has no error text.]\",\
+			trace = options.trace,\
+			context = options.context,\
+			kind = options.kind,\
+			parent = parent,\
+			createdTick = os.clock(),\
+			createdTrace = debug.traceback(),\
+		}, Error)\
+	end\
+\
+	function Error.is(anything)\
+		if type(anything) == \"table\" then\
+			local metatable = getmetatable(anything)\
+\
+			if type(metatable) == \"table\" then\
+				return rawget(anything, \"error\") ~= nil and type(rawget(metatable, \"extend\")) == \"function\"\
+			end\
+		end\
+\
+		return false\
+	end\
+\
+	function Error.isKind(anything, kind)\
+		assert(kind ~= nil, \"Argument #2 to Promise.Error.isKind must not be nil\")\
+\
+		return Error.is(anything) and anything.kind == kind\
+	end\
+\
+	function Error:extend(options)\
+		options = options or {}\
+\
+		options.kind = options.kind or self.kind\
+\
+		return Error.new(options, self)\
+	end\
+\
+	function Error:getErrorChain()\
+		local runtimeErrors = { self }\
+\
+		while runtimeErrors[#runtimeErrors].parent do\
+			table.insert(runtimeErrors, runtimeErrors[#runtimeErrors].parent)\
+		end\
+\
+		return runtimeErrors\
+	end\
+\
+	function Error:__tostring()\
+		local errorStrings = {\
+			string.format(\"-- Promise.Error(%s) --\", self.kind or \"?\"),\
+		}\
+\
+		for _, runtimeError in ipairs(self:getErrorChain()) do\
+			table.insert(\
+				errorStrings,\
+				table.concat({\
+					runtimeError.trace or runtimeError.error,\
+					runtimeError.context,\
+				}, \"\\n\")\
+			)\
+		end\
+\
+		return table.concat(errorStrings, \"\\n\")\
+	end\
+end\
+\
+--[[\
+	Packs a number of arguments into a table and returns its length.\
+\
+	Used to cajole varargs without dropping sparse values.\
+]]\
+local function pack(...)\
+	return select(\"#\", ...), { ... }\
+end\
+\
+--[[\
+	Returns first value (success), and packs all following values.\
+]]\
+local function packResult(success, ...)\
+	return success, select(\"#\", ...), { ... }\
+end\
+\
+local function makeErrorHandler(traceback)\
+	assert(traceback ~= nil, \"traceback is nil\")\
+\
+	return function(err)\
+		-- If the error object is already a table, forward it directly.\
+		-- Should we extend the error here and add our own trace?\
+\
+		if type(err) == \"table\" then\
+			return err\
+		end\
+\
+		return Error.new({\
+			error = err,\
+			kind = Error.Kind.ExecutionError,\
+			trace = debug.traceback(tostring(err), 2),\
+			context = \"Promise created at:\\n\\n\" .. traceback,\
+		})\
+	end\
+end\
+\
+--[[\
+	Calls a Promise executor with error handling.\
+]]\
+local function runExecutor(traceback, callback, ...)\
+	return packResult(xpcall(callback, makeErrorHandler(traceback), ...))\
+end\
+\
+--[[\
+	Creates a function that invokes a callback with correct error handling and\
+	resolution mechanisms.\
+]]\
+local function createAdvancer(traceback, callback, resolve, reject)\
+	return function(...)\
+		local ok, resultLength, result = runExecutor(traceback, callback, ...)\
+\
+		if ok then\
+			resolve(unpack(result, 1, resultLength))\
+		else\
+			reject(result[1])\
+		end\
+	end\
+end\
+\
+local function isEmpty(t)\
+	return next(t) == nil\
+end\
+\
+--[=[\
+	An enum value used to represent the Promise's status.\
+	@interface Status\
+	@tag enum\
+	@within Promise\
+	.Started \"Started\" -- The Promise is executing, and not settled yet.\
+	.Resolved \"Resolved\" -- The Promise finished successfully.\
+	.Rejected \"Rejected\" -- The Promise was rejected.\
+	.Cancelled \"Cancelled\" -- The Promise was cancelled before it finished.\
+]=]\
+--[=[\
+	@prop Status Status\
+	@within Promise\
+	@readonly\
+	@tag enums\
+	A table containing all members of the `Status` enum, e.g., `Promise.Status.Resolved`.\
+]=]\
+--[=[\
+	A Promise is an object that represents a value that will exist in the future, but doesn't right now.\
+	Promises allow you to then attach callbacks that can run once the value becomes available (known as *resolving*),\
+	or if an error has occurred (known as *rejecting*).\
+\
+	@class Promise\
+	@__index prototype\
+]=]\
+local Promise = {\
+	Error = Error,\
+	Status = makeEnum(\"Promise.Status\", { \"Started\", \"Resolved\", \"Rejected\", \"Cancelled\" }),\
+	_getTime = os.clock,\
+	_timeEvent = game:GetService(\"RunService\").Heartbeat,\
+	_unhandledRejectionCallbacks = {},\
+}\
+Promise.prototype = {}\
+Promise.__index = Promise.prototype\
+\
+function Promise._new(traceback, callback, parent)\
+	if parent ~= nil and not Promise.is(parent) then\
+		error(\"Argument #2 to Promise.new must be a promise or nil\", 2)\
+	end\
+\
+	local self = {\
+		-- The executor thread.\
+		_thread = nil,\
+\
+		-- Used to locate where a promise was created\
+		_source = traceback,\
+\
+		_status = Promise.Status.Started,\
+\
+		-- A table containing a list of all results, whether success or failure.\
+		-- Only valid if _status is set to something besides Started\
+		_values = nil,\
+\
+		-- Lua doesn't like sparse arrays very much, so we explicitly store the\
+		-- length of _values to handle middle nils.\
+		_valuesLength = -1,\
+\
+		-- Tracks if this Promise has no error observers..\
+		_unhandledRejection = true,\
+\
+		-- Queues representing functions we should invoke when we update!\
+		_queuedResolve = {},\
+		_queuedReject = {},\
+		_queuedFinally = {},\
+\
+		-- The function to run when/if this promise is cancelled.\
+		_cancellationHook = nil,\
+\
+		-- The \"parent\" of this promise in a promise chain. Required for\
+		-- cancellation propagation upstream.\
+		_parent = parent,\
+\
+		-- Consumers are Promises that have chained onto this one.\
+		-- We track them for cancellation propagation downstream.\
+		_consumers = setmetatable({}, MODE_KEY_METATABLE),\
+	}\
+\
+	if parent and parent._status == Promise.Status.Started then\
+		parent._consumers[self] = true\
+	end\
+\
+	setmetatable(self, Promise)\
+\
+	local function resolve(...)\
+		self:_resolve(...)\
+	end\
+\
+	local function reject(...)\
+		self:_reject(...)\
+	end\
+\
+	local function onCancel(cancellationHook)\
+		if cancellationHook then\
+			if self._status == Promise.Status.Cancelled then\
+				cancellationHook()\
+			else\
+				self._cancellationHook = cancellationHook\
+			end\
+		end\
+\
+		return self._status == Promise.Status.Cancelled\
+	end\
+\
+	self._thread = coroutine.create(function()\
+		local ok, _, result = runExecutor(self._source, callback, resolve, reject, onCancel)\
+\
+		if not ok then\
+			reject(result[1])\
+		end\
+	end)\
+\
+	task.spawn(self._thread)\
+\
+	return self\
+end\
+\
+--[=[\
+	Construct a new Promise that will be resolved or rejected with the given callbacks.\
+\
+	If you `resolve` with a Promise, it will be chained onto.\
+\
+	You can safely yield within the executor function and it will not block the creating thread.\
+\
+	```lua\
+	local myFunction()\
+		return Promise.new(function(resolve, reject, onCancel)\
+			wait(1)\
+			resolve(\"Hello world!\")\
+		end)\
+	end\
+\
+	myFunction():andThen(print)\
+	```\
+\
+	You do not need to use `pcall` within a Promise. Errors that occur during execution will be caught and turned into a rejection automatically. If `error()` is called with a table, that table will be the rejection value. Otherwise, string errors will be converted into `Promise.Error(Promise.Error.Kind.ExecutionError)` objects for tracking debug information.\
+\
+	You may register an optional cancellation hook by using the `onCancel` argument:\
+\
+	* This should be used to abort any ongoing operations leading up to the promise being settled.\
+	* Call the `onCancel` function with a function callback as its only argument to set a hook which will in turn be called when/if the promise is cancelled.\
+	* `onCancel` returns `true` if the Promise was already cancelled when you called `onCancel`.\
+	* Calling `onCancel` with no argument will not override a previously set cancellation hook, but it will still return `true` if the Promise is currently cancelled.\
+	* You can set the cancellation hook at any time before resolving.\
+	* When a promise is cancelled, calls to `resolve` or `reject` will be ignored, regardless of if you set a cancellation hook or not.\
+\
+	:::caution\
+	If the Promise is cancelled, the `executor` thread is closed with `coroutine.close` after the cancellation hook is called.\
+\
+	You must perform any cleanup code in the cancellation hook: any time your executor yields, it **may never resume**.\
+	:::\
+\
+	@param executor (resolve: (...: any) -> (), reject: (...: any) -> (), onCancel: (abortHandler?: () -> ()) -> boolean) -> ()\
+	@return Promise\
+]=]\
+function Promise.new(executor)\
+	return Promise._new(debug.traceback(nil, 2), executor)\
+end\
+\
+function Promise:__tostring()\
+	return string.format(\"Promise(%s)\", self._status)\
+end\
+\
+--[=[\
+	The same as [Promise.new](/api/Promise#new), except execution begins after the next `Heartbeat` event.\
+\
+	This is a spiritual replacement for `spawn`, but it does not suffer from the same [issues](https://eryn.io/gist/3db84579866c099cdd5bb2ff37947cec) as `spawn`.\
+\
+	```lua\
+	local function waitForChild(instance, childName, timeout)\
+	  return Promise.defer(function(resolve, reject)\
+		local child = instance:WaitForChild(childName, timeout)\
+\
+		;(child and resolve or reject)(child)\
+	  end)\
+	end\
+	```\
+\
+	@param executor (resolve: (...: any) -> (), reject: (...: any) -> (), onCancel: (abortHandler?: () -> ()) -> boolean) -> ()\
+	@return Promise\
+]=]\
+function Promise.defer(executor)\
+	local traceback = debug.traceback(nil, 2)\
+	local promise\
+	promise = Promise._new(traceback, function(resolve, reject, onCancel)\
+		task.defer(function()\
+			local ok, _, result = runExecutor(traceback, executor, resolve, reject, onCancel)\
+\
+			if not ok then\
+				reject(result[1])\
+			end\
+		end)\
+	end)\
+\
+	return promise\
+end\
+\
+-- Backwards compatibility\
+Promise.async = Promise.defer\
+\
+--[=[\
+	Creates an immediately resolved Promise with the given value.\
+\
+	```lua\
+	-- Example using Promise.resolve to deliver cached values:\
+	function getSomething(name)\
+		if cache[name] then\
+			return Promise.resolve(cache[name])\
+		else\
+			return Promise.new(function(resolve, reject)\
+				local thing = getTheThing()\
+				cache[name] = thing\
+\
+				resolve(thing)\
+			end)\
+		end\
+	end\
+	```\
+\
+	@param ... any\
+	@return Promise<...any>\
+]=]\
+function Promise.resolve(...)\
+	local length, values = pack(...)\
+	return Promise._new(debug.traceback(nil, 2), function(resolve)\
+		resolve(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[=[\
+	Creates an immediately rejected Promise with the given value.\
+\
+	:::caution\
+	Something needs to consume this rejection (i.e. `:catch()` it), otherwise it will emit an unhandled Promise rejection warning on the next frame. Thus, you should not create and store rejected Promises for later use. Only create them on-demand as needed.\
+	:::\
+\
+	@param ... any\
+	@return Promise<...any>\
+]=]\
+function Promise.reject(...)\
+	local length, values = pack(...)\
+	return Promise._new(debug.traceback(nil, 2), function(_, reject)\
+		reject(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[[\
+	Runs a non-promise-returning function as a Promise with the\
+  given arguments.\
+]]\
+function Promise._try(traceback, callback, ...)\
+	local valuesLength, values = pack(...)\
+\
+	return Promise._new(traceback, function(resolve)\
+		resolve(callback(unpack(values, 1, valuesLength)))\
+	end)\
+end\
+\
+--[=[\
+	Begins a Promise chain, calling a function and returning a Promise resolving with its return value. If the function errors, the returned Promise will be rejected with the error. You can safely yield within the Promise.try callback.\
+\
+	:::info\
+	`Promise.try` is similar to [Promise.promisify](#promisify), except the callback is invoked immediately instead of returning a new function.\
+	:::\
+\
+	```lua\
+	Promise.try(function()\
+		return math.random(1, 2) == 1 and \"ok\" or error(\"Oh an error!\")\
+	end)\
+		:andThen(function(text)\
+			print(text)\
+		end)\
+		:catch(function(err)\
+			warn(\"Something went wrong\")\
+		end)\
+	```\
+\
+	@param callback (...: T...) -> ...any\
+	@param ... T... -- Additional arguments passed to `callback`\
+	@return Promise\
+]=]\
+function Promise.try(callback, ...)\
+	return Promise._try(debug.traceback(nil, 2), callback, ...)\
+end\
+\
+--[[\
+	Returns a new promise that:\
+		* is resolved when all input promises resolve\
+		* is rejected if ANY input promises reject\
+]]\
+function Promise._all(traceback, promises, amount)\
+	if type(promises) ~= \"table\" then\
+		error(string.format(ERROR_NON_LIST, \"Promise.all\"), 3)\
+	end\
+\
+	-- We need to check that each value is a promise here so that we can produce\
+	-- a proper error rather than a rejected promise with our error.\
+	for i, promise in pairs(promises) do\
+		if not Promise.is(promise) then\
+			error(string.format(ERROR_NON_PROMISE_IN_LIST, \"Promise.all\", tostring(i)), 3)\
+		end\
+	end\
+\
+	-- If there are no values then return an already resolved promise.\
+	if #promises == 0 or amount == 0 then\
+		return Promise.resolve({})\
+	end\
+\
+	return Promise._new(traceback, function(resolve, reject, onCancel)\
+		-- An array to contain our resolved values from the given promises.\
+		local resolvedValues = {}\
+		local newPromises = {}\
+\
+		-- Keep a count of resolved promises because just checking the resolved\
+		-- values length wouldn't account for promises that resolve with nil.\
+		local resolvedCount = 0\
+		local rejectedCount = 0\
+		local done = false\
+\
+		local function cancel()\
+			for _, promise in ipairs(newPromises) do\
+				promise:cancel()\
+			end\
+		end\
+\
+		-- Called when a single value is resolved and resolves if all are done.\
+		local function resolveOne(i, ...)\
+			if done then\
+				return\
+			end\
+\
+			resolvedCount = resolvedCount + 1\
+\
+			if amount == nil then\
+				resolvedValues[i] = ...\
+			else\
+				resolvedValues[resolvedCount] = ...\
+			end\
+\
+			if resolvedCount >= (amount or #promises) then\
+				done = true\
+				resolve(resolvedValues)\
+				cancel()\
+			end\
+		end\
+\
+		onCancel(cancel)\
+\
+		-- We can assume the values inside `promises` are all promises since we\
+		-- checked above.\
+		for i, promise in ipairs(promises) do\
+			newPromises[i] = promise:andThen(function(...)\
+				resolveOne(i, ...)\
+			end, function(...)\
+				rejectedCount = rejectedCount + 1\
+\
+				if amount == nil or #promises - rejectedCount < amount then\
+					cancel()\
+					done = true\
+\
+					reject(...)\
+				end\
+			end)\
+		end\
+\
+		if done then\
+			cancel()\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a new promise that:\
+	* is resolved after all input promises resolve.\
+	* is rejected if *any* input promises reject.\
+\
+	:::info\
+	Only the first return value from each promise will be present in the resulting array.\
+	:::\
+\
+	After any input Promise rejects, all other input Promises that are still pending will be cancelled if they have no other consumers.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.all(promises)\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<{T}>\
+]=]\
+function Promise.all(promises)\
+	return Promise._all(debug.traceback(nil, 2), promises)\
+end\
+\
+--[=[\
+	Folds an array of values or promises into a single value. The array is traversed sequentially.\
+\
+	The reducer function can return a promise or value directly. Each iteration receives the resolved value from the previous, and the first receives your defined initial value.\
+\
+	The folding will stop at the first rejection encountered.\
+	```lua\
+	local basket = {\"blueberry\", \"melon\", \"pear\", \"melon\"}\
+	Promise.fold(basket, function(cost, fruit)\
+		if fruit == \"blueberry\" then\
+			return cost -- blueberries are free!\
+		else\
+			-- call a function that returns a promise with the fruit price\
+			return fetchPrice(fruit):andThen(function(fruitCost)\
+				return cost + fruitCost\
+			end)\
+		end\
+	end, 0)\
+	```\
+\
+	@since v3.1.0\
+	@param list {T | Promise<T>}\
+	@param reducer (accumulator: U, value: T, index: number) -> U | Promise<U>\
+	@param initialValue U\
+]=]\
+function Promise.fold(list, reducer, initialValue)\
+	assert(type(list) == \"table\", \"Bad argument #1 to Promise.fold: must be a table\")\
+	assert(isCallable(reducer), \"Bad argument #2 to Promise.fold: must be a function\")\
+\
+	local accumulator = Promise.resolve(initialValue)\
+	return Promise.each(list, function(resolvedElement, i)\
+		accumulator = accumulator:andThen(function(previousValueResolved)\
+			return reducer(previousValueResolved, resolvedElement, i)\
+		end)\
+	end):andThen(function()\
+		return accumulator\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a Promise that is resolved as soon as `count` Promises are resolved from the input array. The resolved array values are in the order that the Promises resolved in. When this Promise resolves, all other pending Promises are cancelled if they have no other consumers.\
+\
+	`count` 0 results in an empty array. The resultant array will never have more than `count` elements.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.some(promises, 2) -- Only resolves with first 2 promises to resolve\
+	```\
+\
+	@param promises {Promise<T>}\
+	@param count number\
+	@return Promise<{T}>\
+]=]\
+function Promise.some(promises, count)\
+	assert(type(count) == \"number\", \"Bad argument #2 to Promise.some: must be a number\")\
+\
+	return Promise._all(debug.traceback(nil, 2), promises, count)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a Promise that is resolved as soon as *any* of the input Promises resolves. It will reject only if *all* input Promises reject. As soon as one Promises resolves, all other pending Promises are cancelled if they have no other consumers.\
+\
+	Resolves directly with the value of the first resolved Promise. This is essentially [[Promise.some]] with `1` count, except the Promise resolves with the value directly instead of an array with one element.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.any(promises) -- Resolves with first value to resolve (only rejects if all 3 rejected)\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<T>\
+]=]\
+function Promise.any(promises)\
+	return Promise._all(debug.traceback(nil, 2), promises, 1):andThen(function(values)\
+		return values[1]\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a new Promise that resolves with an array of in-place Statuses when all input Promises have settled. This is equivalent to mapping `promise:finally` over the array of Promises.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.allSettled(promises)\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<{Status}>\
+]=]\
+function Promise.allSettled(promises)\
+	if type(promises) ~= \"table\" then\
+		error(string.format(ERROR_NON_LIST, \"Promise.allSettled\"), 2)\
+	end\
+\
+	-- We need to check that each value is a promise here so that we can produce\
+	-- a proper error rather than a rejected promise with our error.\
+	for i, promise in pairs(promises) do\
+		if not Promise.is(promise) then\
+			error(string.format(ERROR_NON_PROMISE_IN_LIST, \"Promise.allSettled\", tostring(i)), 2)\
+		end\
+	end\
+\
+	-- If there are no values then return an already resolved promise.\
+	if #promises == 0 then\
+		return Promise.resolve({})\
+	end\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)\
+		-- An array to contain our resolved values from the given promises.\
+		local fates = {}\
+		local newPromises = {}\
+\
+		-- Keep a count of resolved promises because just checking the resolved\
+		-- values length wouldn't account for promises that resolve with nil.\
+		local finishedCount = 0\
+\
+		-- Called when a single value is resolved and resolves if all are done.\
+		local function resolveOne(i, ...)\
+			finishedCount = finishedCount + 1\
+\
+			fates[i] = ...\
+\
+			if finishedCount >= #promises then\
+				resolve(fates)\
+			end\
+		end\
+\
+		onCancel(function()\
+			for _, promise in ipairs(newPromises) do\
+				promise:cancel()\
+			end\
+		end)\
+\
+		-- We can assume the values inside `promises` are all promises since we\
+		-- checked above.\
+		for i, promise in ipairs(promises) do\
+			newPromises[i] = promise:finally(function(...)\
+				resolveOne(i, ...)\
+			end)\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a new promise that is resolved or rejected as soon as any Promise in the array resolves or rejects.\
+\
+	:::warning\
+	If the first Promise to settle from the array settles with a rejection, the resulting Promise from `race` will reject.\
+\
+	If you instead want to tolerate rejections, and only care about at least one Promise resolving, you should use [Promise.any](#any) or [Promise.some](#some) instead.\
+	:::\
+\
+	All other Promises that don't win the race will be cancelled if they have no other consumers.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.race(promises) -- Only returns 1st value to resolve or reject\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<T>\
+]=]\
+function Promise.race(promises)\
+	assert(type(promises) == \"table\", string.format(ERROR_NON_LIST, \"Promise.race\"))\
+\
+	for i, promise in pairs(promises) do\
+		assert(Promise.is(promise), string.format(ERROR_NON_PROMISE_IN_LIST, \"Promise.race\", tostring(i)))\
+	end\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, reject, onCancel)\
+		local newPromises = {}\
+		local finished = false\
+\
+		local function cancel()\
+			for _, promise in ipairs(newPromises) do\
+				promise:cancel()\
+			end\
+		end\
+\
+		local function finalize(callback)\
+			return function(...)\
+				cancel()\
+				finished = true\
+				return callback(...)\
+			end\
+		end\
+\
+		if onCancel(finalize(reject)) then\
+			return\
+		end\
+\
+		for i, promise in ipairs(promises) do\
+			newPromises[i] = promise:andThen(finalize(resolve), finalize(reject))\
+		end\
+\
+		if finished then\
+			cancel()\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Iterates serially over the given an array of values, calling the predicate callback on each value before continuing.\
+\
+	If the predicate returns a Promise, we wait for that Promise to resolve before moving on to the next item\
+	in the array.\
+\
+	:::info\
+	`Promise.each` is similar to `Promise.all`, except the Promises are ran in order instead of all at once.\
+\
+	But because Promises are eager, by the time they are created, they're already running. Thus, we need a way to defer creation of each Promise until a later time.\
+\
+	The predicate function exists as a way for us to operate on our data instead of creating a new closure for each Promise. If you would prefer, you can pass in an array of functions, and in the predicate, call the function and return its return value.\
+	:::\
+\
+	```lua\
+	Promise.each({\
+		\"foo\",\
+		\"bar\",\
+		\"baz\",\
+		\"qux\"\
+	}, function(value, index)\
+		return Promise.delay(1):andThen(function()\
+		print((\"%d) Got %s!\"):format(index, value))\
+		end)\
+	end)\
+\
+	--[[\
+		(1 second passes)\
+		> 1) Got foo!\
+		(1 second passes)\
+		> 2) Got bar!\
+		(1 second passes)\
+		> 3) Got baz!\
+		(1 second passes)\
+		> 4) Got qux!\
+	]]\
+	```\
+\
+	If the Promise a predicate returns rejects, the Promise from `Promise.each` is also rejected with the same value.\
+\
+	If the array of values contains a Promise, when we get to that point in the list, we wait for the Promise to resolve before calling the predicate with the value.\
+\
+	If a Promise in the array of values is already Rejected when `Promise.each` is called, `Promise.each` rejects with that value immediately (the predicate callback will never be called even once). If a Promise in the list is already Cancelled when `Promise.each` is called, `Promise.each` rejects with `Promise.Error(Promise.Error.Kind.AlreadyCancelled`). If a Promise in the array of values is Started at first, but later rejects, `Promise.each` will reject with that value and iteration will not continue once iteration encounters that value.\
+\
+	Returns a Promise containing an array of the returned/resolved values from the predicate for each item in the array of values.\
+\
+	If this Promise returned from `Promise.each` rejects or is cancelled for any reason, the following are true:\
+	- Iteration will not continue.\
+	- Any Promises within the array of values will now be cancelled if they have no other consumers.\
+	- The Promise returned from the currently active predicate will be cancelled if it hasn't resolved yet.\
+\
+	@since 3.0.0\
+	@param list {T | Promise<T>}\
+	@param predicate (value: T, index: number) -> U | Promise<U>\
+	@return Promise<{U}>\
+]=]\
+function Promise.each(list, predicate)\
+	assert(type(list) == \"table\", string.format(ERROR_NON_LIST, \"Promise.each\"))\
+	assert(isCallable(predicate), string.format(ERROR_NON_FUNCTION, \"Promise.each\"))\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, reject, onCancel)\
+		local results = {}\
+		local promisesToCancel = {}\
+\
+		local cancelled = false\
+\
+		local function cancel()\
+			for _, promiseToCancel in ipairs(promisesToCancel) do\
+				promiseToCancel:cancel()\
+			end\
+		end\
+\
+		onCancel(function()\
+			cancelled = true\
+\
+			cancel()\
+		end)\
+\
+		-- We need to preprocess the list of values and look for Promises.\
+		-- If we find some, we must register our andThen calls now, so that those Promises have a consumer\
+		-- from us registered. If we don't do this, those Promises might get cancelled by something else\
+		-- before we get to them in the series because it's not possible to tell that we plan to use it\
+		-- unless we indicate it here.\
+\
+		local preprocessedList = {}\
+\
+		for index, value in ipairs(list) do\
+			if Promise.is(value) then\
+				if value:getStatus() == Promise.Status.Cancelled then\
+					cancel()\
+					return reject(Error.new({\
+						error = \"Promise is cancelled\",\
+						kind = Error.Kind.AlreadyCancelled,\
+						context = string.format(\
+							\"The Promise that was part of the array at index %d passed into Promise.each was already cancelled when Promise.each began.\\n\\nThat Promise was created at:\\n\\n%s\",\
+							index,\
+							value._source\
+						),\
+					}))\
+				elseif value:getStatus() == Promise.Status.Rejected then\
+					cancel()\
+					return reject(select(2, value:await()))\
+				end\
+\
+				-- Chain a new Promise from this one so we only cancel ours\
+				local ourPromise = value:andThen(function(...)\
+					return ...\
+				end)\
+\
+				table.insert(promisesToCancel, ourPromise)\
+				preprocessedList[index] = ourPromise\
+			else\
+				preprocessedList[index] = value\
+			end\
+		end\
+\
+		for index, value in ipairs(preprocessedList) do\
+			if Promise.is(value) then\
+				local success\
+				success, value = value:await()\
+\
+				if not success then\
+					cancel()\
+					return reject(value)\
+				end\
+			end\
+\
+			if cancelled then\
+				return\
+			end\
+\
+			local predicatePromise = Promise.resolve(predicate(value, index))\
+\
+			table.insert(promisesToCancel, predicatePromise)\
+\
+			local success, result = predicatePromise:await()\
+\
+			if not success then\
+				cancel()\
+				return reject(result)\
+			end\
+\
+			results[index] = result\
+		end\
+\
+		resolve(results)\
+	end)\
+end\
+\
+--[=[\
+	Checks whether the given object is a Promise via duck typing. This only checks if the object is a table and has an `andThen` method.\
+\
+	@param object any\
+	@return boolean -- `true` if the given `object` is a Promise.\
+]=]\
+function Promise.is(object)\
+	if type(object) ~= \"table\" then\
+		return false\
+	end\
+\
+	local objectMetatable = getmetatable(object)\
+\
+	if objectMetatable == Promise then\
+		-- The Promise came from this library.\
+		return true\
+	elseif objectMetatable == nil then\
+		-- No metatable, but we should still chain onto tables with andThen methods\
+		return isCallable(object.andThen)\
+	elseif\
+		type(objectMetatable) == \"table\"\
+		and type(rawget(objectMetatable, \"__index\")) == \"table\"\
+		and isCallable(rawget(rawget(objectMetatable, \"__index\"), \"andThen\"))\
+	then\
+		-- Maybe this came from a different or older Promise library.\
+		return true\
+	end\
+\
+	return false\
+end\
+\
+--[=[\
+	Wraps a function that yields into one that returns a Promise.\
+\
+	Any errors that occur while executing the function will be turned into rejections.\
+\
+	:::info\
+	`Promise.promisify` is similar to [Promise.try](#try), except the callback is returned as a callable function instead of being invoked immediately.\
+	:::\
+\
+	```lua\
+	local sleep = Promise.promisify(wait)\
+\
+	sleep(1):andThen(print)\
+	```\
+\
+	```lua\
+	local isPlayerInGroup = Promise.promisify(function(player, groupId)\
+		return player:IsInGroup(groupId)\
+	end)\
+	```\
+\
+	@param callback (...: any) -> ...any\
+	@return (...: any) -> Promise\
+]=]\
+function Promise.promisify(callback)\
+	return function(...)\
+		return Promise._try(debug.traceback(nil, 2), callback, ...)\
+	end\
+end\
+\
+--[=[\
+	Returns a Promise that resolves after `seconds` seconds have passed. The Promise resolves with the actual amount of time that was waited.\
+\
+	This function is a wrapper around `task.delay`.\
+\
+	:::warning\
+	Passing NaN, +Infinity, -Infinity, 0, or any other number less than the duration of a Heartbeat will cause the promise to resolve on the very next Heartbeat.\
+	:::\
+\
+	```lua\
+		Promise.delay(5):andThenCall(print, \"This prints after 5 seconds\")\
+	```\
+\
+	@function delay\
+	@within Promise\
+	@param seconds number\
+	@return Promise<number>\
+]=]\
+function Promise.delay(seconds)\
+	assert(type(seconds) == \"number\", \"Bad argument #1 to Promise.delay, must be a number.\")\
+	local startTime = Promise._getTime()\
+	return Promise._new(debug.traceback(nil, 2), function(resolve)\
+		task.delay(seconds, function()\
+			resolve(Promise._getTime() - startTime)\
+		end)\
+	end)\
+end\
+\
+--[=[\
+	Returns a new Promise that resolves if the chained Promise resolves within `seconds` seconds, or rejects if execution time exceeds `seconds`. The chained Promise will be cancelled if the timeout is reached.\
+\
+	Rejects with `rejectionValue` if it is non-nil. If a `rejectionValue` is not given, it will reject with a `Promise.Error(Promise.Error.Kind.TimedOut)`. This can be checked with [[Error.isKind]].\
+\
+	```lua\
+	getSomething():timeout(5):andThen(function(something)\
+		-- got something and it only took at max 5 seconds\
+	end):catch(function(e)\
+		-- Either getting something failed or the time was exceeded.\
+\
+		if Promise.Error.isKind(e, Promise.Error.Kind.TimedOut) then\
+			warn(\"Operation timed out!\")\
+		else\
+			warn(\"Operation encountered an error!\")\
+		end\
+	end)\
+	```\
+\
+	Sugar for:\
+\
+	```lua\
+	Promise.race({\
+		Promise.delay(seconds):andThen(function()\
+			return Promise.reject(\
+				rejectionValue == nil\
+				and Promise.Error.new({ kind = Promise.Error.Kind.TimedOut })\
+				or rejectionValue\
+			)\
+		end),\
+		promise\
+	})\
+	```\
+\
+	@param seconds number\
+	@param rejectionValue? any -- The value to reject with if the timeout is reached\
+	@return Promise\
+]=]\
+function Promise.prototype:timeout(seconds, rejectionValue)\
+	local traceback = debug.traceback(nil, 2)\
+\
+	return Promise.race({\
+		Promise.delay(seconds):andThen(function()\
+			return Promise.reject(rejectionValue == nil and Error.new({\
+				kind = Error.Kind.TimedOut,\
+				error = \"Timed out\",\
+				context = string.format(\
+					\"Timeout of %d seconds exceeded.\\n:timeout() called at:\\n\\n%s\",\
+					seconds,\
+					traceback\
+				),\
+			}) or rejectionValue)\
+		end),\
+		self,\
+	})\
+end\
+\
+--[=[\
+	Returns the current Promise status.\
+\
+	@return Status\
+]=]\
+function Promise.prototype:getStatus()\
+	return self._status\
+end\
+\
+--[[\
+	Creates a new promise that receives the result of this promise.\
+\
+	The given callbacks are invoked depending on that result.\
+]]\
+function Promise.prototype:_andThen(traceback, successHandler, failureHandler)\
+	self._unhandledRejection = false\
+\
+	-- If we are already cancelled, we return a cancelled Promise\
+	if self._status == Promise.Status.Cancelled then\
+		local promise = Promise.new(function() end)\
+		promise:cancel()\
+\
+		return promise\
+	end\
+\
+	-- Create a new promise to follow this part of the chain\
+	return Promise._new(traceback, function(resolve, reject, onCancel)\
+		-- Our default callbacks just pass values onto the next promise.\
+		-- This lets success and failure cascade correctly!\
+\
+		local successCallback = resolve\
+		if successHandler then\
+			successCallback = createAdvancer(traceback, successHandler, resolve, reject)\
+		end\
+\
+		local failureCallback = reject\
+		if failureHandler then\
+			failureCallback = createAdvancer(traceback, failureHandler, resolve, reject)\
+		end\
+\
+		if self._status == Promise.Status.Started then\
+			-- If we haven't resolved yet, put ourselves into the queue\
+			table.insert(self._queuedResolve, successCallback)\
+			table.insert(self._queuedReject, failureCallback)\
+\
+			onCancel(function()\
+				-- These are guaranteed to exist because the cancellation handler is guaranteed to only\
+				-- be called at most once\
+				if self._status == Promise.Status.Started then\
+					table.remove(self._queuedResolve, table.find(self._queuedResolve, successCallback))\
+					table.remove(self._queuedReject, table.find(self._queuedReject, failureCallback))\
+				end\
+			end)\
+		elseif self._status == Promise.Status.Resolved then\
+			-- This promise has already resolved! Trigger success immediately.\
+			successCallback(unpack(self._values, 1, self._valuesLength))\
+		elseif self._status == Promise.Status.Rejected then\
+			-- This promise died a terrible death! Trigger failure immediately.\
+			failureCallback(unpack(self._values, 1, self._valuesLength))\
+		end\
+	end, self)\
+end\
+\
+--[=[\
+	Chains onto an existing Promise and returns a new Promise.\
+\
+	:::warning\
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.\
+	:::\
+\
+	You can return a Promise from the success or failure handler and it will be chained onto.\
+\
+	Calling `andThen` on a cancelled Promise returns a cancelled Promise.\
+\
+	:::tip\
+	If the Promise returned by `andThen` is cancelled, `successHandler` and `failureHandler` will not run.\
+\
+	To run code no matter what, use [Promise:finally].\
+	:::\
+\
+	@param successHandler (...: any) -> ...any\
+	@param failureHandler? (...: any) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:andThen(successHandler, failureHandler)\
+	assert(successHandler == nil or isCallable(successHandler), string.format(ERROR_NON_FUNCTION, \"Promise:andThen\"))\
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, \"Promise:andThen\"))\
+\
+	return self:_andThen(debug.traceback(nil, 2), successHandler, failureHandler)\
+end\
+\
+--[=[\
+	Shorthand for `Promise:andThen(nil, failureHandler)`.\
+\
+	Returns a Promise that resolves if the `failureHandler` worked without encountering an additional error.\
+\
+	:::warning\
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.\
+	:::\
+\
+	Calling `catch` on a cancelled Promise returns a cancelled Promise.\
+\
+	:::tip\
+	If the Promise returned by `catch` is cancelled,  `failureHandler` will not run.\
+\
+	To run code no matter what, use [Promise:finally].\
+	:::\
+\
+	@param failureHandler (...: any) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:catch(failureHandler)\
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, \"Promise:catch\"))\
+	return self:_andThen(debug.traceback(nil, 2), nil, failureHandler)\
+end\
+\
+--[=[\
+	Similar to [Promise.andThen](#andThen), except the return value is the same as the value passed to the handler. In other words, you can insert a `:tap` into a Promise chain without affecting the value that downstream Promises receive.\
+\
+	```lua\
+		getTheValue()\
+		:tap(print)\
+		:andThen(function(theValue)\
+			print(\"Got\", theValue, \"even though print returns nil!\")\
+		end)\
+	```\
+\
+	If you return a Promise from the tap handler callback, its value will be discarded but `tap` will still wait until it resolves before passing the original value through.\
+\
+	@param tapHandler (...: any) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:tap(tapHandler)\
+	assert(isCallable(tapHandler), string.format(ERROR_NON_FUNCTION, \"Promise:tap\"))\
+	return self:_andThen(debug.traceback(nil, 2), function(...)\
+		local callbackReturn = tapHandler(...)\
+\
+		if Promise.is(callbackReturn) then\
+			local length, values = pack(...)\
+			return callbackReturn:andThen(function()\
+				return unpack(values, 1, length)\
+			end)\
+		end\
+\
+		return ...\
+	end)\
+end\
+\
+--[=[\
+	Attaches an `andThen` handler to this Promise that calls the given callback with the predefined arguments. The resolved value is discarded.\
+\
+	```lua\
+		promise:andThenCall(someFunction, \"some\", \"arguments\")\
+	```\
+\
+	This is sugar for\
+\
+	```lua\
+		promise:andThen(function()\
+		return someFunction(\"some\", \"arguments\")\
+		end)\
+	```\
+\
+	@param callback (...: any) -> any\
+	@param ...? any -- Additional arguments which will be passed to `callback`\
+	@return Promise\
+]=]\
+function Promise.prototype:andThenCall(callback, ...)\
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, \"Promise:andThenCall\"))\
+	local length, values = pack(...)\
+	return self:_andThen(debug.traceback(nil, 2), function()\
+		return callback(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[=[\
+	Attaches an `andThen` handler to this Promise that discards the resolved value and returns the given value from it.\
+\
+	```lua\
+		promise:andThenReturn(\"some\", \"values\")\
+	```\
+\
+	This is sugar for\
+\
+	```lua\
+		promise:andThen(function()\
+			return \"some\", \"values\"\
+		end)\
+	```\
+\
+	:::caution\
+	Promises are eager, so if you pass a Promise to `andThenReturn`, it will begin executing before `andThenReturn` is reached in the chain. Likewise, if you pass a Promise created from [[Promise.reject]] into `andThenReturn`, it's possible that this will trigger the unhandled rejection warning. If you need to return a Promise, it's usually best practice to use [[Promise.andThen]].\
+	:::\
+\
+	@param ... any -- Values to return from the function\
+	@return Promise\
+]=]\
+function Promise.prototype:andThenReturn(...)\
+	local length, values = pack(...)\
+	return self:_andThen(debug.traceback(nil, 2), function()\
+		return unpack(values, 1, length)\
+	end)\
+end\
+\
+--[=[\
+	Cancels this promise, preventing the promise from resolving or rejecting. Does not do anything if the promise is already settled.\
+\
+	Cancellations will propagate upwards and downwards through chained promises.\
+\
+	Promises will only be cancelled if all of their consumers are also cancelled. This is to say that if you call `andThen` twice on the same promise, and you cancel only one of the child promises, it will not cancel the parent promise until the other child promise is also cancelled.\
+\
+	```lua\
+		promise:cancel()\
+	```\
+]=]\
+function Promise.prototype:cancel()\
+	if self._status ~= Promise.Status.Started then\
+		return\
+	end\
+\
+	self._status = Promise.Status.Cancelled\
+\
+	if self._cancellationHook then\
+		self._cancellationHook()\
+	end\
+\
+	coroutine.close(self._thread)\
+\
+	if self._parent then\
+		self._parent:_consumerCancelled(self)\
+	end\
+\
+	for child in pairs(self._consumers) do\
+		child:cancel()\
+	end\
+\
+	self:_finalize()\
+end\
+\
+--[[\
+	Used to decrease the number of consumers by 1, and if there are no more,\
+	cancel this promise.\
+]]\
+function Promise.prototype:_consumerCancelled(consumer)\
+	if self._status ~= Promise.Status.Started then\
+		return\
+	end\
+\
+	self._consumers[consumer] = nil\
+\
+	if next(self._consumers) == nil then\
+		self:cancel()\
+	end\
+end\
+\
+--[[\
+	Used to set a handler for when the promise resolves, rejects, or is\
+	cancelled.\
+]]\
+function Promise.prototype:_finally(traceback, finallyHandler)\
+	self._unhandledRejection = false\
+\
+	local promise = Promise._new(traceback, function(resolve, reject, onCancel)\
+		local handlerPromise\
+\
+		onCancel(function()\
+			-- The finally Promise is not a proper consumer of self. We don't care about the resolved value.\
+			-- All we care about is running at the end. Therefore, if self has no other consumers, it's safe to\
+			-- cancel. We don't need to hold out cancelling just because there's a finally handler.\
+			self:_consumerCancelled(self)\
+\
+			if handlerPromise then\
+				handlerPromise:cancel()\
+			end\
+		end)\
+\
+		local finallyCallback = resolve\
+		if finallyHandler then\
+			finallyCallback = function(...)\
+				local ok, _, resultList = runExecutor(traceback, finallyHandler, ...)\
+				local result = resultList[1]\
+				if not ok then\
+					return reject(result)\
+				end\
+\
+				if Promise.is(result) then\
+					handlerPromise = result\
+\
+					result\
+						:finally(function(status)\
+							if status ~= Promise.Status.Rejected then\
+								resolve(self)\
+							end\
+						end)\
+						:catch(function(...)\
+							reject(...)\
+						end)\
+				else\
+					resolve(self)\
+				end\
+			end\
+		end\
+\
+		if self._status == Promise.Status.Started then\
+			-- The promise is not settled, so queue this.\
+			table.insert(self._queuedFinally, finallyCallback)\
+		else\
+			-- The promise already settled or was cancelled, run the callback now.\
+			finallyCallback(self._status)\
+		end\
+	end)\
+\
+	return promise\
+end\
+\
+--[=[\
+	Set a handler that will be called regardless of the promise's fate. The handler is called when the promise is\
+	resolved, rejected, *or* cancelled.\
+\
+	Returns a new Promise that:\
+	- resolves with the same values that this Promise resolves with.\
+	- rejects with the same values that this Promise rejects with.\
+	- is cancelled if this Promise is cancelled.\
+\
+	If the value you return from the handler is a Promise:\
+	- We wait for the Promise to resolve, but we ultimately discard the resolved value.\
+	- If the returned Promise rejects, the Promise returned from `finally` will reject with the rejected value from the\
+	*returned* promise.\
+	- If the `finally` Promise is cancelled, and you returned a Promise from the handler, we cancel that Promise too.\
+\
+	Otherwise, the return value from the `finally` handler is entirely discarded.\
+\
+	:::note Cancellation\
+	As of Promise v4, `Promise:finally` does not count as a consumer of the parent Promise for cancellation purposes.\
+	This means that if all of a Promise's consumers are cancelled and the only remaining callbacks are finally handlers,\
+	the Promise is cancelled and the finally callbacks run then and there.\
+\
+	Cancellation still propagates through the `finally` Promise though: if you cancel the `finally` Promise, it can cancel\
+	its parent Promise if it had no other consumers. Likewise, if the parent Promise is cancelled, the `finally` Promise\
+	will also be cancelled.\
+	:::\
+\
+	```lua\
+	local thing = createSomething()\
+\
+	doSomethingWith(thing)\
+		:andThen(function()\
+			print(\"It worked!\")\
+			-- do something..\
+		end)\
+		:catch(function()\
+			warn(\"Oh no it failed!\")\
+		end)\
+		:finally(function()\
+			-- either way, destroy thing\
+\
+			thing:Destroy()\
+		end)\
+\
+	```\
+\
+	@param finallyHandler (status: Status) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:finally(finallyHandler)\
+	assert(finallyHandler == nil or isCallable(finallyHandler), string.format(ERROR_NON_FUNCTION, \"Promise:finally\"))\
+	return self:_finally(debug.traceback(nil, 2), finallyHandler)\
+end\
+\
+--[=[\
+	Same as `andThenCall`, except for `finally`.\
+\
+	Attaches a `finally` handler to this Promise that calls the given callback with the predefined arguments.\
+\
+	@param callback (...: any) -> any\
+	@param ...? any -- Additional arguments which will be passed to `callback`\
+	@return Promise\
+]=]\
+function Promise.prototype:finallyCall(callback, ...)\
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, \"Promise:finallyCall\"))\
+	local length, values = pack(...)\
+	return self:_finally(debug.traceback(nil, 2), function()\
+		return callback(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[=[\
+	Attaches a `finally` handler to this Promise that discards the resolved value and returns the given value from it.\
+\
+	```lua\
+		promise:finallyReturn(\"some\", \"values\")\
+	```\
+\
+	This is sugar for\
+\
+	```lua\
+		promise:finally(function()\
+			return \"some\", \"values\"\
+		end)\
+	```\
+\
+	@param ... any -- Values to return from the function\
+	@return Promise\
+]=]\
+function Promise.prototype:finallyReturn(...)\
+	local length, values = pack(...)\
+	return self:_finally(debug.traceback(nil, 2), function()\
+		return unpack(values, 1, length)\
+	end)\
+end\
+\
+--[=[\
+	Yields the current thread until the given Promise completes. Returns the Promise's status, followed by the values that the promise resolved or rejected with.\
+\
+	@yields\
+	@return Status -- The Status representing the fate of the Promise\
+	@return ...any -- The values the Promise resolved or rejected with.\
+]=]\
+function Promise.prototype:awaitStatus()\
+	self._unhandledRejection = false\
+\
+	if self._status == Promise.Status.Started then\
+		local thread = coroutine.running()\
+\
+		self\
+			:finally(function()\
+				task.spawn(thread)\
+			end)\
+			-- The finally promise can propagate rejections, so we attach a catch handler to prevent the unhandled\
+			-- rejection warning from appearing\
+			:catch(\
+				function() end\
+			)\
+\
+		coroutine.yield()\
+	end\
+\
+	if self._status == Promise.Status.Resolved then\
+		return self._status, unpack(self._values, 1, self._valuesLength)\
+	elseif self._status == Promise.Status.Rejected then\
+		return self._status, unpack(self._values, 1, self._valuesLength)\
+	end\
+\
+	return self._status\
+end\
+\
+local function awaitHelper(status, ...)\
+	return status == Promise.Status.Resolved, ...\
+end\
+\
+--[=[\
+	Yields the current thread until the given Promise completes. Returns true if the Promise resolved, followed by the values that the promise resolved or rejected with.\
+\
+	:::caution\
+	If the Promise gets cancelled, this function will return `false`, which is indistinguishable from a rejection. If you need to differentiate, you should use [[Promise.awaitStatus]] instead.\
+	:::\
+\
+	```lua\
+		local worked, value = getTheValue():await()\
+\
+	if worked then\
+		print(\"got\", value)\
+	else\
+		warn(\"it failed\")\
+	end\
+	```\
+\
+	@yields\
+	@return boolean -- `true` if the Promise successfully resolved\
+	@return ...any -- The values the Promise resolved or rejected with.\
+]=]\
+function Promise.prototype:await()\
+	return awaitHelper(self:awaitStatus())\
+end\
+\
+local function expectHelper(status, ...)\
+	if status ~= Promise.Status.Resolved then\
+		error((...) == nil and \"Expected Promise rejected with no value.\" or (...), 3)\
+	end\
+\
+	return ...\
+end\
+\
+--[=[\
+	Yields the current thread until the given Promise completes. Returns the values that the promise resolved with.\
+\
+	```lua\
+	local worked = pcall(function()\
+		print(\"got\", getTheValue():expect())\
+	end)\
+\
+	if not worked then\
+		warn(\"it failed\")\
+	end\
+	```\
+\
+	This is essentially sugar for:\
+\
+	```lua\
+	select(2, assert(promise:await()))\
+	```\
+\
+	**Errors** if the Promise rejects or gets cancelled.\
+\
+	@error any -- Errors with the rejection value if this Promise rejects or gets cancelled.\
+	@yields\
+	@return ...any -- The values the Promise resolved with.\
+]=]\
+function Promise.prototype:expect()\
+	return expectHelper(self:awaitStatus())\
+end\
+\
+-- Backwards compatibility\
+Promise.prototype.awaitValue = Promise.prototype.expect\
+\
+--[[\
+	Intended for use in tests.\
+\
+	Similar to await(), but instead of yielding if the promise is unresolved,\
+	_unwrap will throw. This indicates an assumption that a promise has\
+	resolved.\
+]]\
+function Promise.prototype:_unwrap()\
+	if self._status == Promise.Status.Started then\
+		error(\"Promise has not resolved or rejected.\", 2)\
+	end\
+\
+	local success = self._status == Promise.Status.Resolved\
+\
+	return success, unpack(self._values, 1, self._valuesLength)\
+end\
+\
+function Promise.prototype:_resolve(...)\
+	if self._status ~= Promise.Status.Started then\
+		if Promise.is((...)) then\
+			(...):_consumerCancelled(self)\
+		end\
+		return\
+	end\
+\
+	-- If the resolved value was a Promise, we chain onto it!\
+	if Promise.is((...)) then\
+		-- Without this warning, arguments sometimes mysteriously disappear\
+		if select(\"#\", ...) > 1 then\
+			local message = string.format(\
+				\"When returning a Promise from andThen, extra arguments are \" .. \"discarded! See:\\n\\n%s\",\
+				self._source\
+			)\
+			warn(message)\
+		end\
+\
+		local chainedPromise = ...\
+\
+		local promise = chainedPromise:andThen(function(...)\
+			self:_resolve(...)\
+		end, function(...)\
+			local maybeRuntimeError = chainedPromise._values[1]\
+\
+			-- Backwards compatibility < v2\
+			if chainedPromise._error then\
+				maybeRuntimeError = Error.new({\
+					error = chainedPromise._error,\
+					kind = Error.Kind.ExecutionError,\
+					context = \"[No stack trace available as this Promise originated from an older version of the Promise library (< v2)]\",\
+				})\
+			end\
+\
+			if Error.isKind(maybeRuntimeError, Error.Kind.ExecutionError) then\
+				return self:_reject(maybeRuntimeError:extend({\
+					error = \"This Promise was chained to a Promise that errored.\",\
+					trace = \"\",\
+					context = string.format(\
+						\"The Promise at:\\n\\n%s\\n...Rejected because it was chained to the following Promise, which encountered an error:\\n\",\
+						self._source\
+					),\
+				}))\
+			end\
+\
+			self:_reject(...)\
+		end)\
+\
+		if promise._status == Promise.Status.Cancelled then\
+			self:cancel()\
+		elseif promise._status == Promise.Status.Started then\
+			-- Adopt ourselves into promise for cancellation propagation.\
+			self._parent = promise\
+			promise._consumers[self] = true\
+		end\
+\
+		return\
+	end\
+\
+	self._status = Promise.Status.Resolved\
+	self._valuesLength, self._values = pack(...)\
+\
+	-- We assume that these callbacks will not throw errors.\
+	for _, callback in ipairs(self._queuedResolve) do\
+		coroutine.wrap(callback)(...)\
+	end\
+\
+	self:_finalize()\
+end\
+\
+function Promise.prototype:_reject(...)\
+	if self._status ~= Promise.Status.Started then\
+		return\
+	end\
+\
+	self._status = Promise.Status.Rejected\
+	self._valuesLength, self._values = pack(...)\
+\
+	-- If there are any rejection handlers, call those!\
+	if not isEmpty(self._queuedReject) then\
+		-- We assume that these callbacks will not throw errors.\
+		for _, callback in ipairs(self._queuedReject) do\
+			coroutine.wrap(callback)(...)\
+		end\
+	else\
+		-- At this point, no one was able to observe the error.\
+		-- An error handler might still be attached if the error occurred\
+		-- synchronously. We'll wait one tick, and if there are still no\
+		-- observers, then we should put a message in the console.\
+\
+		local err = tostring((...))\
+\
+		coroutine.wrap(function()\
+			Promise._timeEvent:Wait()\
+\
+			-- Someone observed the error, hooray!\
+			if not self._unhandledRejection then\
+				return\
+			end\
+\
+			-- Build a reasonable message\
+			local message = string.format(\"Unhandled Promise rejection:\\n\\n%s\\n\\n%s\", err, self._source)\
+\
+			for _, callback in ipairs(Promise._unhandledRejectionCallbacks) do\
+				task.spawn(callback, self, unpack(self._values, 1, self._valuesLength))\
+			end\
+\
+			if Promise.TEST then\
+				-- Don't spam output when we're running tests.\
+				return\
+			end\
+\
+			warn(message)\
+		end)()\
+	end\
+\
+	self:_finalize()\
+end\
+\
+--[[\
+	Calls any :finally handlers. We need this to be a separate method and\
+	queue because we must call all of the finally callbacks upon a success,\
+	failure, *and* cancellation.\
+]]\
+function Promise.prototype:_finalize()\
+	for _, callback in ipairs(self._queuedFinally) do\
+		-- Purposefully not passing values to callbacks here, as it could be the\
+		-- resolved values, or rejected errors. If the developer needs the values,\
+		-- they should use :andThen or :catch explicitly.\
+		coroutine.wrap(callback)(self._status)\
+	end\
+\
+	self._queuedFinally = nil\
+	self._queuedReject = nil\
+	self._queuedResolve = nil\
+\
+	-- Clear references to other Promises to allow gc\
+	if not Promise.TEST then\
+		self._parent = nil\
+		self._consumers = nil\
+	end\
+\
+	task.defer(coroutine.close, self._thread)\
+end\
+\
+--[=[\
+	Chains a Promise from this one that is resolved if this Promise is already resolved, and rejected if it is not resolved at the time of calling `:now()`. This can be used to ensure your `andThen` handler occurs on the same frame as the root Promise execution.\
+\
+	```lua\
+	doSomething()\
+		:now()\
+		:andThen(function(value)\
+			print(\"Got\", value, \"synchronously.\")\
+		end)\
+	```\
+\
+	If this Promise is still running, Rejected, or Cancelled, the Promise returned from `:now()` will reject with the `rejectionValue` if passed, otherwise with a `Promise.Error(Promise.Error.Kind.NotResolvedInTime)`. This can be checked with [[Error.isKind]].\
+\
+	@param rejectionValue? any -- The value to reject with if the Promise isn't resolved\
+	@return Promise\
+]=]\
+function Promise.prototype:now(rejectionValue)\
+	local traceback = debug.traceback(nil, 2)\
+	if self._status == Promise.Status.Resolved then\
+		return self:_andThen(traceback, function(...)\
+			return ...\
+		end)\
+	else\
+		return Promise.reject(rejectionValue == nil and Error.new({\
+			kind = Error.Kind.NotResolvedInTime,\
+			error = \"This Promise was not resolved in time for :now()\",\
+			context = \":now() was called at:\\n\\n\" .. traceback,\
+		}) or rejectionValue)\
+	end\
+end\
+\
+--[=[\
+	Repeatedly calls a Promise-returning function up to `times` number of times, until the returned Promise resolves.\
+\
+	If the amount of retries is exceeded, the function will return the latest rejected Promise.\
+\
+	```lua\
+	local function canFail(a, b, c)\
+		return Promise.new(function(resolve, reject)\
+			-- do something that can fail\
+\
+			local failed, thing = doSomethingThatCanFail(a, b, c)\
+\
+			if failed then\
+				reject(\"it failed\")\
+			else\
+				resolve(thing)\
+			end\
+		end)\
+	end\
+\
+	local MAX_RETRIES = 10\
+	local value = Promise.retry(canFail, MAX_RETRIES, \"foo\", \"bar\", \"baz\") -- args to send to canFail\
+	```\
+\
+	@since 3.0.0\
+	@param callback (...: P) -> Promise<T>\
+	@param times number\
+	@param ...? P\
+	@return Promise<T>\
+]=]\
+function Promise.retry(callback, times, ...)\
+	assert(isCallable(callback), \"Parameter #1 to Promise.retry must be a function\")\
+	assert(type(times) == \"number\", \"Parameter #2 to Promise.retry must be a number\")\
+\
+	local args, length = { ... }, select(\"#\", ...)\
+\
+	return Promise.resolve(callback(...)):catch(function(...)\
+		if times > 0 then\
+			return Promise.retry(callback, times - 1, unpack(args, 1, length))\
+		else\
+			return Promise.reject(...)\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Repeatedly calls a Promise-returning function up to `times` number of times, waiting `seconds` seconds between each\
+	retry, until the returned Promise resolves.\
+\
+	If the amount of retries is exceeded, the function will return the latest rejected Promise.\
+\
+	@since v3.2.0\
+	@param callback (...: P) -> Promise<T>\
+	@param times number\
+	@param seconds number\
+	@param ...? P\
+	@return Promise<T>\
+]=]\
+function Promise.retryWithDelay(callback, times, seconds, ...)\
+	assert(isCallable(callback), \"Parameter #1 to Promise.retry must be a function\")\
+	assert(type(times) == \"number\", \"Parameter #2 (times) to Promise.retry must be a number\")\
+	assert(type(seconds) == \"number\", \"Parameter #3 (seconds) to Promise.retry must be a number\")\
+\
+	local args, length = { ... }, select(\"#\", ...)\
+\
+	return Promise.resolve(callback(...)):catch(function(...)\
+		if times > 0 then\
+			Promise.delay(seconds):await()\
+\
+			return Promise.retryWithDelay(callback, times - 1, seconds, unpack(args, 1, length))\
+		else\
+			return Promise.reject(...)\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Converts an event into a Promise which resolves the next time the event fires.\
+\
+	The optional `predicate` callback, if passed, will receive the event arguments and should return `true` or `false`, based on if this fired event should resolve the Promise or not. If `true`, the Promise resolves. If `false`, nothing happens and the predicate will be rerun the next time the event fires.\
+\
+	The Promise will resolve with the event arguments.\
+\
+	:::tip\
+	This function will work given any object with a `Connect` method. This includes all Roblox events.\
+	:::\
+\
+	```lua\
+	-- Creates a Promise which only resolves when `somePart` is touched\
+	-- by a part named `\"Something specific\"`.\
+	return Promise.fromEvent(somePart.Touched, function(part)\
+		return part.Name == \"Something specific\"\
+	end)\
+	```\
+\
+	@since 3.0.0\
+	@param event Event -- Any object with a `Connect` method. This includes all Roblox events.\
+	@param predicate? (...: P) -> boolean -- A function which determines if the Promise should resolve with the given value, or wait for the next event to check again.\
+	@return Promise<P>\
+]=]\
+function Promise.fromEvent(event, predicate)\
+	predicate = predicate or function()\
+		return true\
+	end\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)\
+		local connection\
+		local shouldDisconnect = false\
+\
+		local function disconnect()\
+			connection:Disconnect()\
+			connection = nil\
+		end\
+\
+		-- We use shouldDisconnect because if the callback given to Connect is called before\
+		-- Connect returns, connection will still be nil. This happens with events that queue up\
+		-- events when there's nothing connected, such as RemoteEvents\
+\
+		connection = event:Connect(function(...)\
+			local callbackValue = predicate(...)\
+\
+			if callbackValue == true then\
+				resolve(...)\
+\
+				if connection then\
+					disconnect()\
+				else\
+					shouldDisconnect = true\
+				end\
+			elseif type(callbackValue) ~= \"boolean\" then\
+				error(\"Promise.fromEvent predicate should always return a boolean\")\
+			end\
+		end)\
+\
+		if shouldDisconnect and connection then\
+			return disconnect()\
+		end\
+\
+		onCancel(disconnect)\
+	end)\
+end\
+\
+--[=[\
+	Registers a callback that runs when an unhandled rejection happens. An unhandled rejection happens when a Promise\
+	is rejected, and the rejection is not observed with `:catch`.\
+\
+	The callback is called with the actual promise that rejected, followed by the rejection values.\
+\
+	@since v3.2.0\
+	@param callback (promise: Promise, ...: any) -- A callback that runs when an unhandled rejection happens.\
+	@return () -> () -- Function that unregisters the `callback` when called\
+]=]\
+function Promise.onUnhandledRejection(callback)\
+	table.insert(Promise._unhandledRejectionCallbacks, callback)\
+\
+	return function()\
+		local index = table.find(Promise._unhandledRejectionCallbacks, callback)\
+\
+		if index then\
+			table.remove(Promise._unhandledRejectionCallbacks, index)\
+		end\
+	end\
+end\
+\
+return Promise"},
+{"Astrix/_Packages/Substance/Async/Reaction","ModuleScript","-- MaterialSubstance\
+-- Async/Reaction.lua\
+-- Plinko Labs\
+\
+local Promise = require(script.Parent.Promise)\
+local Branch = require(script.Parent.Branch)\
+\
+export type Reaction = {\
+	Next: (self: Reaction, fn: (any) -> any) -> Reaction,\
+	Throw: (self: Reaction, fn: (string) -> any) -> Reaction,\
+	Conclusion: (self: Reaction, fn: () -> ()) -> Reaction,\
+	Await: (self: Reaction) -> any,\
+	Timeout: (self: Reaction, seconds: number) -> Reaction,\
+	Retry: (self: Reaction, attempts: number) -> Reaction,\
+	Decay: (self: Reaction, seconds: number) -> Reaction,\
+	Cancel: (self: Reaction) -> (),\
+	Branch: (self: Reaction, table: Branch.BranchTable) -> Reaction,\
+}\
+\
+local Reaction = {}\
+Reaction.__index = Reaction\
+\
+function Reaction.new(attempt: () -> any): Reaction\
+	local self = setmetatable({}, Reaction)\
+\
+	self._attempt = attempt\
+	self._retriesLeft = 0\
+	self._cancelled = false\
+	self._consumed = false\
+	self._reject = nil\
+	self._timeoutThread = nil\
+	self._decayThread = nil\
+\
+	self._promise = self:_dispatch()\
+\
+	self._promise:finally(function()\
+		if self._timeoutThread then\
+			task.cancel(self._timeoutThread)\
+			self._timeoutThread = nil\
+		end\
+		if self._decayThread then\
+			task.cancel(self._decayThread)\
+			self._decayThread = nil\
+		end\
+	end)\
+\
+	return (self :: any) :: Reaction\
+end\
+\
+function Reaction:_dispatch()\
+	return Promise.new(function(resolve, reject)\
+		self._reject = reject\
+\
+		local ok, result = pcall(self._attempt)\
+\
+		if self._cancelled then\
+			reject(\"cancelled\")\
+			return\
+		end\
+\
+		if ok then\
+			resolve(result)\
+			return\
+		end\
+\
+		if self._retriesLeft > 0 then\
+			self._retriesLeft -= 1\
+			self:_dispatch():andThen(resolve, reject)\
+			return\
+		end\
+\
+		reject(result)\
+	end)\
+end\
+\
+function Reaction:Next(fn: (any) -> any): Reaction\
+	self._consumed = true\
+	self._promise:andThen(fn)\
+	return self\
+end\
+\
+function Reaction:Throw(fn: (string) -> any): Reaction\
+	self._consumed = true\
+	self._promise:catch(fn)\
+	return self\
+end\
+\
+function Reaction:Conclusion(fn: () -> ()): Reaction\
+	self._promise:finally(fn)\
+	return self\
+end\
+\
+function Reaction:Await(): any\
+	self._consumed = true\
+	return self._promise:expect()\
+end\
+\
+function Reaction:Timeout(seconds: number): Reaction\
+	if self._timeoutThread then\
+		task.cancel(self._timeoutThread)\
+	end\
+\
+	self._timeoutThread = task.delay(seconds, function()\
+		if self._reject then\
+			self._reject(\"timeout\")\
+		end\
+	end)\
+\
+	return self\
+end\
+\
+function Reaction:Retry(attempts: number): Reaction\
+	self._retriesLeft = attempts\
+	return self\
+end\
+\
+function Reaction:Decay(seconds: number): Reaction\
+	if self._decayThread then\
+		task.cancel(self._decayThread)\
+	end\
+\
+	self._decayThread = task.delay(seconds, function()\
+		if not self._consumed and self._reject then\
+			self._reject(\"decayed\")\
+		end\
+	end)\
+\
+	return self\
+end\
+\
+function Reaction:Cancel()\
+	self._cancelled = true\
+	if self._reject then\
+		self._reject(\"cancelled\")\
+	end\
+end\
+\
+function Reaction:Branch(table: Branch.BranchTable): Reaction\
+	self:Next(function(value)\
+		return Branch.Resolve(value, table)\
+	end)\
+	return self\
+end\
+\
+return Reaction\
+"},
+{"Astrix/_Packages/Substance/Particle","ModuleScript","-- MaterialSubstance\
+-- Particle/init.lua\
+-- Plinko Labs\
+\
+local Schema = require(script.Schema)\
+local AtomModule = require(script.Atom)\
+local Molecule = require(script.Molecule)\
+local Dispatch = require(script.Dispatch)\
+local Registry = require(script.Registry)\
+local Hooks = require(script.Hooks)\
+local Fossil = require(script.Fossil)\
+local Types = require(script.Types)\
+local TypeSystem = require(script.Type)\
+local Remotes = require(script.Remotes)\
+\
+local Particle = {}\
+\
+Particle.Dispatch = Dispatch\
+Particle.Registry = Registry\
+Particle.Hooks = Hooks\
+Particle.Fossil = Fossil\
+Particle.Type = TypeSystem\
+\
+Remotes.Init()\
+\
+function Particle.Quark(name: string, definition: any)\
+	Schema.Quark(name, definition)\
+end\
+\
+function Particle.Gluon(name: string, shape: Types.Shape)\
+	Schema.Gluon(name, shape)\
+end\
+\
+function Particle.Define(name: string, shape: Types.Shape): Types.AtomHandle\
+	return AtomModule.Define(name, shape)\
+end\
+\
+function Particle.Compose(name: string, atoms: {any}, eventType: Types.EventType): Types.MoleculeHandle\
+	return Molecule.Compose(name, atoms, eventType)\
+end\
+\
+return Particle\
+"},
+{"Astrix/_Packages/Substance/Particle/Atom","ModuleScript","-- MaterialSubstance\
+-- Particle/Atom.lua\
+-- Plinko Labs\
+\
+local Registry = require(script.Parent.Registry)\
+local Dispatch = require(script.Parent.Dispatch)\
+local Types = require(script.Parent.Types)\
+\
+local Atom = {}\
+Atom.__index = Atom\
+\
+local isotopeCounter = 0\
+\
+local function wrap(name: string, shape: Types.Shape?): Types.AtomHandle\
+	return setmetatable({\
+		Name = name,\
+		Shape = shape,\
+	}, Atom) :: any\
+end\
+\
+function Atom.Define(name: string, shape: Types.Shape): Types.AtomHandle\
+	local channel = Registry.Ensure(name)\
+	channel.Shape = shape\
+	return wrap(name, shape)\
+end\
+\
+function Atom:Isotope(constraints: Types.Constraints): Types.AtomHandle\
+	isotopeCounter += 1\
+	local isotopeName = string.format(\"%s::Isotope%d\", self.Name, isotopeCounter)\
+\
+	local channel = Registry.Ensure(isotopeName)\
+	channel.Shape = self.Shape\
+	channel.Constraints = constraints\
+\
+	local handle = wrap(isotopeName, self.Shape)\
+	;(handle :: any)._constraints = constraints\
+	return handle\
+end\
+\
+function Atom:Compose(channelName: string, eventType: Types.EventType): Types.AtomHandle\
+	(self :: any)._channel = channelName\
+	Dispatch.Compose(channelName, self.Shape, eventType, (self :: any)._constraints)\
+	return self :: any\
+end\
+\
+function Atom:Post(payload: any, target: Player?): any\
+	local channelName = (self :: any)._channel or self.Name\
+	return Dispatch.Post(channelName, payload, target)\
+end\
+\
+function Atom:Subscribe(handler: (any, Player?) -> any): Types.Subscription\
+	local channelName = (self :: any)._channel or self.Name\
+	return Dispatch.Subscribe(channelName, handler)\
+end\
+\
+function Atom:Entangle(owner: Types.Authority): Types.AtomHandle\
+	local React = require(script.Parent.Parent.React)\
+	return React.Entangle(self, owner)\
+end\
+\
+function Atom:Set(_value: any)\
+	error(string.format(\"[MaterialSubstance] '%s' is not Entangled, call :Entangle() first\", self.Name))\
+end\
+\
+function Atom:Get(): any\
+	error(string.format(\"[MaterialSubstance] '%s' is not Entangled, call :Entangle() first\", self.Name))\
+end\
+\
+return Atom\
+"},
+{"Astrix/_Packages/Substance/Particle/Dispatch","ModuleScript","-- MaterialSubstance\
+-- Particle/Dispatch.lua\
+-- Plinko Labs\
+\
+local RunService = game:GetService(\"RunService\")\
+local Players = game:GetService(\"Players\")\
+\
+local Remotes = require(script.Parent.Remotes)\
+local Registry = require(script.Parent.Registry)\
+local Schema = require(script.Parent.Schema)\
+local Hooks = require(script.Parent.Hooks)\
+local Fossil = require(script.Parent.Fossil)\
+local Types = require(script.Parent.Types)\
+\
+local IS_SERVER = RunService:IsServer()\
+local IS_DEV = RunService:IsStudio()\
+\
+local Dispatch = {}\
+local bound: {[string]: boolean} = {}\
+\
+local function validatePayload(channel: Types.Channel, payload: any): (boolean, string?)\
+	if not IS_DEV then\
+		return true\
+	end\
+\
+	if channel.Shape then\
+		local ok, err = Schema.Validate(payload, channel.Shape)\
+		if not ok then\
+			return false, string.format(\"'%s' failed schema validation: %s\", channel.Name, err or \"unknown error\")\
+		end\
+	end\
+\
+	if not channel.Constraints then\
+		return true\
+	end\
+\
+	for field, validator in channel.Constraints do\
+		if not validator(payload[field]) then\
+			return false, string.format(\"'%s' failed constraint on field '%s'\", channel.Name, field)\
+		end\
+	end\
+\
+	return true\
+end\
+\
+local function callSubscribers(channel: Types.Channel, payload: any, player: Player?): any\
+	local result = nil\
+\
+	for _, handler in channel.Subscribers do\
+		local handlerResult = handler(payload, player)\
+		if handlerResult == nil then\
+			continue\
+		end\
+		result = handlerResult\
+	end\
+\
+	return result\
+end\
+\
+local function bind(channel: Types.Channel)\
+	if bound[channel.Name] then\
+		return\
+	end\
+	bound[channel.Name] = true\
+\
+	local instance = Remotes.Get(channel.Name, channel.EventType :: string)\
+\
+	if channel.EventType == \"Solve\" then\
+		if IS_SERVER then\
+			(instance :: RemoteFunction).OnServerInvoke = function(player: Player, payload: any): any\
+				payload = Hooks.RunPost(channel.Name, payload)\
+				local ok, err = validatePayload(channel, payload)\
+				if not ok then\
+					warn(\"[MaterialSubstance] dropped incoming packet: \" .. (err :: string))\
+					return nil\
+				end\
+				Fossil.Record(channel.Name, \"Received\", payload)\
+				return callSubscribers(channel, payload, player)\
+			end\
+		else\
+			(instance :: RemoteFunction).OnClientInvoke = function(payload: any): any\
+				payload = Hooks.RunPost(channel.Name, payload)\
+				local ok, err = validatePayload(channel, payload)\
+				if not ok then\
+					warn(\"[MaterialSubstance] dropped incoming packet: \" .. (err :: string))\
+					return nil\
+				end\
+				Fossil.Record(channel.Name, \"Received\", payload)\
+				return callSubscribers(channel, payload, nil)\
+			end\
+		end\
+		return\
+	end\
+\
+	local signal = if IS_SERVER then (instance :: RemoteEvent).OnServerEvent else (instance :: RemoteEvent).OnClientEvent\
+	signal:Connect(function(playerOrPayload: any, maybePayload: any)\
+		local player: Player? = nil\
+		local payload = playerOrPayload\
+\
+		if IS_SERVER then\
+			player = playerOrPayload\
+			payload = maybePayload\
+		end\
+\
+		payload = Hooks.RunPost(channel.Name, payload)\
+		local ok, err = validatePayload(channel, payload)\
+		if not ok then\
+			warn(\"[MaterialSubstance] dropped incoming packet: \" .. (err :: string))\
+			return\
+		end\
+		Fossil.Record(channel.Name, \"Received\", payload)\
+		callSubscribers(channel, payload, player)\
+	end)\
+end\
+\
+function Dispatch.Compose(name: string, shape: Types.Shape?, eventType: Types.EventType, constraints: Types.Constraints?): Types.Channel\
+	local channel = Registry.Ensure(name)\
+	channel.Shape = shape or channel.Shape\
+	channel.EventType = eventType\
+	channel.Constraints = constraints or channel.Constraints\
+	bind(channel)\
+	return channel\
+end\
+\
+function Dispatch.Subscribe(name: string, handler: (any, Player?) -> any): Types.Subscription\
+	return Registry.AddSubscriber(name, handler)\
+end\
+\
+function Dispatch.Post(name: string, payload: any, target: Player?): any\
+	local channel = Registry.Get(name)\
+	assert(channel, string.format(\"[MaterialSubstance] Post: channel '%s' is not composed\", name))\
+	assert(channel.EventType, string.format(\"[MaterialSubstance] Post: channel '%s' has no event type, call :Compose() first\", name))\
+\
+	bind(channel)\
+\
+	local Async = require(script.Parent.Parent.Async)\
+\
+	return Async.Reaction.new(function()\
+		local outgoing = Hooks.RunPre(name, payload)\
+\
+		local ok, err = validatePayload(channel, outgoing)\
+		if not ok then\
+			warn(\"[MaterialSubstance] \" .. (err :: string))\
+			error(\"validation_failed\", 0)\
+		end\
+\
+		Fossil.Record(name, \"Sent\", outgoing)\
+\
+		local instance = Remotes.Get(name, channel.EventType :: string)\
+\
+		if channel.EventType == \"Solve\" then\
+			if IS_SERVER then\
+				assert(target, string.format(\"[MaterialSubstance] Post: '%s' is Solve and requires a target Player from the server\", name))\
+				return (instance :: RemoteFunction):InvokeClient(target, outgoing)\
+			end\
+			return (instance :: RemoteFunction):InvokeServer(outgoing)\
+		end\
+\
+		if IS_SERVER then\
+			if target then\
+				(instance :: RemoteEvent):FireClient(target, outgoing)\
+			else\
+				(instance :: RemoteEvent):FireAllClients(outgoing)\
+			end\
+		else\
+			(instance :: RemoteEvent):FireServer(outgoing)\
+		end\
+\
+		return true\
+	end)\
+end\
+\
+function Dispatch.Broadcast(name: string, payload: any, filter: ((Player) -> boolean)?)\
+	assert(IS_SERVER, \"[MaterialSubstance] Broadcast can only be called from the server\")\
+\
+	local channel = Registry.Get(name)\
+	assert(channel, string.format(\"[MaterialSubstance] Broadcast: channel '%s' is not composed\", name))\
+	bind(channel)\
+\
+	local outgoing = Hooks.RunPre(name, payload)\
+\
+	local ok, err = validatePayload(channel, outgoing)\
+	assert(ok, \"[MaterialSubstance] \" .. tostring(err))\
+\
+	Fossil.Record(name, \"Sent\", outgoing)\
+\
+	local instance = Remotes.Get(name, channel.EventType :: string)\
+\
+	for _, player in Players:GetPlayers() do\
+		if filter and not filter(player) then\
+			continue\
+		end\
+\
+		if channel.EventType == \"Solve\" then\
+			task.spawn(function()\
+				(instance :: RemoteFunction):InvokeClient(player, outgoing)\
+			end)\
+			continue\
+		end\
+\
+		(instance :: RemoteEvent):FireClient(player, outgoing)\
+	end\
+end\
+\
+return Dispatch\
+"},
+{"Astrix/_Packages/Substance/Particle/Fossil","ModuleScript","-- MaterialSubstance\
+-- Particle/Fossil.lua\
+-- Plinko Labs\
+\
+local Fossil = {}\
+\
+local recording = false\
+local history: {any} = {}\
+\
+function Fossil.Start()\
+	recording = true\
+end\
+\
+function Fossil.Stop()\
+	recording = false\
+end\
+\
+function Fossil.Record(name: string, direction: string, payload: any)\
+	if not recording then\
+		return\
+	end\
+\
+	table.insert(history, {\
+		Name = name,\
+		Direction = direction,\
+		Payload = payload,\
+		Time = os.clock(),\
+	})\
+end\
+\
+function Fossil.Replay(handler: (any) -> ())\
+	for _, entry in history do\
+		handler(entry)\
+	end\
+end\
+\
+function Fossil.Export(): {any}\
+	local copy = table.create(#history)\
+	for index, entry in history do\
+		copy[index] = entry\
+	end\
+	return copy\
+end\
+\
+function Fossil.Clear()\
+	table.clear(history)\
+end\
+\
+return Fossil\
+"},
+{"Astrix/_Packages/Substance/Particle/Hooks","ModuleScript","-- MaterialSubstance\
+-- Particle/Hooks.lua\
+-- Plinko Labs\
+\
+local Hooks = {}\
+\
+local preHooks: {[string]: {(any) -> any}} = {}\
+local postHooks: {[string]: {(any) -> any}} = {}\
+\
+local function append(store: {[string]: {(any) -> any}}, name: string, hook: (any) -> any)\
+	local list = store[name]\
+	if not list then\
+		list = {}\
+		store[name] = list\
+	end\
+	table.insert(list, hook)\
+end\
+\
+local function run(store: {[string]: {(any) -> any}}, name: string, payload: any): any\
+	local list = store[name]\
+	if not list then\
+		return payload\
+	end\
+\
+	for _, hook in list do\
+		local result = hook(payload)\
+		if result == nil then\
+			continue\
+		end\
+		payload = result\
+	end\
+\
+	return payload\
+end\
+\
+function Hooks.Pre(name: string, hook: (any) -> any)\
+	append(preHooks, name, hook)\
+end\
+\
+function Hooks.Hook(name: string, hook: (any) -> any)\
+	append(postHooks, name, hook)\
+end\
+\
+function Hooks.RunPre(name: string, payload: any): any\
+	return run(preHooks, name, payload)\
+end\
+\
+function Hooks.RunPost(name: string, payload: any): any\
+	return run(postHooks, name, payload)\
+end\
+\
+return Hooks\
+"},
+{"Astrix/_Packages/Substance/Particle/Molecule","ModuleScript","-- MaterialSubstance\
+-- Particle/Molecule.lua\
+-- Plinko Labs\
+\
+local Registry = require(script.Parent.Registry)\
+local Dispatch = require(script.Parent.Dispatch)\
+local Types = require(script.Parent.Types)\
+local TypeDef = require(script.Parent.Type.TypeDef)\
+\
+local Molecule = {}\
+\
+local function nameOf(atom: any): string\
+	if type(atom) == \"string\" then\
+		return atom\
+	end\
+	return atom.Name\
+end\
+\
+local function mergeShape(atoms: {any}): Types.Shape\
+	local merged = {}\
+\
+	for _, atom in atoms do\
+		local channel = Registry.Get(nameOf(atom))\
+		local shape = if channel then channel.Shape else (type(atom) == \"table\" and atom.Shape or nil)\
+		if not shape or TypeDef.is(shape) then\
+			continue\
+		end\
+\
+		for field, fieldType in shape do\
+			merged[field] = fieldType\
+		end\
+	end\
+\
+	return merged\
+end\
+\
+function Molecule.Compose(name: string, atoms: {any}, eventType: Types.EventType): Types.MoleculeHandle\
+	local channel = Registry.Ensure(name)\
+	channel.IsMolecule = true\
+\
+	local atomNames = table.create(#atoms)\
+	for index, atom in atoms do\
+		atomNames[index] = nameOf(atom)\
+	end\
+	channel.AtomNames = atomNames\
+	channel.Shape = mergeShape(atoms)\
+\
+	Dispatch.Compose(name, channel.Shape, eventType)\
+\
+	return { Name = name }\
+end\
+\
+return Molecule\
+"},
+{"Astrix/_Packages/Substance/Particle/Registry","ModuleScript","-- MaterialSubstance\
+-- Particle/Registry.lua\
+-- Plinko Labs\
+\
+local Types = require(script.Parent.Types)\
+\
+local Registry = {}\
+\
+local channels: {[string]: Types.Channel} = {}\
+\
+function Registry.Ensure(name: string): Types.Channel\
+	local channel = channels[name]\
+	if channel then\
+		return channel\
+	end\
+\
+	channel = {\
+		Name = name,\
+		Subscribers = {},\
+		IsMolecule = false,\
+	}\
+	channels[name] = channel\
+	return channel\
+end\
+\
+function Registry.Get(name: string): Types.Channel?\
+	return channels[name]\
+end\
+\
+function Registry.AddSubscriber(name: string, handler: (any, Player?) -> any): Types.Subscription\
+	local channel = Registry.Ensure(name)\
+	table.insert(channel.Subscribers, handler)\
+\
+	return {\
+		Cancel = function()\
+			local index = table.find(channel.Subscribers, handler)\
+			if not index then\
+				return\
+			end\
+			table.remove(channel.Subscribers, index)\
+		end,\
+	}\
+end\
+\
+return Registry\
+"},
+{"Astrix/_Packages/Substance/Particle/Remotes","ModuleScript","-- MaterialSubstance\
+-- Particle/Remotes.lua\
+-- Plinko Labs\
+\
+local RunService = game:GetService(\"RunService\")\
+local ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\
+\
+local IS_SERVER = RunService:IsServer()\
+\
+local CLASS_BY_TYPE = {\
+	Lazy = \"UnreliableRemoteEvent\",\
+	Strict = \"RemoteEvent\",\
+	Solve = \"RemoteFunction\",\
+}\
+\
+local Remotes = {}\
+local root: Folder? = nil\
+\
+local function getRoot(): Folder\
+	if root then\
+		return root\
+	end\
+\
+	if IS_SERVER then\
+		warn(\"Creating\")\
+		root = Instance.new(\"Folder\")\
+		root.Name = \"MaterialSubstanceRemotes\"\
+		root.Parent = ReplicatedStorage\
+		return root\
+	end\
+	\
+	root = ReplicatedStorage:WaitForChild(\"MaterialSubstanceRemotes\")\
+	return root\
+end\
+\
+function Remotes.Init()\
+	getRoot()\
+end\
+\
+function Remotes.Get(channelName: string, eventType: string): Instance\
+	local className = CLASS_BY_TYPE[eventType]\
+	assert(className, string.format(\"[MaterialSubstance] Unknown event type '%s'\", tostring(eventType)))\
+\
+	local folder = getRoot()\
+\
+	if not IS_SERVER then\
+		return folder:WaitForChild(channelName)\
+	end\
+\
+	local existing = folder:FindFirstChild(channelName)\
+	if existing then\
+		return existing\
+	end\
+\
+	local instance = Instance.new(className)\
+	instance.Name = channelName\
+	instance.Parent = folder\
+	return instance\
+end\
+\
+return Remotes\
+"},
+{"Astrix/_Packages/Substance/Particle/Schema","ModuleScript","-- MaterialSubstance\
+-- Particle/Schema.lua\
+-- Plinko Labs\
+\
+local TypeDef = require(script.Parent.Type.TypeDef)\
+local Type = require(script.Parent.Type)\
+\
+local Schema = {}\
+\
+local quarks: {[string]: TypeDef.TypeDef} = {}\
+local gluons: {[string]: TypeDef.TypeDef} = {}\
+\
+local LEGACY_PRIMITIVES: {[string]: () -> TypeDef.TypeDef} = {\
+	number = Type.number,\
+	string = Type.string,\
+	boolean = Type.bool,\
+	table = Type.table,\
+}\
+\
+function Schema.Quark(name: string, definition: any)\
+	if TypeDef.is(definition) then\
+		quarks[name] = definition\
+		return\
+	end\
+\
+	local legacy = LEGACY_PRIMITIVES[definition]\
+	assert(legacy, string.format(\"[MaterialSubstance] Quark '%s': invalid type '%s'\", name, tostring(definition)))\
+	quarks[name] = legacy()\
+end\
+\
+function Schema.Gluon(name: string, shape: {[string]: any})\
+	gluons[name] = Schema.ResolveShape(shape)\
+end\
+\
+function Schema.GetGluon(name: string): TypeDef.TypeDef?\
+	return gluons[name]\
+end\
+\
+function Schema.Resolve(definition: any): TypeDef.TypeDef?\
+	if TypeDef.is(definition) then\
+		return definition\
+	end\
+\
+	if type(definition) ~= \"string\" then\
+		return nil\
+	end\
+\
+	if gluons[definition] then\
+		return gluons[definition]\
+	end\
+\
+	if quarks[definition] then\
+		return quarks[definition]\
+	end\
+\
+	local legacy = LEGACY_PRIMITIVES[definition]\
+	if legacy then\
+		return legacy()\
+	end\
+\
+	return nil\
+end\
+\
+function Schema.ResolveShape(shape: any): TypeDef.TypeDef\
+	if TypeDef.is(shape) then\
+		return shape :: TypeDef.TypeDef\
+	end\
+\
+	local resolvedFields = {}\
+\
+	for field, definition in shape :: {[string]: any} do\
+		local resolved = Schema.Resolve(definition)\
+		assert(resolved, string.format(\"[MaterialSubstance] unknown type '%s' for field '%s'\", tostring(definition), field))\
+		resolvedFields[field] = resolved\
+	end\
+\
+	return Type.struct(resolvedFields)\
+end\
+\
+function Schema.Validate(value: any, shape: {[string]: any}): (boolean, string?, any)\
+	local structDef = Schema.ResolveShape(shape)\
+	return structDef:Validate(value)\
+end\
+\
+return Schema\
+"},
+{"Astrix/_Packages/Substance/Particle/Type","ModuleScript","-- MaterialSubstance\
+-- Particle/Type/init.lua\
+-- Plinko Labs\
+\
+return require(script.Constructors)\
+"},
+{"Astrix/_Packages/Substance/Particle/Type/Constructors","ModuleScript","-- MaterialSubstance\
+-- Particle/Type/Constructors.lua\
+-- Plinko Labs\
+\
+local TypeDef = require(script.Parent.TypeDef)\
+\
+export type TypeDef = TypeDef.TypeDef\
+\
+local Type = {}\
+\
+Type.is = TypeDef.is\
+\
+local function simple(kind: string): () -> TypeDef\
+	return function(): TypeDef\
+		return TypeDef.new(kind)\
+	end\
+end\
+\
+Type.table = simple(\"table\")\
+Type.string = simple(\"string\")\
+Type.number = simple(\"number\")\
+Type.bool = simple(\"bool\")\
+Type.buff = simple(\"buff\")\
+Type.float32 = simple(\"float32\")\
+Type.float64 = simple(\"float64\")\
+Type.uint8 = simple(\"uint8\")\
+Type.uint16 = simple(\"uint16\")\
+Type.uint32 = simple(\"uint32\")\
+Type.int8 = simple(\"int8\")\
+Type.int16 = simple(\"int16\")\
+Type.int32 = simple(\"int32\")\
+Type.any = simple(\"any\")\
+Type.never = simple(\"never\")\
+Type.unknown = simple(\"unknown\")\
+Type.nil_ = simple(\"nil\")\
+Type.none = TypeDef.new(\"nil\")\
+\
+Type.vec2 = simple(\"vec2\")\
+Type.vec3 = simple(\"vec3\")\
+Type.vec2int16 = simple(\"vec2int16\")\
+Type.cframe = simple(\"cframe\")\
+Type.color3 = simple(\"color3\")\
+Type.udim = simple(\"udim\")\
+Type.udim2 = simple(\"udim2\")\
+Type.rect = simple(\"rect\")\
+Type.region3 = simple(\"region3\")\
+Type.numberRange = simple(\"numberRange\")\
+Type.numberSequence = simple(\"numberSequence\")\
+Type.colorSequence = simple(\"colorSequence\")\
+Type.tweenInfo = simple(\"tweenInfo\")\
+Type.enumItem = simple(\"enumItem\")\
+\
+function Type.inst(className: string?): TypeDef\
+	local def = TypeDef.new(\"inst\")\
+	def._className = className\
+	return def\
+end\
+\
+function Type.struct(shape: {[string]: TypeDef}): TypeDef\
+	local def = TypeDef.new(\"struct\")\
+	def._struct = shape\
+	return def\
+end\
+\
+Type.shape = Type.struct\
+\
+function Type.array(element: TypeDef): TypeDef\
+	local def = TypeDef.new(\"array\")\
+	def._element = element\
+	return def\
+end\
+\
+function Type.tuple(...: TypeDef): TypeDef\
+	local def = TypeDef.new(\"tuple\")\
+	def._elements = { ... }\
+	return def\
+end\
+\
+function Type.map(keyType: TypeDef, valueType: TypeDef): TypeDef\
+	local def = TypeDef.new(\"map\")\
+	def._key = keyType\
+	def._value = valueType\
+	return def\
+end\
+\
+function Type.record(valueType: TypeDef): TypeDef\
+	local def = TypeDef.new(\"record\")\
+	def._value = valueType\
+	return def\
+end\
+\
+function Type.lazy(resolve: () -> TypeDef): TypeDef\
+	local def = TypeDef.new(\"lazy\")\
+	def._resolve = resolve\
+	return def\
+end\
+\
+local function assertStruct(def: TypeDef, fnName: string): {[string]: TypeDef}\
+	assert(def._struct, string.format(\"[MaterialSubstance] Type.%s expects a struct TypeDef\", fnName))\
+	return def._struct :: {[string]: TypeDef}\
+end\
+\
+function Type.partial(structDef: TypeDef): TypeDef\
+	local source = assertStruct(structDef, \"partial\")\
+	local shape = {}\
+	for field, fieldType in source do\
+		shape[field] = fieldType:nullable()\
+	end\
+	return Type.struct(shape)\
+end\
+\
+function Type.pick(structDef: TypeDef, keys: {string}): TypeDef\
+	local source = assertStruct(structDef, \"pick\")\
+	local shape = {}\
+	for _, key in keys do\
+		shape[key] = source[key]\
+	end\
+	return Type.struct(shape)\
+end\
+\
+function Type.omit(structDef: TypeDef, keys: {string}): TypeDef\
+	local source = assertStruct(structDef, \"omit\")\
+	local excluded = {}\
+	for _, key in keys do\
+		excluded[key] = true\
+	end\
+\
+	local shape = {}\
+	for field, fieldType in source do\
+		if excluded[field] then\
+			continue\
+		end\
+		shape[field] = fieldType\
+	end\
+	return Type.struct(shape)\
+end\
+\
+function Type.merge(structA: TypeDef, structB: TypeDef): TypeDef\
+	local sourceA = assertStruct(structA, \"merge\")\
+	local sourceB = assertStruct(structB, \"merge\")\
+\
+	local shape = {}\
+	for field, fieldType in sourceA do\
+		shape[field] = fieldType\
+	end\
+	for field, fieldType in sourceB do\
+		shape[field] = fieldType\
+	end\
+	return Type.struct(shape)\
+end\
+\
+export type DefineTypeConfig = {\
+	Mask: () -> TypeDef,\
+	Validate: ((value: any) -> boolean)?,\
+}\
+\
+function Type.defineType(config: DefineTypeConfig): () -> TypeDef\
+	return function(): TypeDef\
+		local def = config.Mask()\
+		if config.Validate then\
+			def:where(config.Validate)\
+		end\
+		return def\
+	end\
+end\
+\
+return Type\
+"},
+{"Astrix/_Packages/Substance/Particle/Type/TypeDef","ModuleScript","-- MaterialSubstance\
+-- Particle/Type/TypeDef.lua\
+-- Plinko Labs\
+\
+export type Predicate = (value: any) -> boolean\
+\
+export type TypeDef = {\
+	_kind: string,\
+	_struct: {[string]: TypeDef}?,\
+	_element: TypeDef?,\
+	_elements: {TypeDef}?,\
+	_key: TypeDef?,\
+	_value: TypeDef?,\
+	_resolve: (() -> TypeDef)?,\
+	_className: string?,\
+	_nullable: boolean?,\
+	_default: any?,\
+	_unions: {TypeDef}?,\
+	_intersects: {TypeDef}?,\
+	_nots: {TypeDef}?,\
+	_wheres: {Predicate}?,\
+	_literal: any?,\
+	_enum: {any}?,\
+	_min: number?,\
+	_max: number?,\
+	_step: number?,\
+	_minLength: number?,\
+	_maxLength: number?,\
+	_pattern: string?,\
+	_minSize: number?,\
+	_maxSize: number?,\
+	_tag: string?,\
+	_describe: string?,\
+\
+	Validate: (self: TypeDef, value: any, path: string?) -> (boolean, string?, any),\
+	Check: (self: TypeDef, value: any) -> boolean,\
+	also: (self: TypeDef, other: TypeDef) -> TypeDef,\
+	Or: (self: TypeDef, other: TypeDef) -> TypeDef,\
+	Not: (self: TypeDef, other: TypeDef) -> TypeDef,\
+	nullable: (self: TypeDef) -> TypeDef,\
+	default: (self: TypeDef, value: any) -> TypeDef,\
+	where: (self: TypeDef, predicate: Predicate) -> TypeDef,\
+	literal: (self: TypeDef, value: any) -> TypeDef,\
+	enum: (self: TypeDef, values: {any}) -> TypeDef,\
+	min: (self: TypeDef, n: number) -> TypeDef,\
+	max: (self: TypeDef, n: number) -> TypeDef,\
+	bet: (self: TypeDef, minValue: number, maxValue: number) -> TypeDef,\
+	step: (self: TypeDef, n: number) -> TypeDef,\
+	minLength: (self: TypeDef, n: number) -> TypeDef,\
+	maxLength: (self: TypeDef, n: number) -> TypeDef,\
+	pattern: (self: TypeDef, p: string) -> TypeDef,\
+	minSize: (self: TypeDef, n: number) -> TypeDef,\
+	maxSize: (self: TypeDef, n: number) -> TypeDef,\
+	tag: (self: TypeDef, name: string) -> TypeDef,\
+	describe: (self: TypeDef, text: string) -> TypeDef,\
+}\
+\
+local TypeDef = {}\
+TypeDef.__index = TypeDef\
+TypeDef.__call = function(self: TypeDef, value: any): boolean\
+	return self:Check(value)\
+end\
+\
+local function label(self: TypeDef): string\
+	return self._describe or self._tag or self._kind\
+end\
+\
+local function tableSize(value: {[any]: any}): number\
+	local count = 0\
+	for _ in value do\
+		count += 1\
+	end\
+	return count\
+end\
+\
+local function deepEqual(a: any, b: any): boolean\
+	if a == b then\
+		return true\
+	end\
+	if typeof(a) ~= \"table\" or typeof(b) ~= \"table\" then\
+		return false\
+	end\
+	for key, value in a do\
+		if not deepEqual(value, b[key]) then\
+			return false\
+		end\
+	end\
+	for key in b do\
+		if a[key] == nil then\
+			return false\
+		end\
+	end\
+	return true\
+end\
+\
+function TypeDef.new(kind: string): TypeDef\
+	return setmetatable({ _kind = kind }, TypeDef) :: any\
+end\
+\
+function TypeDef.is(value: any): boolean\
+	return typeof(value) == \"table\" and getmetatable(value :: any) == TypeDef\
+end\
+\
+local baseCheckers: {[string]: (self: TypeDef, value: any, path: string) -> (boolean, string?)}\
+\
+local function checkPrimitive(luauType: string)\
+	return function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= luauType then\
+			return false, string.format(\"expected %s at %s, got %s\", label(self), path, typeof(value))\
+		end\
+		return true\
+	end\
+end\
+\
+local function checkInteger(min: number, max: number)\
+	return function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"number\" then\
+			return false, string.format(\"expected %s at %s, got %s\", label(self), path, typeof(value))\
+		end\
+		if value % 1 ~= 0 or value < min or value > max then\
+			return false, string.format(\"expected %s in [%d, %d] at %s, got %s\", label(self), min, max, path, tostring(value))\
+		end\
+		return true\
+	end\
+end\
+\
+baseCheckers = {\
+	table = checkPrimitive(\"table\"),\
+	string = checkPrimitive(\"string\"),\
+	number = checkPrimitive(\"number\"),\
+	bool = checkPrimitive(\"boolean\"),\
+	buff = checkPrimitive(\"buffer\"),\
+	float32 = checkPrimitive(\"number\"),\
+	float64 = checkPrimitive(\"number\"),\
+	uint8 = checkInteger(0, 255),\
+	uint16 = checkInteger(0, 65535),\
+	uint32 = checkInteger(0, 4294967295),\
+	int8 = checkInteger(-128, 127),\
+	int16 = checkInteger(-32768, 32767),\
+	int32 = checkInteger(-2147483648, 2147483647),\
+	any = function(): (boolean, string?)\
+		return true\
+	end,\
+	never = function(self: TypeDef, _value: any, path: string): (boolean, string?)\
+		return false, string.format(\"%s never accepts a value, at %s\", label(self), path)\
+	end,\
+	unknown = function(): (boolean, string?)\
+		return true\
+	end,\
+	[\"nil\"] = function(_self: TypeDef, value: any, path: string): (boolean, string?)\
+		if value ~= nil then\
+			return false, string.format(\"expected nil at %s\", path)\
+		end\
+		return true\
+	end,\
+	vec2 = checkPrimitive(\"Vector2\"),\
+	vec3 = checkPrimitive(\"Vector3\"),\
+	vec2int16 = checkPrimitive(\"Vector2int16\"),\
+	cframe = checkPrimitive(\"CFrame\"),\
+	color3 = checkPrimitive(\"Color3\"),\
+	udim = checkPrimitive(\"UDim\"),\
+	udim2 = checkPrimitive(\"UDim2\"),\
+	rect = checkPrimitive(\"Rect\"),\
+	region3 = checkPrimitive(\"Region3\"),\
+	numberRange = checkPrimitive(\"NumberRange\"),\
+	numberSequence = checkPrimitive(\"NumberSequence\"),\
+	colorSequence = checkPrimitive(\"ColorSequence\"),\
+	tweenInfo = checkPrimitive(\"TweenInfo\"),\
+	enumItem = checkPrimitive(\"EnumItem\"),\
+\
+	inst = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"Instance\" then\
+			return false, string.format(\"expected Instance at %s, got %s\", path, typeof(value))\
+		end\
+		if self._className and not (value :: Instance):IsA(self._className) then\
+			return false, string.format(\"expected Instance of class '%s' at %s, got '%s'\", self._className, path, (value :: Instance).ClassName)\
+		end\
+		return true\
+	end,\
+\
+	struct = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"table\" then\
+			return false, string.format(\"expected table at %s\", path)\
+		end\
+		local struct = self._struct :: {[string]: TypeDef}\
+		for field, fieldType in struct do\
+			local ok, err, resolved = fieldType:Validate(value[field], path .. \".\" .. field)\
+			if not ok then\
+				return false, err\
+			end\
+			if resolved ~= nil and resolved ~= value[field] then\
+				value[field] = resolved\
+			end\
+		end\
+		return true\
+	end,\
+\
+	array = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"table\" then\
+			return false, string.format(\"expected array at %s\", path)\
+		end\
+		local element = self._element :: TypeDef\
+		for index, item in value do\
+			local ok, err, resolved = element:Validate(item, string.format(\"%s[%s]\", path, tostring(index)))\
+			if not ok then\
+				return false, err\
+			end\
+			if resolved ~= nil and resolved ~= item then\
+				value[index] = resolved\
+			end\
+		end\
+		return true\
+	end,\
+\
+	tuple = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"table\" then\
+			return false, string.format(\"expected tuple at %s\", path)\
+		end\
+		local elements = self._elements :: {TypeDef}\
+		for index, elementType in elements do\
+			local ok, err, resolved = elementType:Validate(value[index], string.format(\"%s[%d]\", path, index))\
+			if not ok then\
+				return false, err\
+			end\
+			if resolved ~= nil and resolved ~= value[index] then\
+				value[index] = resolved\
+			end\
+		end\
+		return true\
+	end,\
+\
+	map = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"table\" then\
+			return false, string.format(\"expected map at %s\", path)\
+		end\
+		local keyType = self._key :: TypeDef\
+		local valueType = self._value :: TypeDef\
+		for key, item in value do\
+			local kok, kerr = keyType:Validate(key, path .. \".<key>\")\
+			if not kok then\
+				return false, kerr\
+			end\
+			local vok, verr = valueType:Validate(item, string.format(\"%s[%s]\", path, tostring(key)))\
+			if not vok then\
+				return false, verr\
+			end\
+		end\
+		return true\
+	end,\
+\
+	record = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		if typeof(value) ~= \"table\" then\
+			return false, string.format(\"expected record at %s\", path)\
+		end\
+		local valueType = self._value :: TypeDef\
+		for key, item in value do\
+			if type(key) ~= \"string\" then\
+				return false, string.format(\"expected string key at %s\", path)\
+			end\
+			local ok, err = valueType:Validate(item, string.format(\"%s.%s\", path, key))\
+			if not ok then\
+				return false, err\
+			end\
+		end\
+		return true\
+	end,\
+\
+	lazy = function(self: TypeDef, value: any, path: string): (boolean, string?)\
+		local resolved = (self._resolve :: () -> TypeDef)()\
+		local ok, err = resolved:Validate(value, path)\
+		return ok, err\
+	end,\
+\
+	custom = function(): (boolean, string?)\
+		return true\
+	end,\
+}\
+\
+function TypeDef:Validate(value: any, path: string?): (boolean, string?, any)\
+	path = path or \"$\"\
+\
+	if value == nil then\
+		if self._default ~= nil then\
+			value = self._default\
+		elseif self._nullable then\
+			return true, nil, nil\
+		end\
+	end\
+\
+	if self._nots then\
+		for _, notType in self._nots :: {TypeDef} do\
+			local ok = notType:Check(value)\
+			if ok then\
+				return false, string.format(\"%s must not match excluded type at %s\", label(self), path)\
+			end\
+		end\
+	end\
+\
+	if self._unions then\
+		local ok = self:_selfCheck(value, path)\
+		if not ok then\
+			for _, unionType in self._unions :: {TypeDef} do\
+				local uok, _uerr, uval = unionType:Validate(value, path)\
+				if uok then\
+					value = if uval ~= nil then uval else value\
+					ok = true\
+					break\
+				end\
+			end\
+		end\
+		if not ok then\
+			return false, string.format(\"value did not match %s or any union member at %s\", label(self), path)\
+		end\
+	else\
+		local ok, err = self:_selfCheck(value, path)\
+		if not ok then\
+			return false, err\
+		end\
+	end\
+\
+	if self._intersects then\
+		for _, andType in self._intersects :: {TypeDef} do\
+			local ok, err = andType:Validate(value, path)\
+			if not ok then\
+				return false, err\
+			end\
+		end\
+	end\
+\
+	local ok, err = self:_constraints(value, path)\
+	if not ok then\
+		return false, err\
+	end\
+\
+	return true, nil, value\
+end\
+\
+function TypeDef:_selfCheck(value: any, path: string): (boolean, string?)\
+	local checker = baseCheckers[self._kind]\
+	if not checker then\
+		return false, string.format(\"unknown type kind '%s' at %s\", self._kind, path)\
+	end\
+	return checker(self, value, path)\
+end\
+\
+function TypeDef:_constraints(value: any, path: string): (boolean, string?)\
+	if self._literal ~= nil and not deepEqual(value, self._literal) then\
+		return false, string.format(\"expected literal %s at %s\", tostring(self._literal), path)\
+	end\
+\
+	if self._enum then\
+		local found = false\
+		for _, candidate in self._enum :: {any} do\
+			if deepEqual(value, candidate) then\
+				found = true\
+				break\
+			end\
+		end\
+		if not found then\
+			return false, string.format(\"value not in enum at %s\", path)\
+		end\
+	end\
+\
+	if typeof(value) == \"number\" then\
+		if self._min and value < self._min then\
+			return false, string.format(\"expected >= %s at %s\", tostring(self._min), path)\
+		end\
+		if self._max and value > self._max then\
+			return false, string.format(\"expected <= %s at %s\", tostring(self._max), path)\
+		end\
+		if self._step and (value % self._step) ~= 0 then\
+			return false, string.format(\"expected multiple of %s at %s\", tostring(self._step), path)\
+		end\
+	end\
+\
+	if typeof(value) == \"string\" then\
+		if self._minLength and #value < self._minLength then\
+			return false, string.format(\"expected length >= %d at %s\", self._minLength, path)\
+		end\
+		if self._maxLength and #value > self._maxLength then\
+			return false, string.format(\"expected length <= %d at %s\", self._maxLength, path)\
+		end\
+		if self._pattern and not string.match(value, self._pattern) then\
+			return false, string.format(\"expected to match pattern '%s' at %s\", self._pattern, path)\
+		end\
+	end\
+\
+	if typeof(value) == \"table\" then\
+		if self._minSize and tableSize(value) < self._minSize then\
+			return false, string.format(\"expected size >= %d at %s\", self._minSize, path)\
+		end\
+		if self._maxSize and tableSize(value) > self._maxSize then\
+			return false, string.format(\"expected size <= %d at %s\", self._maxSize, path)\
+		end\
+	end\
+\
+	if self._wheres then\
+		for _, predicate in self._wheres :: {Predicate} do\
+			if not predicate(value) then\
+				return false, string.format(\"failed custom predicate at %s\", path)\
+			end\
+		end\
+	end\
+\
+	return true\
+end\
+\
+function TypeDef:Check(value: any): boolean\
+	local ok = self:Validate(value)\
+	return ok\
+end\
+\
+function TypeDef:also(other: TypeDef): TypeDef\
+	self._intersects = self._intersects or {}\
+	table.insert(self._intersects, other)\
+	return self\
+end\
+\
+-- \"or\" and \"not\" are reserved words in Luau and cannot follow `:` in a method\
+-- call, so the union/negation modifiers are capitalized: `:Or()` / `:Not()`.\
+function TypeDef:Or(other: TypeDef): TypeDef\
+	self._unions = self._unions or {}\
+	table.insert(self._unions, other)\
+	return self\
+end\
+\
+function TypeDef:Not(other: TypeDef): TypeDef\
+	self._nots = self._nots or {}\
+	table.insert(self._nots, other)\
+	return self\
+end\
+\
+function TypeDef:nullable(): TypeDef\
+	self._nullable = true\
+	return self\
+end\
+\
+function TypeDef:default(value: any): TypeDef\
+	self._default = value\
+	return self\
+end\
+\
+function TypeDef:where(predicate: Predicate): TypeDef\
+	self._wheres = self._wheres or {}\
+	table.insert(self._wheres, predicate)\
+	return self\
+end\
+\
+function TypeDef:literal(value: any): TypeDef\
+	self._literal = value\
+	return self\
+end\
+\
+function TypeDef:enum(values: {any}): TypeDef\
+	self._enum = values\
+	return self\
+end\
+\
+function TypeDef:min(n: number): TypeDef\
+	self._min = n\
+	return self\
+end\
+\
+function TypeDef:max(n: number): TypeDef\
+	self._max = n\
+	return self\
+end\
+\
+function TypeDef:bet(minValue: number, maxValue: number): TypeDef\
+	self._min = minValue\
+	self._max = maxValue\
+	return self\
+end\
+\
+function TypeDef:step(n: number): TypeDef\
+	self._step = n\
+	return self\
+end\
+\
+function TypeDef:minLength(n: number): TypeDef\
+	self._minLength = n\
+	return self\
+end\
+\
+function TypeDef:maxLength(n: number): TypeDef\
+	self._maxLength = n\
+	return self\
+end\
+\
+function TypeDef:pattern(p: string): TypeDef\
+	self._pattern = p\
+	return self\
+end\
+\
+function TypeDef:minSize(n: number): TypeDef\
+	self._minSize = n\
+	return self\
+end\
+\
+function TypeDef:maxSize(n: number): TypeDef\
+	self._maxSize = n\
+	return self\
+end\
+\
+function TypeDef:tag(name: string): TypeDef\
+	self._tag = name\
+	return self\
+end\
+\
+function TypeDef:describe(text: string): TypeDef\
+	self._describe = text\
+	return self\
+end\
+\
+return TypeDef\
+"},
+{"Astrix/_Packages/Substance/Particle/Types","ModuleScript","-- MaterialSubstance\
+-- Particle/Types.lua\
+-- Plinko Labs\
+\
+export type EventType = \"Lazy\" | \"Strict\" | \"Solve\"\
+export type Authority = \"Server\" | \"Client\"\
+\
+export type Shape = {[string]: any}\
+export type Constraints = {[string]: (any) -> boolean}\
+\
+export type Subscription = {\
+	Cancel: (self: Subscription) -> (),\
+}\
+\
+export type AtomHandle = {\
+	Name: string,\
+	Shape: Shape?,\
+	Isotope: (self: AtomHandle, constraints: Constraints) -> AtomHandle,\
+	Compose: (self: AtomHandle, channelName: string, eventType: EventType) -> AtomHandle,\
+	Post: (self: AtomHandle, payload: any, target: Player?) -> any,\
+	Subscribe: (self: AtomHandle, handler: (any, Player?) -> any) -> Subscription,\
+	Entangle: (self: AtomHandle, owner: Authority) -> AtomHandle,\
+	Set: (self: AtomHandle, value: any) -> (),\
+	Get: (self: AtomHandle) -> any,\
+}\
+\
+export type MoleculeHandle = {\
+	Name: string,\
+}\
+\
+export type Channel = {\
+	Name: string,\
+	Shape: Shape?,\
+	Constraints: Constraints?,\
+	EventType: EventType?,\
+	Subscribers: {(any, Player?) -> any},\
+	IsMolecule: boolean,\
+	AtomNames: {string}?,\
+}\
+\
+return {}\
+"},
+{"Astrix/_Packages/Substance/React","ModuleScript","-- MaterialSubstance\
+-- React/init.lua\
+-- Plinko Labs\
+\
+local RiverModule = require(script.River)\
+local EntangleModule = require(script.Entangle)\
+local FluxModule = require(script.Flux)\
+\
+local React = {}\
+\
+function React.River(name: string): RiverModule.River\
+	return RiverModule.Get(name)\
+end\
+\
+function React.Entangle(atom: any, owner: string): any\
+	return EntangleModule.Bind(atom, owner)\
+end\
+\
+function React.Flux(name: string, schema: {[string]: any}?, authority: string?): FluxModule.FluxInstance\
+	return FluxModule.GetOrCreate(name, schema, authority)\
+end\
+\
+return React\
+"},
+{"Astrix/_Packages/Substance/React/Entangle","ModuleScript","-- MaterialSubstance\
+-- React/Entangle.lua\
+-- Plinko Labs\
+\
+local Players = game:GetService(\"Players\")\
+local RunService = game:GetService(\"RunService\")\
+\
+local Remotes = require(script.Parent.Parent.Particle.Remotes)\
+\
+local IS_SERVER = RunService:IsServer()\
+\
+local Entangle = {}\
+\
+local bound: {[string]: boolean} = {}\
+\
+function Entangle.Bind(atom: any, owner: string): any\
+	local name = atom._channel or atom.Name\
+	local channelName = \"Entangle::\" .. name\
+\
+	if bound[name] then\
+		return atom\
+	end\
+	bound[name] = true\
+\
+	local instance = Remotes.Get(channelName, \"Strict\") :: RemoteEvent\
+	local state = { Value = nil :: any }\
+\
+	local isOwnerSide = (owner == \"Server\" and IS_SERVER) or (owner == \"Client\" and not IS_SERVER)\
+\
+	if isOwnerSide and IS_SERVER then\
+		Players.PlayerAdded:Connect(function(player: Player)\
+			if state.Value == nil then\
+				return\
+			end\
+			instance:FireClient(player, state.Value)\
+		end)\
+	elseif not isOwnerSide then\
+		if IS_SERVER then\
+			instance.OnServerEvent:Connect(function(_player: Player, value: any)\
+				state.Value = value\
+			end)\
+		else\
+			instance.OnClientEvent:Connect(function(value: any)\
+				state.Value = value\
+			end)\
+		end\
+	end\
+\
+	atom.Set = function(_self: any, value: any)\
+		if not isOwnerSide then\
+			return\
+		end\
+\
+		state.Value = value\
+\
+		if IS_SERVER then\
+			for _, player in Players:GetPlayers() do\
+				instance:FireClient(player, value)\
+			end\
+		else\
+			instance:FireServer(value)\
+		end\
+	end\
+\
+	atom.Get = function(_self: any): any\
+		return state.Value\
+	end\
+\
+	return atom\
+end\
+\
+return Entangle\
+"},
+{"Astrix/_Packages/Substance/React/Flux","ModuleScript","-- MaterialSubstance\
+-- React/Flux.lua\
+-- Plinko Labs\
+\
+local Players = game:GetService(\"Players\")\
+local RunService = game:GetService(\"RunService\")\
+\
+local Remotes = require(script.Parent.Parent.Particle.Remotes)\
+\
+local IS_SERVER = RunService:IsServer()\
+\
+export type FluxInstance = {\
+	Name: string,\
+	Patch: (self: FluxInstance, partial: {[string]: any}) -> (),\
+	Get: (self: FluxInstance) -> {[string]: any},\
+	Subscribe: (self: FluxInstance, handler: ({[string]: any}) -> ()) -> {Cancel: () -> ()},\
+}\
+\
+local Flux = {}\
+Flux.__index = Flux\
+\
+local instances: {[string]: FluxInstance} = {}\
+\
+local function merge(target: {[string]: any}, partial: {[string]: any})\
+	for key, value in partial do\
+		target[key] = value\
+	end\
+end\
+\
+function Flux.GetOrCreate(name: string, _schema: {[string]: any}?, authority: string?): FluxInstance\
+	local existing = instances[name]\
+	if existing then\
+		return existing\
+	end\
+\
+	local self = setmetatable({}, Flux)\
+	self.Name = name\
+	self._state = {}\
+	self._handlers = {}\
+	self._isAuthority = (authority == \"Server\" and IS_SERVER) or (authority == \"Client\" and not IS_SERVER)\
+	self._instance = Remotes.Get(\"Flux::\" .. name, \"Strict\") :: RemoteEvent\
+\
+	if self._isAuthority then\
+		if IS_SERVER then\
+			Players.PlayerAdded:Connect(function(player: Player)\
+				self._instance:FireClient(player, self._state)\
+			end)\
+		end\
+	else\
+		local signal = if IS_SERVER then self._instance.OnServerEvent else self._instance.OnClientEvent\
+		signal:Connect(function(playerOrPatch: any, maybePatch: any)\
+			local patch = if IS_SERVER then maybePatch else playerOrPatch\
+			merge(self._state, patch)\
+			for _, handler in self._handlers do\
+				handler(self._state)\
+			end\
+		end)\
+	end\
+\
+	instances[name] = (self :: any) :: FluxInstance\
+	return (self :: any) :: FluxInstance\
+end\
+\
+function Flux:Patch(partial: {[string]: any})\
+	local self = self :: any\
+	if not self._isAuthority then\
+		return\
+	end\
+\
+	merge(self._state, partial)\
+\
+	if IS_SERVER then\
+		for _, player in Players:GetPlayers() do\
+			self._instance:FireClient(player, partial)\
+		end\
+	else\
+		self._instance:FireServer(partial)\
+	end\
+\
+	for _, handler in self._handlers do\
+		handler(self._state)\
+	end\
+end\
+\
+function Flux:Get(): {[string]: any}\
+	return (self :: any)._state\
+end\
+\
+function Flux:Subscribe(handler: ({[string]: any}) -> ()): {Cancel: () -> ()}\
+	local self = self :: any\
+	table.insert(self._handlers, handler)\
+\
+	return {\
+		Cancel = function()\
+			local index = table.find(self._handlers, handler)\
+			if not index then\
+				return\
+			end\
+			table.remove(self._handlers, index)\
+		end,\
+	}\
+end\
+\
+return Flux\
+"},
+{"Astrix/_Packages/Substance/React/River","ModuleScript","-- MaterialSubstance\
+-- React/River.lua\
+-- Plinko Labs\
+\
+local RunService = game:GetService(\"RunService\")\
+\
+local Remotes = require(script.Parent.Parent.Particle.Remotes)\
+\
+local IS_SERVER = RunService:IsServer()\
+\
+export type River = {\
+	Name: string,\
+	Push: (self: River, player: Player, payload: any) -> (),\
+	Next: (self: River, handler: (any) -> ()) -> River,\
+	Cancel: (self: River) -> (),\
+}\
+\
+local River = {}\
+River.__index = River\
+\
+local rivers: {[string]: River} = {}\
+\
+function River.Get(name: string): River\
+	local existing = rivers[name]\
+	if existing then\
+		return existing\
+	end\
+\
+	local self = setmetatable({}, River)\
+	self.Name = name\
+	self._instance = Remotes.Get(name, \"Strict\")\
+	self._handlers = {}\
+\
+	if not IS_SERVER then\
+		(self._instance :: RemoteEvent).OnClientEvent:Connect(function(payload: any)\
+			for _, handler in self._handlers do\
+				handler(payload)\
+			end\
+		end)\
+	end\
+\
+	rivers[name] = (self :: any) :: River\
+	return (self :: any) :: River\
+end\
+\
+function River:Push(player: Player, payload: any)\
+	if not IS_SERVER then\
+		return\
+	end\
+	(self :: any)._instance:FireClient(player, payload)\
+end\
+\
+function River:Next(handler: (any) -> ()): River\
+	table.insert((self :: any)._handlers, handler)\
+	return self\
+end\
+\
+function River:Cancel()\
+	table.clear((self :: any)._handlers)\
+end\
+\
+return River\
+"},
+{"Astrix/_Packages/Substance/Tools","ModuleScript","-- MaterialSubstance\
+-- Tools/init.lua\
+-- Plinko Labs\
+\
+local HooksModule = require(script.Hooks)\
+local FossilModule = require(script.Fossil)\
+local LandLineModule = require(script.LandLine)\
+local BatchModule = require(script.Batch)\
+local FissionModule = require(script.Fission)\
+\
+local Tools = {}\
+\
+Tools.Hooks = HooksModule\
+Tools.Fossil = FossilModule\
+\
+function Tools.LandLine(name: string, steps: {LandLineModule.Step}): any\
+	return LandLineModule.Run(name, steps)\
+end\
+\
+function Tools.Batch(requests: {BatchModule.Request}): any\
+	return BatchModule.Run(requests)\
+end\
+\
+function Tools.Fission(trigger: string, targets: {FissionModule.Target})\
+	FissionModule.Register(trigger, targets)\
+end\
+\
+return Tools\
+"},
+{"Astrix/_Packages/Substance/Tools/Batch","ModuleScript","-- MaterialSubstance\
+-- Tools/Batch.lua\
+-- Plinko Labs\
+\
+local Dispatch = require(script.Parent.Parent.Particle.Dispatch)\
+local Async = require(script.Parent.Parent.Async)\
+\
+export type Request = {\
+	Name: string,\
+	Payload: any?,\
+	Target: Player?,\
+}\
+\
+local Batch = {}\
+\
+function Batch.Run(requests: {Request}): any\
+	return Async.Reaction.new(function()\
+		local reactions = table.create(#requests)\
+		for index, request in requests do\
+			reactions[index] = Dispatch.Post(request.Name, request.Payload, request.Target)\
+		end\
+\
+		local results = table.create(#requests)\
+		for index, reaction in reactions do\
+			results[index] = reaction:Await()\
+		end\
+\
+		return results\
+	end)\
+end\
+\
+return Batch\
+"},
+{"Astrix/_Packages/Substance/Tools/Fission","ModuleScript","-- MaterialSubstance\
+-- Tools/Fission.lua\
+-- Plinko Labs\
+\
+local Dispatch = require(script.Parent.Parent.Particle.Dispatch)\
+\
+export type Target = string | {\
+	Name: string,\
+	Map: ((any) -> any)?,\
+}\
+\
+local Fission = {}\
+\
+function Fission.Register(trigger: string, targets: {Target})\
+	Dispatch.Subscribe(trigger, function(payload: any, player: Player?)\
+		for _, target in targets do\
+			local targetName = target\
+			local map = nil\
+\
+			if type(target) == \"table\" then\
+				targetName, map = target.Name, target.Map\
+			end\
+\
+			local outgoing = if map then map(payload) else payload\
+			Dispatch.Post(targetName :: string, outgoing, player)\
+		end\
+	end)\
+end\
+\
+return Fission\
+"},
+{"Astrix/_Packages/Substance/Tools/Fossil","ModuleScript","-- MaterialSubstance\
+-- Tools/Fossil.lua\
+-- Plinko Labs\
+\
+local ParticleFossil = require(script.Parent.Parent.Particle.Fossil)\
+\
+return {\
+	Start = ParticleFossil.Start,\
+	Stop = ParticleFossil.Stop,\
+	Replay = ParticleFossil.Replay,\
+	Export = ParticleFossil.Export,\
+	Clear = ParticleFossil.Clear,\
+}\
+"},
+{"Astrix/_Packages/Substance/Tools/Hooks","ModuleScript","-- MaterialSubstance\
+-- Tools/Hooks.lua\
+-- Plinko Labs\
+\
+local ParticleHooks = require(script.Parent.Parent.Particle.Hooks)\
+\
+return {\
+	Pre = ParticleHooks.Pre,\
+	Hook = ParticleHooks.Hook,\
+}\
+"},
+{"Astrix/_Packages/Substance/Tools/LandLine","ModuleScript","-- MaterialSubstance\
+-- Tools/LandLine.lua\
+-- Plinko Labs\
+\
+local Dispatch = require(script.Parent.Parent.Particle.Dispatch)\
+local Async = require(script.Parent.Parent.Async)\
+\
+export type Step = string | {\
+	Name: string,\
+	Payload: any?,\
+	Map: ((any) -> any)?,\
+}\
+\
+local LandLine = {}\
+\
+local function normalize(step: Step): (string, any?, ((any) -> any)?)\
+	if type(step) == \"string\" then\
+		return step, nil, nil\
+	end\
+	return step.Name, step.Payload, step.Map\
+end\
+\
+function LandLine.Run(_name: string, steps: {Step}): any\
+	return Async.Reaction.new(function()\
+		local result = nil\
+\
+		for index, step in steps do\
+			local channelName, payload, map = normalize(step)\
+\
+			local input = payload\
+			if input == nil and map then\
+				input = map(result)\
+			elseif input == nil and index > 1 then\
+				input = result\
+			end\
+\
+			result = Dispatch.Post(channelName, input):Await()\
+		end\
+\
+		return result\
+	end)\
+end\
+\
+return LandLine\
+"},
+{"Astrix/_Packages/Switch","ModuleScript","local Enums    = require(script.Enums)\
+local Platform = require(script.Platform)\
+local Context  = require(script.Context)\
+local Registry = require(script.Registry)\
+local Types    = require(script.Types)\
+\
+local Switch = {}\
+\
+Switch.Enums    = Enums\
+Switch.Platform = Platform\
+\
+function Switch.Define(name: string, config: Types.ActionConfig): Types.ActionHandle\
+	return Registry.Define(name, config)\
+end\
+\
+function Switch.Fetch(name: string): Types.ActionHandle?\
+	return Registry.Fetch(name)\
+end\
+\
+function Switch.Fork(name: string, newName: string, overrides: Types.ActionConfig?): Types.ActionHandle\
+	return Registry.Fork(name, newName, overrides)\
+end\
+\
+function Switch.Merge(...: Types.ActionHandle): Types.MergedHandle\
+	return Registry.Merge(...)\
+end\
+\
+function Switch.Poll(name: string): Types.PollState\
+	local action = Registry.Fetch(name)\
+	assert(action, \"[Switch] Poll: action '\" .. name .. \"' does not exist\")\
+	return action:Poll()\
+end\
+\
+function Switch.Remove(name: string)\
+	Registry.Remove(name)\
+end\
+\
+function Switch.Clear()\
+	Registry.Clear()\
+end\
+\
+function Switch.GetByTag(tag: string): { Types.ActionHandle }\
+	return Registry.GetByTag(tag)\
+end\
+\
+function Switch.PushContext(name: string, options: Types.ContextOptions?)\
+	Context.Push(name, options)\
+end\
+\
+function Switch.PopContext(name: string?)\
+	Context.Pop(name)\
+end\
+\
+function Switch.PeekContext(): string?\
+	return Context.Peek()\
+end\
+\
+function Switch.HasContext(name: string): boolean\
+	return Context.Has(name)\
+end\
+\
+function Switch.ContextStack(): { string }\
+	return Context.Stack()\
+end\
+\
+function Switch.ClearContext()\
+	Context.Clear()\
+end\
+\
+function Switch.SnapshotContext(): { Types.ContextEntry }\
+	return Context.Snapshot()\
+end\
+\
+function Switch.RestoreContext(snapshot: { Types.ContextEntry })\
+	Context.Restore(snapshot)\
+end\
+\
+function Switch.OnContextPush(name: string, cb: (string) -> ()): () -> ()\
+	return Context.OnPush(name, cb)\
+end\
+\
+function Switch.OnContextPop(name: string, cb: (string) -> ()): () -> ()\
+	return Context.OnPop(name, cb)\
+end\
+\
+function Switch.OnContextChanged(cb: ({ string }) -> ()): () -> ()\
+	return Context.OnChanged(cb)\
+end\
+\
+return Switch"},
+{"Astrix/_Packages/Switch/Action","ModuleScript","-- Switch\
+-- Action.lua\
+-- Plinko Labs\
+\
+local ContextActionService = game:GetService(\"ContextActionService\")\
+local UserInputService     = game:GetService(\"UserInputService\")\
+local RunService           = game:GetService(\"RunService\")\
+\
+local Enums      = require(script.Parent.Enums)\
+local Context    = require(script.Parent.Context)\
+local Connection = require(script.Parent.Connection).Connection\
+local Types      = require(script.Parent.Types)\
+\
+local Action = {}\
+Action.__index = Action\
+\
+local function _makeSignalTable()\
+	return setmetatable({}, {\
+		__index = function(t, k)\
+			t[k] = {}\
+			return t[k]\
+		end,\
+	})\
+end\
+\
+local function _makeEvent(source, state, extra)\
+	local event = {\
+		Source   = source,\
+		State    = state,\
+		Delta    = extra and extra.Delta,\
+		Position = extra and extra.Position,\
+		Progress = extra and extra.Progress,\
+		Count    = extra and extra.Count,\
+		Step     = extra and extra.Step,\
+		Held     = extra and extra.Held or false,\
+		Consumed = false,\
+	}\
+\
+	function event:Consume()\
+		self.Consumed = true\
+	end\
+\
+	return event\
+end\
+\
+local StateResult = {}\
+StateResult.__index = StateResult\
+\
+function StateResult.new(value, data)\
+	return setmetatable({ _value = value, _data = data }, StateResult)\
+end\
+\
+function StateResult:With()\
+	return self._data\
+end\
+\
+local function _result(value, data)\
+	if not value then return nil end\
+	return StateResult.new(value, data)\
+end\
+\
+function Action.new(name, config)\
+	local self = setmetatable({}, Action)\
+\
+	self.Name         = name\
+	self.Config       = config\
+	self._signals     = _makeSignalTable()\
+	self._driver      = config.Driver or Enums.Driver.IAS\
+	self._enabled     = true\
+	self._held        = false\
+	self._heldStart   = nil\
+	self._pollState   = Enums.Poll.Idle\
+\
+	self._activeStates   = {}\
+\
+	self._comboStep      = 0\
+	self._comboTimer     = nil\
+\
+	self._charging       = false\
+	self._chargeConn     = nil\
+	self._chargeStart    = nil\
+	self._chargeProgress = 0\
+\
+	self._mashCount  = 0\
+	self._mashTimer  = nil\
+	self._mashWindow = {}\
+\
+	self._doubleTapPending = false\
+	self._doubleTapTimer   = nil\
+	self._doubleTapTime    = nil\
+\
+	self._longPressTimer = nil\
+	self._holdTimer      = nil\
+\
+	self._conflicts = {}\
+\
+	self._iasContext  = nil\
+	self._iasAction   = nil\
+	self._iasBindings = {}\
+\
+	self._uisConn    = nil\
+	self._uisEndConn = nil\
+\
+	self:_Setup()\
+\
+	return self\
+end\
+\
+function Action:_SetState(state, active)\
+	self._activeStates[state] = active or nil\
+end\
+\
+function Action:_Fire(state, event)\
+	if not self._enabled then return end\
+	if not Context.IsActive(self.Config.Contexts) then return end\
+\
+	local listeners = self._signals[state]\
+	if not listeners then return end\
+\
+	for _, entry in listeners do\
+		if not event.Consumed then\
+			task.spawn(entry.fire, event)\
+		end\
+	end\
+end\
+\
+function Action:_PlatformAllowed()\
+	local platforms = self.Config.Platforms\
+	if not platforms or #platforms == 0 then return true end\
+\
+	local Platform = require(script.Parent.Platform)\
+	local current  = Platform.Get()\
+\
+	for _, p in platforms do\
+		if p == current then return true end\
+	end\
+\
+	return false\
+end\
+\
+function Action:_SetupIAS()\
+	local actionsFolder = script.Actions\
+\
+	local context = Instance.new(\"InputContext\")\
+	context.Name     = self.Name .. \"_Context\"\
+	context.Priority = self.Config.Priority or 100\
+	context.Sink     = self.Config.Sink or false\
+	context.Enabled  = false\
+	context.Parent   = actionsFolder\
+	self._iasContext = context\
+\
+	local action = Instance.new(\"InputAction\")\
+	action.Name   = self.Name\
+	action.Parent = context\
+	self._iasAction = action\
+\
+	if self.Config.Bindings then\
+		for _, binding in self.Config.Bindings do\
+			local b = Instance.new(\"InputBinding\")\
+			if typeof(binding) == \"table\" then\
+				b.KeyCode = binding.KeyCode\
+				if binding.Modifier then\
+					b.ModifierKey = binding.Modifier\
+				end\
+			else\
+				b.KeyCode = binding\
+			end\
+			b.Parent = action\
+			table.insert(self._iasBindings, b)\
+		end\
+	end\
+\
+	context.Enabled = true\
+\
+	action.Pressed:Connect(function()\
+		if not self:_PlatformAllowed() then return end\
+		self:_HandlePressed(action)\
+	end)\
+\
+	action.Released:Connect(function()\
+		if not self:_PlatformAllowed() then return end\
+		self:_HandleReleased(action)\
+	end)\
+\
+	action.StateChanged:Connect(function(value)\
+		if not self:_PlatformAllowed() then return end\
+		local event = _makeEvent(action, Enums.State.Changed, { Progress = value })\
+		self:_SetState(Enums.State.Changed, true)\
+		self:_Fire(Enums.State.Changed, event)\
+		task.delay(0, function() self:_SetState(Enums.State.Changed, nil) end)\
+	end)\
+end\
+\
+function Action:_SetupCAS()\
+	if not self.Config.Bindings then return end\
+\
+	local bindings = {}\
+	for _, b in self.Config.Bindings do\
+		local key = typeof(b) == \"table\" and b.KeyCode or b\
+		table.insert(bindings, key)\
+	end\
+\
+	ContextActionService:BindActionAtPriority(\
+		self.Name,\
+		function(_, inputState, inputObject)\
+			if not self:_PlatformAllowed() then\
+				return Enum.ContextActionResult.Pass\
+			end\
+\
+			local source = inputObject.KeyCode ~= Enum.KeyCode.Unknown\
+				and inputObject.KeyCode\
+				or inputObject.UserInputType\
+\
+			if inputState == Enum.UserInputState.Begin then\
+				self:_HandlePressed(source)\
+			elseif inputState == Enum.UserInputState.End then\
+				self:_HandleReleased(source)\
+			elseif inputState == Enum.UserInputState.Change then\
+				local event = _makeEvent(source, Enums.State.Changed, {\
+					Delta    = inputObject.Delta,\
+					Position = inputObject.Position,\
+				})\
+				self:_SetState(Enums.State.Changed, true)\
+				self:_Fire(Enums.State.Changed, event)\
+				task.delay(0, function() self:_SetState(Enums.State.Changed, nil) end)\
+			end\
+\
+			return Enum.ContextActionResult.Pass\
+		end,\
+		false,\
+		self.Config.Priority or 100,\
+		table.unpack(bindings)\
+	)\
+end\
+\
+function Action:_SetupUIS()\
+	if not self.Config.Bindings then return end\
+\
+	self._uisConn = UserInputService.InputBegan:Connect(function(input, processed)\
+		if processed then return end\
+		if not self:_PlatformAllowed() then return end\
+\
+		for _, binding in self.Config.Bindings do\
+			local key = typeof(binding) == \"table\" and binding.KeyCode or binding\
+			if input.KeyCode == key or input.UserInputType == key then\
+				self:_HandlePressed(key)\
+				break\
+			end\
+		end\
+	end)\
+\
+	self._uisEndConn = UserInputService.InputEnded:Connect(function(input)\
+		if not self:_PlatformAllowed() then return end\
+\
+		for _, binding in self.Config.Bindings do\
+			local key = typeof(binding) == \"table\" and binding.KeyCode or binding\
+			if input.KeyCode == key or input.UserInputType == key then\
+				self:_HandleReleased(key)\
+				break\
+			end\
+		end\
+	end)\
+end\
+\
+function Action:_Setup()\
+	if self._driver == Enums.Driver.IAS then\
+		self:_SetupIAS()\
+	elseif self._driver == Enums.Driver.CAS then\
+		self:_SetupCAS()\
+	elseif self._driver == Enums.Driver.UIS then\
+		self:_SetupUIS()\
+	end\
+end\
+\
+function Action:_HandlePressed(source)\
+	self._held      = true\
+	self._heldStart = os.clock()\
+	self._pollState = Enums.Poll.Active\
+\
+	self:_SetState(Enums.State.Pressed, true)\
+	self:_SetState(Enums.State.Released, nil)\
+\
+	local mode = self.Config.Mode or Enums.Mode.Button\
+\
+	if mode == Enums.Mode.Button or mode == Enums.Mode.Shortcut then\
+		local event = _makeEvent(source, Enums.State.Pressed)\
+		self:_Fire(Enums.State.Pressed, event)\
+		self:_StartHeldLoop(source)\
+\
+	elseif mode == Enums.Mode.Hold then\
+		self:_StartHoldTimer(source)\
+\
+	elseif mode == Enums.Mode.Charge then\
+		self:_StartCharge(source)\
+\
+	elseif mode == Enums.Mode.DoubleTap then\
+		self:_HandleDoubleTap(source)\
+\
+	elseif mode == Enums.Mode.Mash then\
+		self:_HandleMash(source)\
+\
+	elseif mode == Enums.Mode.Combo then\
+		self:_HandleComboStep(source)\
+\
+	elseif mode == Enums.Mode.LongPress then\
+		local event = _makeEvent(source, Enums.State.Pressed)\
+		self:_Fire(Enums.State.Pressed, event)\
+		self:_StartLongPress(source)\
+	end\
+end\
+\
+function Action:_HandleReleased(source)\
+	self._held      = false\
+	self._heldStart = nil\
+	self._pollState = Enums.Poll.Idle\
+\
+	self:_SetState(Enums.State.Pressed, nil)\
+	self:_SetState(Enums.State.Held, nil)\
+	self:_SetState(Enums.State.Released, true)\
+\
+	local mode  = self.Config.Mode or Enums.Mode.Button\
+	local event = _makeEvent(source, Enums.State.Released)\
+	self:_Fire(Enums.State.Released, event)\
+\
+	if mode == Enums.Mode.Hold then\
+		if self._holdTimer then\
+			task.cancel(self._holdTimer)\
+			self._holdTimer = nil\
+			-- released before hold completed\
+			self:_SetState(Enums.State.Canceled, true)\
+			local cancelEvent = _makeEvent(source, Enums.State.Canceled)\
+			self:_Fire(Enums.State.Canceled, cancelEvent)\
+			task.delay(0, function() self:_SetState(Enums.State.Canceled, nil) end)\
+		end\
+	end\
+\
+	if mode == Enums.Mode.Charge then\
+		self:_StopCharge(source)\
+	end\
+\
+	if mode == Enums.Mode.LongPress then\
+		if self._longPressTimer then\
+			task.cancel(self._longPressTimer)\
+			self._longPressTimer = nil\
+			self:_SetState(Enums.State.Canceled, true)\
+			local cancelEvent = _makeEvent(source, Enums.State.Canceled)\
+			self:_Fire(Enums.State.Canceled, cancelEvent)\
+			task.delay(0, function() self:_SetState(Enums.State.Canceled, nil) end)\
+		end\
+	end\
+end\
+\
+function Action:_StartHeldLoop(source)\
+	if not self.Config.RepeatInterval then return end\
+\
+	task.spawn(function()\
+		while self._held do\
+			task.wait(self.Config.RepeatInterval)\
+			if not self._held then break end\
+			self:_SetState(Enums.State.Held, true)\
+			local event = _makeEvent(source, Enums.State.Held, { Held = true })\
+			self:_Fire(Enums.State.Held, event)\
+		end\
+	end)\
+end\
+\
+function Action:_StartHoldTimer(source)\
+	local holdTime = self.Config.HoldTime or 0.5\
+\
+	self._holdTimer = task.delay(holdTime, function()\
+		if not self._held then return end\
+		self._holdTimer = nil\
+		self:_SetState(Enums.State.Triggered, true)\
+		local event = _makeEvent(source, Enums.State.Triggered)\
+		self:_Fire(Enums.State.Triggered, event)\
+		task.delay(0, function() self:_SetState(Enums.State.Triggered, nil) end)\
+	end)\
+end\
+\
+function Action:_StartCharge(source)\
+	self._charging       = true\
+	self._chargeStart    = os.clock()\
+	self._chargeProgress = 0\
+\
+	self:_SetState(Enums.State.Charged, true)\
+\
+	self._chargeConn = RunService.Heartbeat:Connect(function()\
+		if not self._charging then return end\
+\
+		local elapsed  = os.clock() - self._chargeStart\
+		local holdTime = self.Config.HoldTime or 1\
+		local progress = math.clamp(elapsed / holdTime, 0, 1)\
+\
+		self._chargeProgress = progress\
+\
+		local event = _makeEvent(source, Enums.State.Charged, { Progress = progress })\
+		self:_Fire(Enums.State.Charged, event)\
+	end)\
+end\
+\
+function Action:_StopCharge(source)\
+	if not self._charging then return end\
+	self._charging = false\
+\
+	self:_SetState(Enums.State.Charged, nil)\
+\
+	if self._chargeConn then\
+		self._chargeConn:Disconnect()\
+		self._chargeConn = nil\
+	end\
+\
+	local elapsed  = os.clock() - (self._chargeStart or os.clock())\
+	local holdTime = self.Config.HoldTime or 1\
+	local progress = math.clamp(elapsed / holdTime, 0, 1)\
+\
+	self._chargeProgress = progress\
+	self:_SetState(Enums.State.Triggered, true)\
+\
+	local event = _makeEvent(source, Enums.State.Triggered, { Progress = progress })\
+	self:_Fire(Enums.State.Triggered, event)\
+	task.delay(0, function() self:_SetState(Enums.State.Triggered, nil) end)\
+end\
+\
+function Action:_HandleDoubleTap(source)\
+	local window = self.Config.Window or 0.3\
+	local now    = os.clock()\
+\
+	if self._doubleTapPending and (now - (self._doubleTapTime or 0)) <= window then\
+		self._doubleTapPending = false\
+\
+		if self._doubleTapTimer then\
+			task.cancel(self._doubleTapTimer)\
+			self._doubleTapTimer = nil\
+		end\
+\
+		self:_SetState(Enums.State.DoubleTapped, true)\
+		local event = _makeEvent(source, Enums.State.DoubleTapped)\
+		self:_Fire(Enums.State.DoubleTapped, event)\
+		task.delay(0, function() self:_SetState(Enums.State.DoubleTapped, nil) end)\
+	else\
+		self._doubleTapPending = true\
+		self._doubleTapTime    = now\
+\
+		if self._doubleTapTimer then\
+			task.cancel(self._doubleTapTimer)\
+		end\
+\
+		self._doubleTapTimer = task.delay(window, function()\
+			self._doubleTapPending = false\
+			self._doubleTapTimer   = nil\
+			self._doubleTapTime    = nil\
+		end)\
+	end\
+end\
+\
+function Action:_HandleMash(source)\
+	local window    = self.Config.Window or 1\
+	local threshold = self.Config.MashThreshold or 5\
+	local now       = os.clock()\
+\
+	local fresh = {}\
+	for _, t in self._mashWindow do\
+		if now - t <= window then\
+			table.insert(fresh, t)\
+		end\
+	end\
+	table.insert(fresh, now)\
+	self._mashWindow = fresh\
+	self._mashCount  = #fresh\
+\
+	if self._mashTimer then\
+		task.cancel(self._mashTimer)\
+	end\
+\
+	self._mashTimer = task.delay(window, function()\
+		self._mashWindow = {}\
+		self._mashCount  = 0\
+		self._mashTimer  = nil\
+		self:_SetState(Enums.State.Mashed, nil)\
+	end)\
+\
+	if self._mashCount >= threshold then\
+		local count      = self._mashCount\
+		self._mashWindow = {}\
+		self._mashCount  = 0\
+\
+		if self._mashTimer then\
+			task.cancel(self._mashTimer)\
+			self._mashTimer = nil\
+		end\
+\
+		self:_SetState(Enums.State.Mashed, count)\
+		local event = _makeEvent(source, Enums.State.Mashed, { Count = count })\
+		self:_Fire(Enums.State.Mashed, event)\
+	end\
+end\
+\
+function Action:_HandleComboStep(source)\
+	local sequence = self.Config.Sequence\
+	if not sequence or #sequence == 0 then return end\
+\
+	local window   = self.Config.Window or 0.4\
+	local expected = sequence[self._comboStep + 1]\
+	local matches  = typeof(expected) == \"EnumItem\" and source == expected\
+\
+	if not matches then\
+		self._comboStep = 0\
+\
+		if self._comboTimer then\
+			task.cancel(self._comboTimer)\
+			self._comboTimer = nil\
+		end\
+\
+		self:_SetState(Enums.State.Canceled, true)\
+		local cancelEvent = _makeEvent(source, Enums.State.Canceled)\
+		self:_Fire(Enums.State.Canceled, cancelEvent)\
+		task.delay(0, function() self:_SetState(Enums.State.Canceled, nil) end)\
+\
+		-- restart from step 1 if this key matches the first in sequence\
+		if sequence[1] == source then\
+			self._comboStep = 1\
+			self:_SetState(Enums.State.Stepped, 1)\
+			local stepEvent = _makeEvent(source, Enums.State.Stepped, { Step = 1 })\
+			self:_Fire(Enums.State.Stepped, stepEvent)\
+\
+			self._comboTimer = task.delay(window, function()\
+				self._comboStep  = 0\
+				self._comboTimer = nil\
+				self:_SetState(Enums.State.Stepped, nil)\
+			end)\
+		end\
+\
+		return\
+	end\
+\
+	self._comboStep += 1\
+\
+	if self._comboTimer then\
+		task.cancel(self._comboTimer)\
+		self._comboTimer = nil\
+	end\
+\
+	self:_SetState(Enums.State.Stepped, self._comboStep)\
+	local stepEvent = _makeEvent(source, Enums.State.Stepped, { Step = self._comboStep })\
+	self:_Fire(Enums.State.Stepped, stepEvent)\
+\
+	if self._comboStep >= #sequence then\
+		self._comboStep = 0\
+		self:_SetState(Enums.State.Stepped, nil)\
+		self:_SetState(Enums.State.Triggered, true)\
+\
+		local event = _makeEvent(source, Enums.State.Triggered)\
+		self:_Fire(Enums.State.Triggered, event)\
+		task.delay(0, function() self:_SetState(Enums.State.Triggered, nil) end)\
+	else\
+		self._comboTimer = task.delay(window, function()\
+			self._comboStep  = 0\
+			self._comboTimer = nil\
+			self:_SetState(Enums.State.Stepped, nil)\
+			self:_SetState(Enums.State.Canceled, true)\
+\
+			local cancelEvent = _makeEvent(source, Enums.State.Canceled)\
+			self:_Fire(Enums.State.Canceled, cancelEvent)\
+			task.delay(0, function() self:_SetState(Enums.State.Canceled, nil) end)\
+		end)\
+	end\
+end\
+\
+function Action:_StartLongPress(source)\
+	local holdTime = self.Config.HoldTime or 0.6\
+\
+	self._longPressTimer = task.delay(holdTime, function()\
+		if not self._held then return end\
+		self._longPressTimer = nil\
+\
+		self:_SetState(Enums.State.LongPressed, true)\
+		local event = _makeEvent(source, Enums.State.LongPressed)\
+		self:_Fire(Enums.State.LongPressed, event)\
+	end)\
+end\
+\
+function Action:Next(state: Types.State): Types.Connection\
+	return Connection.new(function(fire)\
+		local listeners = self._signals[state]\
+		local entry     = { fire = fire }\
+		table.insert(listeners, entry)\
+\
+		return function()\
+			local i = table.find(listeners, entry)\
+			if i then table.remove(listeners, i) end\
+		end\
+	end)\
+end\
+\
+function Action:HoldFor(seconds: number): Types.Connection\
+	return Connection.new(function(fire)\
+		local timer        = nil\
+		local releaseEntry = nil\
+\
+		local pressEntry = {\
+			fire = function(event)\
+				timer = task.delay(seconds, function()\
+					if self._held then\
+						fire(event)\
+					end\
+				end)\
+			end,\
+		}\
+\
+		releaseEntry = {\
+			fire = function(_event)\
+				if timer then\
+					task.cancel(timer)\
+					timer = nil\
+				end\
+			end,\
+		}\
+\
+		table.insert(self._signals[Enums.State.Pressed], pressEntry)\
+		table.insert(self._signals[Enums.State.Released], releaseEntry)\
+\
+		return function()\
+			local i = table.find(self._signals[Enums.State.Pressed], pressEntry)\
+			if i then table.remove(self._signals[Enums.State.Pressed], i) end\
+\
+			local j = table.find(self._signals[Enums.State.Released], releaseEntry)\
+			if j then table.remove(self._signals[Enums.State.Released], j) end\
+\
+			if timer then\
+				task.cancel(timer)\
+				timer = nil\
+			end\
+		end\
+	end)\
+end\
+\
+function Action:Set(state)\
+	local extra = nil\
+\
+	if state == Enums.State.Charged then\
+		extra = { Progress = self._chargeProgress }\
+	elseif state == Enums.State.Mashed then\
+		extra = { Count = self._mashCount }\
+	elseif state == Enums.State.Stepped then\
+		extra = { Step = self._comboStep }\
+	end\
+\
+	self:_SetState(state, true)\
+	local event = _makeEvent(Enum.KeyCode.Unknown, state, extra)\
+	self:_Fire(state, event)\
+	task.delay(0, function() self:_SetState(state, nil) end)\
+end\
+\
+function Action:Is(state)\
+	local value = self._activeStates[state]\
+	if not value then return nil end\
+\
+	local data = nil\
+\
+	if state == Enums.State.Held then\
+		data = self:HeldDuration()\
+	elseif state == Enums.State.Charged then\
+		data = self._chargeProgress\
+	elseif state == Enums.State.Mashed then\
+		data = self._mashCount\
+	elseif state == Enums.State.Stepped then\
+		data = self._comboStep\
+	elseif state == Enums.State.Conflicted then\
+		data = self._conflicts\
+	end\
+\
+	return _result(value, data)\
+end\
+\
+function Action:Poll(): Types.PollState\
+	return self._pollState\
+end\
+\
+function Action:IsHeld(): boolean\
+	return self._held\
+end\
+\
+function Action:HeldDuration(): number\
+	if not self._heldStart then return 0 end\
+	return os.clock() - self._heldStart\
+end\
+\
+function Action:Enable()\
+	self._enabled = true\
+	self:_SetState(Enums.State.Enabled, true)\
+	local event = _makeEvent(Enum.KeyCode.Unknown, Enums.State.Enabled)\
+	self:_Fire(Enums.State.Enabled, event)\
+	task.delay(0, function() self:_SetState(Enums.State.Enabled, nil) end)\
+end\
+\
+function Action:Disable()\
+	self._enabled = false\
+	self:_SetState(Enums.State.Disabled, true)\
+	local event = _makeEvent(Enum.KeyCode.Unknown, Enums.State.Disabled)\
+	self:_Fire(Enums.State.Disabled, event)\
+	task.delay(0, function() self:_SetState(Enums.State.Disabled, nil) end)\
+end\
+\
+function Action:Destroy()\
+	self._enabled = false\
+	self._held    = false\
+\
+	if self._driver == Enums.Driver.IAS then\
+		if self._iasContext then\
+			self._iasContext.Enabled = false\
+			self._iasContext:Destroy()\
+		end\
+	elseif self._driver == Enums.Driver.CAS then\
+		ContextActionService:UnbindAction(self.Name)\
+	elseif self._driver == Enums.Driver.UIS then\
+		if self._uisConn    then self._uisConn:Disconnect()    end\
+		if self._uisEndConn then self._uisEndConn:Disconnect() end\
+	end\
+\
+	if self._holdTimer      then task.cancel(self._holdTimer)      end\
+	if self._comboTimer     then task.cancel(self._comboTimer)     end\
+	if self._mashTimer      then task.cancel(self._mashTimer)      end\
+	if self._doubleTapTimer then task.cancel(self._doubleTapTimer) end\
+	if self._longPressTimer then task.cancel(self._longPressTimer) end\
+	if self._chargeConn     then self._chargeConn:Disconnect()     end\
+\
+	table.clear(self._signals)\
+	table.clear(self._activeStates)\
+end\
+\
+return Action"},
+{"Astrix/_Packages/Switch/Connection","ModuleScript","-- Switch\
+-- Connection.lua\
+-- Plinko Labs\
+\
+local Promise = require(script.Parent.Promise)\
+local Types   = require(script.Parent.Types)\
+\
+export type Connection = {\
+	Then:    (self: Connection, cb: (Types.InputEvent) -> any) -> Connection,\
+	Catch:   (self: Connection, cb: (string) -> ()) -> Connection,\
+	Once:    (self: Connection) -> Connection,\
+	Await:   (self: Connection) -> (boolean, Types.InputEvent?),\
+	Destroy: (self: Connection) -> (),\
+}\
+\
+local Connection = {}\
+Connection.__index = Connection\
+\
+function Connection.new(bindFn: ((Types.InputEvent) -> ()) -> () -> ()): Connection\
+	local self       = setmetatable({}, Connection)\
+\
+	self._cbs        = {}\
+	self._errCbs     = {}\
+	self._once       = false\
+	self._destroyed  = false\
+	self._disconnect = nil\
+\
+	self._disconnect = bindFn(function(value: Types.InputEvent)\
+		if self._destroyed then return end\
+\
+		local ok, err = pcall(function()\
+			for _, cb in self._cbs do\
+				cb(value)\
+			end\
+		end)\
+\
+		if not ok then\
+			for _, cb in self._errCbs do\
+				cb(err)\
+			end\
+		end\
+\
+		if self._once then\
+			self:Destroy()\
+		end\
+	end)\
+\
+	return self\
+end\
+\
+function Connection:Then(cb: (Types.InputEvent) -> any): Connection\
+	assert(not self._destroyed, \"[Switch] Cannot chain Then on a destroyed connection\")\
+	table.insert(self._cbs, cb)\
+	return self\
+end\
+\
+function Connection:Catch(cb: (string) -> ()): Connection\
+	assert(not self._destroyed, \"[Switch] Cannot chain Catch on a destroyed connection\")\
+	table.insert(self._errCbs, cb)\
+	return self\
+end\
+\
+function Connection:Once(): Connection\
+	self._once = true\
+	return self\
+end\
+\
+function Connection:Await(): (boolean, Types.InputEvent?)\
+	assert(not self._destroyed, \"[Switch] Cannot Await a destroyed connection\")\
+	local thread = coroutine.running()\
+	local result, success\
+\
+	self:Then(function(value)\
+		success = true\
+		result  = value\
+		task.spawn(thread)\
+	end):Catch(function(err)\
+		success = false\
+		result  = err\
+		task.spawn(thread)\
+	end):Once()\
+\
+	coroutine.yield()\
+	return success, result\
+end\
+\
+function Connection:Destroy()\
+	if self._destroyed then return end\
+	self._destroyed = true\
+\
+	if self._disconnect then\
+		self._disconnect()\
+		self._disconnect = nil\
+	end\
+\
+	table.clear(self._cbs)\
+	table.clear(self._errCbs)\
+end\
+\
+return {\
+	Connection = Connection,\
+	Promise    = Promise,\
+}"},
+{"Astrix/_Packages/Switch/Context","ModuleScript","-- Switch\
+-- Context.lua\
+-- Plinko Labs\
+\
+local Types = require(script.Parent.Types)\
+\
+local Context = {}\
+\
+local _stack: { Types.ContextEntry } = {}\
+local _callbacks: {\
+	Push:    { (name: string) -> () },\
+	Pop:     { (name: string) -> () },\
+	Changed: { (stack: { string }) -> () },\
+} = {\
+	Push    = {},\
+	Pop     = {},\
+	Changed = {},\
+}\
+\
+local function _stackNames(): { string }\
+	local names = {}\
+	for _, entry in _stack do\
+		table.insert(names, entry.Name)\
+	end\
+	return names\
+end\
+\
+local function _notifyChanged()\
+	local names = _stackNames()\
+	for _, cb in _callbacks.Changed do\
+		task.spawn(cb, names)\
+	end\
+end\
+\
+local function _sortStack()\
+	table.sort(_stack, function(a, b)\
+		return a.Priority > b.Priority\
+	end)\
+end\
+\
+function Context.Push(name: string, options: Types.ContextOptions?)\
+	assert(typeof(name) == \"string\", \"[Switch.Context] Push expects a string\")\
+\
+	local opts = options or {}\
+\
+	if opts.Exclusive then\
+		Context.Clear()\
+	end\
+\
+	for _, entry in _stack do\
+		if entry.Name == name then return end\
+	end\
+\
+	table.insert(_stack, {\
+		Name     = name,\
+		Priority = opts.Priority or 100,\
+		Sink     = opts.Sink or false,\
+	})\
+\
+	_sortStack()\
+\
+	for _, cb in _callbacks.Push do\
+		task.spawn(cb, name)\
+	end\
+\
+	_notifyChanged()\
+end\
+\
+function Context.Pop(name: string?)\
+	if name then\
+		for i, entry in _stack do\
+			if entry.Name == name then\
+				table.remove(_stack, i)\
+\
+				for _, cb in _callbacks.Pop do\
+					task.spawn(cb, name)\
+				end\
+\
+				_notifyChanged()\
+				return\
+			end\
+		end\
+	else\
+		local entry = table.remove(_stack)\
+		if entry then\
+			for _, cb in _callbacks.Pop do\
+				task.spawn(cb, entry.Name)\
+			end\
+			_notifyChanged()\
+		end\
+	end\
+end\
+\
+function Context.Peek(): string?\
+	local top = _stack[#_stack]\
+	return top and top.Name or nil\
+end\
+\
+function Context.Has(name: string): boolean\
+	for _, entry in _stack do\
+		if entry.Name == name then return true end\
+	end\
+	return false\
+end\
+\
+function Context.Stack(): { string }\
+	return _stackNames()\
+end\
+\
+function Context.Clear()\
+	local names = _stackNames()\
+	table.clear(_stack)\
+\
+	for _, name in names do\
+		for _, cb in _callbacks.Pop do\
+			task.spawn(cb, name)\
+		end\
+	end\
+\
+	_notifyChanged()\
+end\
+\
+function Context.Snapshot(): { Types.ContextEntry }\
+	local snap = {}\
+	for _, entry in _stack do\
+		table.insert(snap, table.clone(entry))\
+	end\
+	return snap\
+end\
+\
+function Context.Restore(snapshot: { Types.ContextEntry })\
+	table.clear(_stack)\
+	for _, entry in snapshot do\
+		table.insert(_stack, table.clone(entry))\
+	end\
+	_sortStack()\
+	_notifyChanged()\
+end\
+\
+function Context.IsActive(contexts: { string }?): boolean\
+	if not contexts or #contexts == 0 then return true end\
+	for _, name in contexts do\
+		if Context.Has(name) then return true end\
+	end\
+	return false\
+end\
+\
+function Context.OnPush(name: string, cb: (name: string) -> ()): () -> ()\
+	assert(typeof(cb) == \"function\", \"[Switch.Context] OnPush expects a function\")\
+	table.insert(_callbacks.Push, cb)\
+	return function()\
+		local i = table.find(_callbacks.Push, cb)\
+		if i then table.remove(_callbacks.Push, i) end\
+	end\
+end\
+\
+function Context.OnPop(name: string, cb: (name: string) -> ()): () -> ()\
+	assert(typeof(cb) == \"function\", \"[Switch.Context] OnPop expects a function\")\
+	table.insert(_callbacks.Pop, cb)\
+	return function()\
+		local i = table.find(_callbacks.Pop, cb)\
+		if i then table.remove(_callbacks.Pop, i) end\
+	end\
+end\
+\
+function Context.OnChanged(cb: (stack: { string }) -> ()): () -> ()\
+	assert(typeof(cb) == \"function\", \"[Switch.Context] OnChanged expects a function\")\
+	table.insert(_callbacks.Changed, cb)\
+	return function()\
+		local i = table.find(_callbacks.Changed, cb)\
+		if i then table.remove(_callbacks.Changed, i) end\
+	end\
+end\
+\
+return Context"},
+{"Astrix/_Packages/Switch/Enums","ModuleScript","-- Switch\
+-- Enums.lua\
+-- Plinko Labs\
+\
+local Enums = {}\
+\
+export type State =\
+	\"Pressed\"\
+| \"Released\"\
+| \"Held\"\
+| \"Changed\"\
+| \"Triggered\"\
+| \"Canceled\"\
+| \"Charged\"\
+| \"Stepped\"\
+| \"Moved\"\
+| \"DoubleTapped\"\
+| \"LongPressed\"\
+| \"Mashed\"\
+| \"Conflicted\"\
+| \"Enabled\"\
+| \"Disabled\"\
+\
+export type Mode =\
+	\"Button\"\
+| \"Axis\"\
+| \"Combo\"\
+| \"Shortcut\"\
+| \"Hold\"\
+| \"Charge\"\
+| \"DoubleTap\"\
+| \"Mash\"\
+| \"LongPress\"\
+| \"Gesture\"\
+\
+export type Platform = \"Console\" | \"Mobile\" | \"Computer\"\
+\
+export type Poll = \"Idle\" | \"Active\" | \"Held\"\
+\
+export type Driver = \"IAS\" | \"CAS\" | \"UIS\"\
+\
+Enums.State = {\
+	Pressed = \"Pressed\",\
+	Released = \"Released\",\
+	Held = \"Held\",\
+	Changed = \"Changed\",\
+	Triggered = \"Triggered\",\
+	Canceled = \"Canceled\",\
+	Charged = \"Charged\",\
+	Stepped = \"Stepped\",\
+	Moved = \"Moved\",\
+	DoubleTapped = \"DoubleTapped\",\
+	LongPressed = \"LongPressed\",\
+	Mashed = \"Mashed\",\
+	Conflicted = \"Conflicted\",\
+	Enabled = \"Enabled\",\
+	Disabled = \"Disabled\",\
+}\
+\
+Enums.Mode = {\
+	Button = \"Button\",\
+	Axis = \"Axis\",\
+	Combo = \"Combo\",\
+	Shortcut = \"Shortcut\",\
+	Hold = \"Hold\",\
+	Charge = \"Charge\",\
+	DoubleTap = \"DoubleTap\",\
+	Mash = \"Mash\",\
+	LongPress = \"LongPress\",\
+	Gesture = \"Gesture\",\
+}\
+Enums.Platform = {\
+	Console = \"Console\",\
+	Mobile = \"Mobile\",\
+	Computer = \"Computer\",\
+}\
+\
+Enums.Poll = {\
+	Idle = \"Idle\",\
+	Active = \"Active\",\
+	Held = \"Held\",\
+}\
+\
+Enums.Driver = {\
+	IAS = \"IAS\",\
+	CAS = \"CAS\",\
+	UIS = \"UIS\",\
+}\
+\
+return Enums"},
+{"Astrix/_Packages/Switch/Platform","ModuleScript","-- Switch\
+-- Platform.lua\
+-- Plinko Labs\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+local GuiService = game:GetService(\"GuiService\")\
+\
+local Enums = require(script.Parent.Enums)\
+\
+type Platform = Enums.Platform\
+\
+local Platform = {}\
+\
+local _current: Platform = nil\
+local _callbacks: { (new: Platform, prev: Platform) -> () } = {}\
+\
+local function _detect(): Platform\
+	if GuiService:IsTenFootInterface() then\
+		return Enums.Platform.Console\
+	end\
+\
+	if UserInputService.TouchEnabled then\
+		return Enums.Platform.Mobile\
+	end\
+\
+	return Enums.Platform.Computer\
+end\
+\
+local function _notify(new: Platform, prev: Platform)\
+	for _, cb in _callbacks do\
+		task.spawn(cb, new, prev)\
+	end\
+end\
+\
+_current = _detect()\
+\
+UserInputService.LastInputTypeChanged:Connect(function()\
+	local new = _detect()\
+	if new ~= _current then\
+		local prev = _current\
+		_current = new\
+		_notify(new, prev)\
+	end\
+end)\
+\
+function Platform.Get(): Platform\
+	return _current\
+end\
+\
+function Platform.IsConsole(): boolean\
+	return _current == Enums.Platform.Console\
+end\
+\
+function Platform.IsMobile(): boolean\
+	return _current == Enums.Platform.Mobile\
+end\
+\
+function Platform.IsComputer(): boolean\
+	return _current == Enums.Platform.Computer\
+end\
+\
+function Platform.OnChanged(cb: (new: Platform, prev: Platform) -> ()): () -> ()\
+	assert(typeof(cb) == \"function\", \"[Switch.Platform] OnChanged expects a function\")\
+	table.insert(_callbacks, cb)\
+\
+	return function()\
+		local index = table.find(_callbacks, cb)\
+		if index then\
+			table.remove(_callbacks, index)\
+		end\
+	end\
+end\
+\
+return Platform"},
+{"Astrix/_Packages/Switch/Promise","ModuleScript","--[[\
+	An implementation of Promises similar to Promise/A+.\
+]]\
+\
+local ERROR_NON_PROMISE_IN_LIST = \"Non-promise value passed into %s at index %s\"\
+local ERROR_NON_LIST = \"Please pass a list of promises to %s\"\
+local ERROR_NON_FUNCTION = \"Please pass a handler function to %s!\"\
+local MODE_KEY_METATABLE = { __mode = \"k\" }\
+\
+local function isCallable(value)\
+	if type(value) == \"function\" then\
+		return true\
+	end\
+\
+	if type(value) == \"table\" then\
+		local metatable = getmetatable(value)\
+		if metatable and type(rawget(metatable, \"__call\")) == \"function\" then\
+			return true\
+		end\
+	end\
+\
+	return false\
+end\
+\
+--[[\
+	Creates an enum dictionary with some metamethods to prevent common mistakes.\
+]]\
+local function makeEnum(enumName, members)\
+	local enum = {}\
+\
+	for _, memberName in ipairs(members) do\
+		enum[memberName] = memberName\
+	end\
+\
+	return setmetatable(enum, {\
+		__index = function(_, k)\
+			error(string.format(\"%s is not in %s!\", k, enumName), 2)\
+		end,\
+		__newindex = function()\
+			error(string.format(\"Creating new members in %s is not allowed!\", enumName), 2)\
+		end,\
+	})\
+end\
+\
+--[=[\
+	An object to represent runtime errors that occur during execution.\
+	Promises that experience an error like this will be rejected with\
+	an instance of this object.\
+\
+	@class Error\
+]=]\
+local Error\
+do\
+	Error = {\
+		Kind = makeEnum(\"Promise.Error.Kind\", {\
+			\"ExecutionError\",\
+			\"AlreadyCancelled\",\
+			\"NotResolvedInTime\",\
+			\"TimedOut\",\
+		}),\
+	}\
+	Error.__index = Error\
+\
+	function Error.new(options, parent)\
+		options = options or {}\
+		return setmetatable({\
+			error = tostring(options.error) or \"[This error has no error text.]\",\
+			trace = options.trace,\
+			context = options.context,\
+			kind = options.kind,\
+			parent = parent,\
+			createdTick = os.clock(),\
+			createdTrace = debug.traceback(),\
+		}, Error)\
+	end\
+\
+	function Error.is(anything)\
+		if type(anything) == \"table\" then\
+			local metatable = getmetatable(anything)\
+\
+			if type(metatable) == \"table\" then\
+				return rawget(anything, \"error\") ~= nil and type(rawget(metatable, \"extend\")) == \"function\"\
+			end\
+		end\
+\
+		return false\
+	end\
+\
+	function Error.isKind(anything, kind)\
+		assert(kind ~= nil, \"Argument #2 to Promise.Error.isKind must not be nil\")\
+\
+		return Error.is(anything) and anything.kind == kind\
+	end\
+\
+	function Error:extend(options)\
+		options = options or {}\
+\
+		options.kind = options.kind or self.kind\
+\
+		return Error.new(options, self)\
+	end\
+\
+	function Error:getErrorChain()\
+		local runtimeErrors = { self }\
+\
+		while runtimeErrors[#runtimeErrors].parent do\
+			table.insert(runtimeErrors, runtimeErrors[#runtimeErrors].parent)\
+		end\
+\
+		return runtimeErrors\
+	end\
+\
+	function Error:__tostring()\
+		local errorStrings = {\
+			string.format(\"-- Promise.Error(%s) --\", self.kind or \"?\"),\
+		}\
+\
+		for _, runtimeError in ipairs(self:getErrorChain()) do\
+			table.insert(\
+				errorStrings,\
+				table.concat({\
+					runtimeError.trace or runtimeError.error,\
+					runtimeError.context,\
+				}, \"\\n\")\
+			)\
+		end\
+\
+		return table.concat(errorStrings, \"\\n\")\
+	end\
+end\
+\
+--[[\
+	Packs a number of arguments into a table and returns its length.\
+\
+	Used to cajole varargs without dropping sparse values.\
+]]\
+local function pack(...)\
+	return select(\"#\", ...), { ... }\
+end\
+\
+--[[\
+	Returns first value (success), and packs all following values.\
+]]\
+local function packResult(success, ...)\
+	return success, select(\"#\", ...), { ... }\
+end\
+\
+local function makeErrorHandler(traceback)\
+	assert(traceback ~= nil, \"traceback is nil\")\
+\
+	return function(err)\
+		-- If the error object is already a table, forward it directly.\
+		-- Should we extend the error here and add our own trace?\
+\
+		if type(err) == \"table\" then\
+			return err\
+		end\
+\
+		return Error.new({\
+			error = err,\
+			kind = Error.Kind.ExecutionError,\
+			trace = debug.traceback(tostring(err), 2),\
+			context = \"Promise created at:\\n\\n\" .. traceback,\
+		})\
+	end\
+end\
+\
+--[[\
+	Calls a Promise executor with error handling.\
+]]\
+local function runExecutor(traceback, callback, ...)\
+	return packResult(xpcall(callback, makeErrorHandler(traceback), ...))\
+end\
+\
+--[[\
+	Creates a function that invokes a callback with correct error handling and\
+	resolution mechanisms.\
+]]\
+local function createAdvancer(traceback, callback, resolve, reject)\
+	return function(...)\
+		local ok, resultLength, result = runExecutor(traceback, callback, ...)\
+\
+		if ok then\
+			resolve(unpack(result, 1, resultLength))\
+		else\
+			reject(result[1])\
+		end\
+	end\
+end\
+\
+local function isEmpty(t)\
+	return next(t) == nil\
+end\
+\
+--[=[\
+	An enum value used to represent the Promise's status.\
+	@interface Status\
+	@tag enum\
+	@within Promise\
+	.Started \"Started\" -- The Promise is executing, and not settled yet.\
+	.Resolved \"Resolved\" -- The Promise finished successfully.\
+	.Rejected \"Rejected\" -- The Promise was rejected.\
+	.Cancelled \"Cancelled\" -- The Promise was cancelled before it finished.\
+]=]\
+--[=[\
+	@prop Status Status\
+	@within Promise\
+	@readonly\
+	@tag enums\
+	A table containing all members of the `Status` enum, e.g., `Promise.Status.Resolved`.\
+]=]\
+--[=[\
+	A Promise is an object that represents a value that will exist in the future, but doesn't right now.\
+	Promises allow you to then attach callbacks that can run once the value becomes available (known as *resolving*),\
+	or if an error has occurred (known as *rejecting*).\
+\
+	@class Promise\
+	@__index prototype\
+]=]\
+local Promise = {\
+	Error = Error,\
+	Status = makeEnum(\"Promise.Status\", { \"Started\", \"Resolved\", \"Rejected\", \"Cancelled\" }),\
+	_getTime = os.clock,\
+	_timeEvent = game:GetService(\"RunService\").Heartbeat,\
+	_unhandledRejectionCallbacks = {},\
+}\
+Promise.prototype = {}\
+Promise.__index = Promise.prototype\
+\
+function Promise._new(traceback, callback, parent)\
+	if parent ~= nil and not Promise.is(parent) then\
+		error(\"Argument #2 to Promise.new must be a promise or nil\", 2)\
+	end\
+\
+	local self = {\
+		-- The executor thread.\
+		_thread = nil,\
+\
+		-- Used to locate where a promise was created\
+		_source = traceback,\
+\
+		_status = Promise.Status.Started,\
+\
+		-- A table containing a list of all results, whether success or failure.\
+		-- Only valid if _status is set to something besides Started\
+		_values = nil,\
+\
+		-- Lua doesn't like sparse arrays very much, so we explicitly store the\
+		-- length of _values to handle middle nils.\
+		_valuesLength = -1,\
+\
+		-- Tracks if this Promise has no error observers..\
+		_unhandledRejection = true,\
+\
+		-- Queues representing functions we should invoke when we update!\
+		_queuedResolve = {},\
+		_queuedReject = {},\
+		_queuedFinally = {},\
+\
+		-- The function to run when/if this promise is cancelled.\
+		_cancellationHook = nil,\
+\
+		-- The \"parent\" of this promise in a promise chain. Required for\
+		-- cancellation propagation upstream.\
+		_parent = parent,\
+\
+		-- Consumers are Promises that have chained onto this one.\
+		-- We track them for cancellation propagation downstream.\
+		_consumers = setmetatable({}, MODE_KEY_METATABLE),\
+	}\
+\
+	if parent and parent._status == Promise.Status.Started then\
+		parent._consumers[self] = true\
+	end\
+\
+	setmetatable(self, Promise)\
+\
+	local function resolve(...)\
+		self:_resolve(...)\
+	end\
+\
+	local function reject(...)\
+		self:_reject(...)\
+	end\
+\
+	local function onCancel(cancellationHook)\
+		if cancellationHook then\
+			if self._status == Promise.Status.Cancelled then\
+				cancellationHook()\
+			else\
+				self._cancellationHook = cancellationHook\
+			end\
+		end\
+\
+		return self._status == Promise.Status.Cancelled\
+	end\
+\
+	self._thread = coroutine.create(function()\
+		local ok, _, result = runExecutor(self._source, callback, resolve, reject, onCancel)\
+\
+		if not ok then\
+			reject(result[1])\
+		end\
+	end)\
+\
+	task.spawn(self._thread)\
+\
+	return self\
+end\
+\
+--[=[\
+	Construct a new Promise that will be resolved or rejected with the given callbacks.\
+\
+	If you `resolve` with a Promise, it will be chained onto.\
+\
+	You can safely yield within the executor function and it will not block the creating thread.\
+\
+	```lua\
+	local myFunction()\
+		return Promise.new(function(resolve, reject, onCancel)\
+			wait(1)\
+			resolve(\"Hello world!\")\
+		end)\
+	end\
+\
+	myFunction():andThen(print)\
+	```\
+\
+	You do not need to use `pcall` within a Promise. Errors that occur during execution will be caught and turned into a rejection automatically. If `error()` is called with a table, that table will be the rejection value. Otherwise, string errors will be converted into `Promise.Error(Promise.Error.Kind.ExecutionError)` objects for tracking debug information.\
+\
+	You may register an optional cancellation hook by using the `onCancel` argument:\
+\
+	* This should be used to abort any ongoing operations leading up to the promise being settled.\
+	* Call the `onCancel` function with a function callback as its only argument to set a hook which will in turn be called when/if the promise is cancelled.\
+	* `onCancel` returns `true` if the Promise was already cancelled when you called `onCancel`.\
+	* Calling `onCancel` with no argument will not override a previously set cancellation hook, but it will still return `true` if the Promise is currently cancelled.\
+	* You can set the cancellation hook at any time before resolving.\
+	* When a promise is cancelled, calls to `resolve` or `reject` will be ignored, regardless of if you set a cancellation hook or not.\
+\
+	:::caution\
+	If the Promise is cancelled, the `executor` thread is closed with `coroutine.close` after the cancellation hook is called.\
+\
+	You must perform any cleanup code in the cancellation hook: any time your executor yields, it **may never resume**.\
+	:::\
+\
+	@param executor (resolve: (...: any) -> (), reject: (...: any) -> (), onCancel: (abortHandler?: () -> ()) -> boolean) -> ()\
+	@return Promise\
+]=]\
+function Promise.new(executor)\
+	return Promise._new(debug.traceback(nil, 2), executor)\
+end\
+\
+function Promise:__tostring()\
+	return string.format(\"Promise(%s)\", self._status)\
+end\
+\
+--[=[\
+	The same as [Promise.new](/api/Promise#new), except execution begins after the next `Heartbeat` event.\
+\
+	This is a spiritual replacement for `spawn`, but it does not suffer from the same [issues](https://eryn.io/gist/3db84579866c099cdd5bb2ff37947cec) as `spawn`.\
+\
+	```lua\
+	local function waitForChild(instance, childName, timeout)\
+	  return Promise.defer(function(resolve, reject)\
+		local child = instance:WaitForChild(childName, timeout)\
+\
+		;(child and resolve or reject)(child)\
+	  end)\
+	end\
+	```\
+\
+	@param executor (resolve: (...: any) -> (), reject: (...: any) -> (), onCancel: (abortHandler?: () -> ()) -> boolean) -> ()\
+	@return Promise\
+]=]\
+function Promise.defer(executor)\
+	local traceback = debug.traceback(nil, 2)\
+	local promise\
+	promise = Promise._new(traceback, function(resolve, reject, onCancel)\
+		task.defer(function()\
+			local ok, _, result = runExecutor(traceback, executor, resolve, reject, onCancel)\
+\
+			if not ok then\
+				reject(result[1])\
+			end\
+		end)\
+	end)\
+\
+	return promise\
+end\
+\
+-- Backwards compatibility\
+Promise.async = Promise.defer\
+\
+--[=[\
+	Creates an immediately resolved Promise with the given value.\
+\
+	```lua\
+	-- Example using Promise.resolve to deliver cached values:\
+	function getSomething(name)\
+		if cache[name] then\
+			return Promise.resolve(cache[name])\
+		else\
+			return Promise.new(function(resolve, reject)\
+				local thing = getTheThing()\
+				cache[name] = thing\
+\
+				resolve(thing)\
+			end)\
+		end\
+	end\
+	```\
+\
+	@param ... any\
+	@return Promise<...any>\
+]=]\
+function Promise.resolve(...)\
+	local length, values = pack(...)\
+	return Promise._new(debug.traceback(nil, 2), function(resolve)\
+		resolve(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[=[\
+	Creates an immediately rejected Promise with the given value.\
+\
+	:::caution\
+	Something needs to consume this rejection (i.e. `:catch()` it), otherwise it will emit an unhandled Promise rejection warning on the next frame. Thus, you should not create and store rejected Promises for later use. Only create them on-demand as needed.\
+	:::\
+\
+	@param ... any\
+	@return Promise<...any>\
+]=]\
+function Promise.reject(...)\
+	local length, values = pack(...)\
+	return Promise._new(debug.traceback(nil, 2), function(_, reject)\
+		reject(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[[\
+	Runs a non-promise-returning function as a Promise with the\
+  given arguments.\
+]]\
+function Promise._try(traceback, callback, ...)\
+	local valuesLength, values = pack(...)\
+\
+	return Promise._new(traceback, function(resolve)\
+		resolve(callback(unpack(values, 1, valuesLength)))\
+	end)\
+end\
+\
+--[=[\
+	Begins a Promise chain, calling a function and returning a Promise resolving with its return value. If the function errors, the returned Promise will be rejected with the error. You can safely yield within the Promise.try callback.\
+\
+	:::info\
+	`Promise.try` is similar to [Promise.promisify](#promisify), except the callback is invoked immediately instead of returning a new function.\
+	:::\
+\
+	```lua\
+	Promise.try(function()\
+		return math.random(1, 2) == 1 and \"ok\" or error(\"Oh an error!\")\
+	end)\
+		:andThen(function(text)\
+			print(text)\
+		end)\
+		:catch(function(err)\
+			warn(\"Something went wrong\")\
+		end)\
+	```\
+\
+	@param callback (...: T...) -> ...any\
+	@param ... T... -- Additional arguments passed to `callback`\
+	@return Promise\
+]=]\
+function Promise.try(callback, ...)\
+	return Promise._try(debug.traceback(nil, 2), callback, ...)\
+end\
+\
+--[[\
+	Returns a new promise that:\
+		* is resolved when all input promises resolve\
+		* is rejected if ANY input promises reject\
+]]\
+function Promise._all(traceback, promises, amount)\
+	if type(promises) ~= \"table\" then\
+		error(string.format(ERROR_NON_LIST, \"Promise.all\"), 3)\
+	end\
+\
+	-- We need to check that each value is a promise here so that we can produce\
+	-- a proper error rather than a rejected promise with our error.\
+	for i, promise in pairs(promises) do\
+		if not Promise.is(promise) then\
+			error(string.format(ERROR_NON_PROMISE_IN_LIST, \"Promise.all\", tostring(i)), 3)\
+		end\
+	end\
+\
+	-- If there are no values then return an already resolved promise.\
+	if #promises == 0 or amount == 0 then\
+		return Promise.resolve({})\
+	end\
+\
+	return Promise._new(traceback, function(resolve, reject, onCancel)\
+		-- An array to contain our resolved values from the given promises.\
+		local resolvedValues = {}\
+		local newPromises = {}\
+\
+		-- Keep a count of resolved promises because just checking the resolved\
+		-- values length wouldn't account for promises that resolve with nil.\
+		local resolvedCount = 0\
+		local rejectedCount = 0\
+		local done = false\
+\
+		local function cancel()\
+			for _, promise in ipairs(newPromises) do\
+				promise:cancel()\
+			end\
+		end\
+\
+		-- Called when a single value is resolved and resolves if all are done.\
+		local function resolveOne(i, ...)\
+			if done then\
+				return\
+			end\
+\
+			resolvedCount = resolvedCount + 1\
+\
+			if amount == nil then\
+				resolvedValues[i] = ...\
+			else\
+				resolvedValues[resolvedCount] = ...\
+			end\
+\
+			if resolvedCount >= (amount or #promises) then\
+				done = true\
+				resolve(resolvedValues)\
+				cancel()\
+			end\
+		end\
+\
+		onCancel(cancel)\
+\
+		-- We can assume the values inside `promises` are all promises since we\
+		-- checked above.\
+		for i, promise in ipairs(promises) do\
+			newPromises[i] = promise:andThen(function(...)\
+				resolveOne(i, ...)\
+			end, function(...)\
+				rejectedCount = rejectedCount + 1\
+\
+				if amount == nil or #promises - rejectedCount < amount then\
+					cancel()\
+					done = true\
+\
+					reject(...)\
+				end\
+			end)\
+		end\
+\
+		if done then\
+			cancel()\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a new promise that:\
+	* is resolved after all input promises resolve.\
+	* is rejected if *any* input promises reject.\
+\
+	:::info\
+	Only the first return value from each promise will be present in the resulting array.\
+	:::\
+\
+	After any input Promise rejects, all other input Promises that are still pending will be cancelled if they have no other consumers.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.all(promises)\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<{T}>\
+]=]\
+function Promise.all(promises)\
+	return Promise._all(debug.traceback(nil, 2), promises)\
+end\
+\
+--[=[\
+	Folds an array of values or promises into a single value. The array is traversed sequentially.\
+\
+	The reducer function can return a promise or value directly. Each iteration receives the resolved value from the previous, and the first receives your defined initial value.\
+\
+	The folding will stop at the first rejection encountered.\
+	```lua\
+	local basket = {\"blueberry\", \"melon\", \"pear\", \"melon\"}\
+	Promise.fold(basket, function(cost, fruit)\
+		if fruit == \"blueberry\" then\
+			return cost -- blueberries are free!\
+		else\
+			-- call a function that returns a promise with the fruit price\
+			return fetchPrice(fruit):andThen(function(fruitCost)\
+				return cost + fruitCost\
+			end)\
+		end\
+	end, 0)\
+	```\
+\
+	@since v3.1.0\
+	@param list {T | Promise<T>}\
+	@param reducer (accumulator: U, value: T, index: number) -> U | Promise<U>\
+	@param initialValue U\
+]=]\
+function Promise.fold(list, reducer, initialValue)\
+	assert(type(list) == \"table\", \"Bad argument #1 to Promise.fold: must be a table\")\
+	assert(isCallable(reducer), \"Bad argument #2 to Promise.fold: must be a function\")\
+\
+	local accumulator = Promise.resolve(initialValue)\
+	return Promise.each(list, function(resolvedElement, i)\
+		accumulator = accumulator:andThen(function(previousValueResolved)\
+			return reducer(previousValueResolved, resolvedElement, i)\
+		end)\
+	end):andThen(function()\
+		return accumulator\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a Promise that is resolved as soon as `count` Promises are resolved from the input array. The resolved array values are in the order that the Promises resolved in. When this Promise resolves, all other pending Promises are cancelled if they have no other consumers.\
+\
+	`count` 0 results in an empty array. The resultant array will never have more than `count` elements.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.some(promises, 2) -- Only resolves with first 2 promises to resolve\
+	```\
+\
+	@param promises {Promise<T>}\
+	@param count number\
+	@return Promise<{T}>\
+]=]\
+function Promise.some(promises, count)\
+	assert(type(count) == \"number\", \"Bad argument #2 to Promise.some: must be a number\")\
+\
+	return Promise._all(debug.traceback(nil, 2), promises, count)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a Promise that is resolved as soon as *any* of the input Promises resolves. It will reject only if *all* input Promises reject. As soon as one Promises resolves, all other pending Promises are cancelled if they have no other consumers.\
+\
+	Resolves directly with the value of the first resolved Promise. This is essentially [[Promise.some]] with `1` count, except the Promise resolves with the value directly instead of an array with one element.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.any(promises) -- Resolves with first value to resolve (only rejects if all 3 rejected)\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<T>\
+]=]\
+function Promise.any(promises)\
+	return Promise._all(debug.traceback(nil, 2), promises, 1):andThen(function(values)\
+		return values[1]\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a new Promise that resolves with an array of in-place Statuses when all input Promises have settled. This is equivalent to mapping `promise:finally` over the array of Promises.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.allSettled(promises)\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<{Status}>\
+]=]\
+function Promise.allSettled(promises)\
+	if type(promises) ~= \"table\" then\
+		error(string.format(ERROR_NON_LIST, \"Promise.allSettled\"), 2)\
+	end\
+\
+	-- We need to check that each value is a promise here so that we can produce\
+	-- a proper error rather than a rejected promise with our error.\
+	for i, promise in pairs(promises) do\
+		if not Promise.is(promise) then\
+			error(string.format(ERROR_NON_PROMISE_IN_LIST, \"Promise.allSettled\", tostring(i)), 2)\
+		end\
+	end\
+\
+	-- If there are no values then return an already resolved promise.\
+	if #promises == 0 then\
+		return Promise.resolve({})\
+	end\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)\
+		-- An array to contain our resolved values from the given promises.\
+		local fates = {}\
+		local newPromises = {}\
+\
+		-- Keep a count of resolved promises because just checking the resolved\
+		-- values length wouldn't account for promises that resolve with nil.\
+		local finishedCount = 0\
+\
+		-- Called when a single value is resolved and resolves if all are done.\
+		local function resolveOne(i, ...)\
+			finishedCount = finishedCount + 1\
+\
+			fates[i] = ...\
+\
+			if finishedCount >= #promises then\
+				resolve(fates)\
+			end\
+		end\
+\
+		onCancel(function()\
+			for _, promise in ipairs(newPromises) do\
+				promise:cancel()\
+			end\
+		end)\
+\
+		-- We can assume the values inside `promises` are all promises since we\
+		-- checked above.\
+		for i, promise in ipairs(promises) do\
+			newPromises[i] = promise:finally(function(...)\
+				resolveOne(i, ...)\
+			end)\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Accepts an array of Promises and returns a new promise that is resolved or rejected as soon as any Promise in the array resolves or rejects.\
+\
+	:::warning\
+	If the first Promise to settle from the array settles with a rejection, the resulting Promise from `race` will reject.\
+\
+	If you instead want to tolerate rejections, and only care about at least one Promise resolving, you should use [Promise.any](#any) or [Promise.some](#some) instead.\
+	:::\
+\
+	All other Promises that don't win the race will be cancelled if they have no other consumers.\
+\
+	```lua\
+	local promises = {\
+		returnsAPromise(\"example 1\"),\
+		returnsAPromise(\"example 2\"),\
+		returnsAPromise(\"example 3\"),\
+	}\
+\
+	return Promise.race(promises) -- Only returns 1st value to resolve or reject\
+	```\
+\
+	@param promises {Promise<T>}\
+	@return Promise<T>\
+]=]\
+function Promise.race(promises)\
+	assert(type(promises) == \"table\", string.format(ERROR_NON_LIST, \"Promise.race\"))\
+\
+	for i, promise in pairs(promises) do\
+		assert(Promise.is(promise), string.format(ERROR_NON_PROMISE_IN_LIST, \"Promise.race\", tostring(i)))\
+	end\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, reject, onCancel)\
+		local newPromises = {}\
+		local finished = false\
+\
+		local function cancel()\
+			for _, promise in ipairs(newPromises) do\
+				promise:cancel()\
+			end\
+		end\
+\
+		local function finalize(callback)\
+			return function(...)\
+				cancel()\
+				finished = true\
+				return callback(...)\
+			end\
+		end\
+\
+		if onCancel(finalize(reject)) then\
+			return\
+		end\
+\
+		for i, promise in ipairs(promises) do\
+			newPromises[i] = promise:andThen(finalize(resolve), finalize(reject))\
+		end\
+\
+		if finished then\
+			cancel()\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Iterates serially over the given an array of values, calling the predicate callback on each value before continuing.\
+\
+	If the predicate returns a Promise, we wait for that Promise to resolve before moving on to the next item\
+	in the array.\
+\
+	:::info\
+	`Promise.each` is similar to `Promise.all`, except the Promises are ran in order instead of all at once.\
+\
+	But because Promises are eager, by the time they are created, they're already running. Thus, we need a way to defer creation of each Promise until a later time.\
+\
+	The predicate function exists as a way for us to operate on our data instead of creating a new closure for each Promise. If you would prefer, you can pass in an array of functions, and in the predicate, call the function and return its return value.\
+	:::\
+\
+	```lua\
+	Promise.each({\
+		\"foo\",\
+		\"bar\",\
+		\"baz\",\
+		\"qux\"\
+	}, function(value, index)\
+		return Promise.delay(1):andThen(function()\
+		print((\"%d) Got %s!\"):format(index, value))\
+		end)\
+	end)\
+\
+	--[[\
+		(1 second passes)\
+		> 1) Got foo!\
+		(1 second passes)\
+		> 2) Got bar!\
+		(1 second passes)\
+		> 3) Got baz!\
+		(1 second passes)\
+		> 4) Got qux!\
+	]]\
+	```\
+\
+	If the Promise a predicate returns rejects, the Promise from `Promise.each` is also rejected with the same value.\
+\
+	If the array of values contains a Promise, when we get to that point in the list, we wait for the Promise to resolve before calling the predicate with the value.\
+\
+	If a Promise in the array of values is already Rejected when `Promise.each` is called, `Promise.each` rejects with that value immediately (the predicate callback will never be called even once). If a Promise in the list is already Cancelled when `Promise.each` is called, `Promise.each` rejects with `Promise.Error(Promise.Error.Kind.AlreadyCancelled`). If a Promise in the array of values is Started at first, but later rejects, `Promise.each` will reject with that value and iteration will not continue once iteration encounters that value.\
+\
+	Returns a Promise containing an array of the returned/resolved values from the predicate for each item in the array of values.\
+\
+	If this Promise returned from `Promise.each` rejects or is cancelled for any reason, the following are true:\
+	- Iteration will not continue.\
+	- Any Promises within the array of values will now be cancelled if they have no other consumers.\
+	- The Promise returned from the currently active predicate will be cancelled if it hasn't resolved yet.\
+\
+	@since 3.0.0\
+	@param list {T | Promise<T>}\
+	@param predicate (value: T, index: number) -> U | Promise<U>\
+	@return Promise<{U}>\
+]=]\
+function Promise.each(list, predicate)\
+	assert(type(list) == \"table\", string.format(ERROR_NON_LIST, \"Promise.each\"))\
+	assert(isCallable(predicate), string.format(ERROR_NON_FUNCTION, \"Promise.each\"))\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, reject, onCancel)\
+		local results = {}\
+		local promisesToCancel = {}\
+\
+		local cancelled = false\
+\
+		local function cancel()\
+			for _, promiseToCancel in ipairs(promisesToCancel) do\
+				promiseToCancel:cancel()\
+			end\
+		end\
+\
+		onCancel(function()\
+			cancelled = true\
+\
+			cancel()\
+		end)\
+\
+		-- We need to preprocess the list of values and look for Promises.\
+		-- If we find some, we must register our andThen calls now, so that those Promises have a consumer\
+		-- from us registered. If we don't do this, those Promises might get cancelled by something else\
+		-- before we get to them in the series because it's not possible to tell that we plan to use it\
+		-- unless we indicate it here.\
+\
+		local preprocessedList = {}\
+\
+		for index, value in ipairs(list) do\
+			if Promise.is(value) then\
+				if value:getStatus() == Promise.Status.Cancelled then\
+					cancel()\
+					return reject(Error.new({\
+						error = \"Promise is cancelled\",\
+						kind = Error.Kind.AlreadyCancelled,\
+						context = string.format(\
+							\"The Promise that was part of the array at index %d passed into Promise.each was already cancelled when Promise.each began.\\n\\nThat Promise was created at:\\n\\n%s\",\
+							index,\
+							value._source\
+						),\
+					}))\
+				elseif value:getStatus() == Promise.Status.Rejected then\
+					cancel()\
+					return reject(select(2, value:await()))\
+				end\
+\
+				-- Chain a new Promise from this one so we only cancel ours\
+				local ourPromise = value:andThen(function(...)\
+					return ...\
+				end)\
+\
+				table.insert(promisesToCancel, ourPromise)\
+				preprocessedList[index] = ourPromise\
+			else\
+				preprocessedList[index] = value\
+			end\
+		end\
+\
+		for index, value in ipairs(preprocessedList) do\
+			if Promise.is(value) then\
+				local success\
+				success, value = value:await()\
+\
+				if not success then\
+					cancel()\
+					return reject(value)\
+				end\
+			end\
+\
+			if cancelled then\
+				return\
+			end\
+\
+			local predicatePromise = Promise.resolve(predicate(value, index))\
+\
+			table.insert(promisesToCancel, predicatePromise)\
+\
+			local success, result = predicatePromise:await()\
+\
+			if not success then\
+				cancel()\
+				return reject(result)\
+			end\
+\
+			results[index] = result\
+		end\
+\
+		resolve(results)\
+	end)\
+end\
+\
+--[=[\
+	Checks whether the given object is a Promise via duck typing. This only checks if the object is a table and has an `andThen` method.\
+\
+	@param object any\
+	@return boolean -- `true` if the given `object` is a Promise.\
+]=]\
+function Promise.is(object)\
+	if type(object) ~= \"table\" then\
+		return false\
+	end\
+\
+	local objectMetatable = getmetatable(object)\
+\
+	if objectMetatable == Promise then\
+		-- The Promise came from this library.\
+		return true\
+	elseif objectMetatable == nil then\
+		-- No metatable, but we should still chain onto tables with andThen methods\
+		return isCallable(object.andThen)\
+	elseif\
+		type(objectMetatable) == \"table\"\
+		and type(rawget(objectMetatable, \"__index\")) == \"table\"\
+		and isCallable(rawget(rawget(objectMetatable, \"__index\"), \"andThen\"))\
+	then\
+		-- Maybe this came from a different or older Promise library.\
+		return true\
+	end\
+\
+	return false\
+end\
+\
+--[=[\
+	Wraps a function that yields into one that returns a Promise.\
+\
+	Any errors that occur while executing the function will be turned into rejections.\
+\
+	:::info\
+	`Promise.promisify` is similar to [Promise.try](#try), except the callback is returned as a callable function instead of being invoked immediately.\
+	:::\
+\
+	```lua\
+	local sleep = Promise.promisify(wait)\
+\
+	sleep(1):andThen(print)\
+	```\
+\
+	```lua\
+	local isPlayerInGroup = Promise.promisify(function(player, groupId)\
+		return player:IsInGroup(groupId)\
+	end)\
+	```\
+\
+	@param callback (...: any) -> ...any\
+	@return (...: any) -> Promise\
+]=]\
+function Promise.promisify(callback)\
+	return function(...)\
+		return Promise._try(debug.traceback(nil, 2), callback, ...)\
+	end\
+end\
+\
+--[=[\
+	Returns a Promise that resolves after `seconds` seconds have passed. The Promise resolves with the actual amount of time that was waited.\
+\
+	This function is a wrapper around `task.delay`.\
+\
+	:::warning\
+	Passing NaN, +Infinity, -Infinity, 0, or any other number less than the duration of a Heartbeat will cause the promise to resolve on the very next Heartbeat.\
+	:::\
+\
+	```lua\
+		Promise.delay(5):andThenCall(print, \"This prints after 5 seconds\")\
+	```\
+\
+	@function delay\
+	@within Promise\
+	@param seconds number\
+	@return Promise<number>\
+]=]\
+function Promise.delay(seconds)\
+	assert(type(seconds) == \"number\", \"Bad argument #1 to Promise.delay, must be a number.\")\
+	local startTime = Promise._getTime()\
+	return Promise._new(debug.traceback(nil, 2), function(resolve)\
+		task.delay(seconds, function()\
+			resolve(Promise._getTime() - startTime)\
+		end)\
+	end)\
+end\
+\
+--[=[\
+	Returns a new Promise that resolves if the chained Promise resolves within `seconds` seconds, or rejects if execution time exceeds `seconds`. The chained Promise will be cancelled if the timeout is reached.\
+\
+	Rejects with `rejectionValue` if it is non-nil. If a `rejectionValue` is not given, it will reject with a `Promise.Error(Promise.Error.Kind.TimedOut)`. This can be checked with [[Error.isKind]].\
+\
+	```lua\
+	getSomething():timeout(5):andThen(function(something)\
+		-- got something and it only took at max 5 seconds\
+	end):catch(function(e)\
+		-- Either getting something failed or the time was exceeded.\
+\
+		if Promise.Error.isKind(e, Promise.Error.Kind.TimedOut) then\
+			warn(\"Operation timed out!\")\
+		else\
+			warn(\"Operation encountered an error!\")\
+		end\
+	end)\
+	```\
+\
+	Sugar for:\
+\
+	```lua\
+	Promise.race({\
+		Promise.delay(seconds):andThen(function()\
+			return Promise.reject(\
+				rejectionValue == nil\
+				and Promise.Error.new({ kind = Promise.Error.Kind.TimedOut })\
+				or rejectionValue\
+			)\
+		end),\
+		promise\
+	})\
+	```\
+\
+	@param seconds number\
+	@param rejectionValue? any -- The value to reject with if the timeout is reached\
+	@return Promise\
+]=]\
+function Promise.prototype:timeout(seconds, rejectionValue)\
+	local traceback = debug.traceback(nil, 2)\
+\
+	return Promise.race({\
+		Promise.delay(seconds):andThen(function()\
+			return Promise.reject(rejectionValue == nil and Error.new({\
+				kind = Error.Kind.TimedOut,\
+				error = \"Timed out\",\
+				context = string.format(\
+					\"Timeout of %d seconds exceeded.\\n:timeout() called at:\\n\\n%s\",\
+					seconds,\
+					traceback\
+				),\
+			}) or rejectionValue)\
+		end),\
+		self,\
+	})\
+end\
+\
+--[=[\
+	Returns the current Promise status.\
+\
+	@return Status\
+]=]\
+function Promise.prototype:getStatus()\
+	return self._status\
+end\
+\
+--[[\
+	Creates a new promise that receives the result of this promise.\
+\
+	The given callbacks are invoked depending on that result.\
+]]\
+function Promise.prototype:_andThen(traceback, successHandler, failureHandler)\
+	self._unhandledRejection = false\
+\
+	-- If we are already cancelled, we return a cancelled Promise\
+	if self._status == Promise.Status.Cancelled then\
+		local promise = Promise.new(function() end)\
+		promise:cancel()\
+\
+		return promise\
+	end\
+\
+	-- Create a new promise to follow this part of the chain\
+	return Promise._new(traceback, function(resolve, reject, onCancel)\
+		-- Our default callbacks just pass values onto the next promise.\
+		-- This lets success and failure cascade correctly!\
+\
+		local successCallback = resolve\
+		if successHandler then\
+			successCallback = createAdvancer(traceback, successHandler, resolve, reject)\
+		end\
+\
+		local failureCallback = reject\
+		if failureHandler then\
+			failureCallback = createAdvancer(traceback, failureHandler, resolve, reject)\
+		end\
+\
+		if self._status == Promise.Status.Started then\
+			-- If we haven't resolved yet, put ourselves into the queue\
+			table.insert(self._queuedResolve, successCallback)\
+			table.insert(self._queuedReject, failureCallback)\
+\
+			onCancel(function()\
+				-- These are guaranteed to exist because the cancellation handler is guaranteed to only\
+				-- be called at most once\
+				if self._status == Promise.Status.Started then\
+					table.remove(self._queuedResolve, table.find(self._queuedResolve, successCallback))\
+					table.remove(self._queuedReject, table.find(self._queuedReject, failureCallback))\
+				end\
+			end)\
+		elseif self._status == Promise.Status.Resolved then\
+			-- This promise has already resolved! Trigger success immediately.\
+			successCallback(unpack(self._values, 1, self._valuesLength))\
+		elseif self._status == Promise.Status.Rejected then\
+			-- This promise died a terrible death! Trigger failure immediately.\
+			failureCallback(unpack(self._values, 1, self._valuesLength))\
+		end\
+	end, self)\
+end\
+\
+--[=[\
+	Chains onto an existing Promise and returns a new Promise.\
+\
+	:::warning\
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.\
+	:::\
+\
+	You can return a Promise from the success or failure handler and it will be chained onto.\
+\
+	Calling `andThen` on a cancelled Promise returns a cancelled Promise.\
+\
+	:::tip\
+	If the Promise returned by `andThen` is cancelled, `successHandler` and `failureHandler` will not run.\
+\
+	To run code no matter what, use [Promise:finally].\
+	:::\
+\
+	@param successHandler (...: any) -> ...any\
+	@param failureHandler? (...: any) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:andThen(successHandler, failureHandler)\
+	assert(successHandler == nil or isCallable(successHandler), string.format(ERROR_NON_FUNCTION, \"Promise:andThen\"))\
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, \"Promise:andThen\"))\
+\
+	return self:_andThen(debug.traceback(nil, 2), successHandler, failureHandler)\
+end\
+\
+--[=[\
+	Shorthand for `Promise:andThen(nil, failureHandler)`.\
+\
+	Returns a Promise that resolves if the `failureHandler` worked without encountering an additional error.\
+\
+	:::warning\
+	Within the failure handler, you should never assume that the rejection value is a string. Some rejections within the Promise library are represented by [[Error]] objects. If you want to treat it as a string for debugging, you should call `tostring` on it first.\
+	:::\
+\
+	Calling `catch` on a cancelled Promise returns a cancelled Promise.\
+\
+	:::tip\
+	If the Promise returned by `catch` is cancelled,  `failureHandler` will not run.\
+\
+	To run code no matter what, use [Promise:finally].\
+	:::\
+\
+	@param failureHandler (...: any) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:catch(failureHandler)\
+	assert(failureHandler == nil or isCallable(failureHandler), string.format(ERROR_NON_FUNCTION, \"Promise:catch\"))\
+	return self:_andThen(debug.traceback(nil, 2), nil, failureHandler)\
+end\
+\
+--[=[\
+	Similar to [Promise.andThen](#andThen), except the return value is the same as the value passed to the handler. In other words, you can insert a `:tap` into a Promise chain without affecting the value that downstream Promises receive.\
+\
+	```lua\
+		getTheValue()\
+		:tap(print)\
+		:andThen(function(theValue)\
+			print(\"Got\", theValue, \"even though print returns nil!\")\
+		end)\
+	```\
+\
+	If you return a Promise from the tap handler callback, its value will be discarded but `tap` will still wait until it resolves before passing the original value through.\
+\
+	@param tapHandler (...: any) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:tap(tapHandler)\
+	assert(isCallable(tapHandler), string.format(ERROR_NON_FUNCTION, \"Promise:tap\"))\
+	return self:_andThen(debug.traceback(nil, 2), function(...)\
+		local callbackReturn = tapHandler(...)\
+\
+		if Promise.is(callbackReturn) then\
+			local length, values = pack(...)\
+			return callbackReturn:andThen(function()\
+				return unpack(values, 1, length)\
+			end)\
+		end\
+\
+		return ...\
+	end)\
+end\
+\
+--[=[\
+	Attaches an `andThen` handler to this Promise that calls the given callback with the predefined arguments. The resolved value is discarded.\
+\
+	```lua\
+		promise:andThenCall(someFunction, \"some\", \"arguments\")\
+	```\
+\
+	This is sugar for\
+\
+	```lua\
+		promise:andThen(function()\
+		return someFunction(\"some\", \"arguments\")\
+		end)\
+	```\
+\
+	@param callback (...: any) -> any\
+	@param ...? any -- Additional arguments which will be passed to `callback`\
+	@return Promise\
+]=]\
+function Promise.prototype:andThenCall(callback, ...)\
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, \"Promise:andThenCall\"))\
+	local length, values = pack(...)\
+	return self:_andThen(debug.traceback(nil, 2), function()\
+		return callback(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[=[\
+	Attaches an `andThen` handler to this Promise that discards the resolved value and returns the given value from it.\
+\
+	```lua\
+		promise:andThenReturn(\"some\", \"values\")\
+	```\
+\
+	This is sugar for\
+\
+	```lua\
+		promise:andThen(function()\
+			return \"some\", \"values\"\
+		end)\
+	```\
+\
+	:::caution\
+	Promises are eager, so if you pass a Promise to `andThenReturn`, it will begin executing before `andThenReturn` is reached in the chain. Likewise, if you pass a Promise created from [[Promise.reject]] into `andThenReturn`, it's possible that this will trigger the unhandled rejection warning. If you need to return a Promise, it's usually best practice to use [[Promise.andThen]].\
+	:::\
+\
+	@param ... any -- Values to return from the function\
+	@return Promise\
+]=]\
+function Promise.prototype:andThenReturn(...)\
+	local length, values = pack(...)\
+	return self:_andThen(debug.traceback(nil, 2), function()\
+		return unpack(values, 1, length)\
+	end)\
+end\
+\
+--[=[\
+	Cancels this promise, preventing the promise from resolving or rejecting. Does not do anything if the promise is already settled.\
+\
+	Cancellations will propagate upwards and downwards through chained promises.\
+\
+	Promises will only be cancelled if all of their consumers are also cancelled. This is to say that if you call `andThen` twice on the same promise, and you cancel only one of the child promises, it will not cancel the parent promise until the other child promise is also cancelled.\
+\
+	```lua\
+		promise:cancel()\
+	```\
+]=]\
+function Promise.prototype:cancel()\
+	if self._status ~= Promise.Status.Started then\
+		return\
+	end\
+\
+	self._status = Promise.Status.Cancelled\
+\
+	if self._cancellationHook then\
+		self._cancellationHook()\
+	end\
+\
+	coroutine.close(self._thread)\
+\
+	if self._parent then\
+		self._parent:_consumerCancelled(self)\
+	end\
+\
+	for child in pairs(self._consumers) do\
+		child:cancel()\
+	end\
+\
+	self:_finalize()\
+end\
+\
+--[[\
+	Used to decrease the number of consumers by 1, and if there are no more,\
+	cancel this promise.\
+]]\
+function Promise.prototype:_consumerCancelled(consumer)\
+	if self._status ~= Promise.Status.Started then\
+		return\
+	end\
+\
+	self._consumers[consumer] = nil\
+\
+	if next(self._consumers) == nil then\
+		self:cancel()\
+	end\
+end\
+\
+--[[\
+	Used to set a handler for when the promise resolves, rejects, or is\
+	cancelled.\
+]]\
+function Promise.prototype:_finally(traceback, finallyHandler)\
+	self._unhandledRejection = false\
+\
+	local promise = Promise._new(traceback, function(resolve, reject, onCancel)\
+		local handlerPromise\
+\
+		onCancel(function()\
+			-- The finally Promise is not a proper consumer of self. We don't care about the resolved value.\
+			-- All we care about is running at the end. Therefore, if self has no other consumers, it's safe to\
+			-- cancel. We don't need to hold out cancelling just because there's a finally handler.\
+			self:_consumerCancelled(self)\
+\
+			if handlerPromise then\
+				handlerPromise:cancel()\
+			end\
+		end)\
+\
+		local finallyCallback = resolve\
+		if finallyHandler then\
+			finallyCallback = function(...)\
+				local ok, _, resultList = runExecutor(traceback, finallyHandler, ...)\
+				local result = resultList[1]\
+				if not ok then\
+					return reject(result)\
+				end\
+\
+				if Promise.is(result) then\
+					handlerPromise = result\
+\
+					result\
+						:finally(function(status)\
+							if status ~= Promise.Status.Rejected then\
+								resolve(self)\
+							end\
+						end)\
+						:catch(function(...)\
+							reject(...)\
+						end)\
+				else\
+					resolve(self)\
+				end\
+			end\
+		end\
+\
+		if self._status == Promise.Status.Started then\
+			-- The promise is not settled, so queue this.\
+			table.insert(self._queuedFinally, finallyCallback)\
+		else\
+			-- The promise already settled or was cancelled, run the callback now.\
+			finallyCallback(self._status)\
+		end\
+	end)\
+\
+	return promise\
+end\
+\
+--[=[\
+	Set a handler that will be called regardless of the promise's fate. The handler is called when the promise is\
+	resolved, rejected, *or* cancelled.\
+\
+	Returns a new Promise that:\
+	- resolves with the same values that this Promise resolves with.\
+	- rejects with the same values that this Promise rejects with.\
+	- is cancelled if this Promise is cancelled.\
+\
+	If the value you return from the handler is a Promise:\
+	- We wait for the Promise to resolve, but we ultimately discard the resolved value.\
+	- If the returned Promise rejects, the Promise returned from `finally` will reject with the rejected value from the\
+	*returned* promise.\
+	- If the `finally` Promise is cancelled, and you returned a Promise from the handler, we cancel that Promise too.\
+\
+	Otherwise, the return value from the `finally` handler is entirely discarded.\
+\
+	:::note Cancellation\
+	As of Promise v4, `Promise:finally` does not count as a consumer of the parent Promise for cancellation purposes.\
+	This means that if all of a Promise's consumers are cancelled and the only remaining callbacks are finally handlers,\
+	the Promise is cancelled and the finally callbacks run then and there.\
+\
+	Cancellation still propagates through the `finally` Promise though: if you cancel the `finally` Promise, it can cancel\
+	its parent Promise if it had no other consumers. Likewise, if the parent Promise is cancelled, the `finally` Promise\
+	will also be cancelled.\
+	:::\
+\
+	```lua\
+	local thing = createSomething()\
+\
+	doSomethingWith(thing)\
+		:andThen(function()\
+			print(\"It worked!\")\
+			-- do something..\
+		end)\
+		:catch(function()\
+			warn(\"Oh no it failed!\")\
+		end)\
+		:finally(function()\
+			-- either way, destroy thing\
+\
+			thing:Destroy()\
+		end)\
+\
+	```\
+\
+	@param finallyHandler (status: Status) -> ...any\
+	@return Promise<...any>\
+]=]\
+function Promise.prototype:finally(finallyHandler)\
+	assert(finallyHandler == nil or isCallable(finallyHandler), string.format(ERROR_NON_FUNCTION, \"Promise:finally\"))\
+	return self:_finally(debug.traceback(nil, 2), finallyHandler)\
+end\
+\
+--[=[\
+	Same as `andThenCall`, except for `finally`.\
+\
+	Attaches a `finally` handler to this Promise that calls the given callback with the predefined arguments.\
+\
+	@param callback (...: any) -> any\
+	@param ...? any -- Additional arguments which will be passed to `callback`\
+	@return Promise\
+]=]\
+function Promise.prototype:finallyCall(callback, ...)\
+	assert(isCallable(callback), string.format(ERROR_NON_FUNCTION, \"Promise:finallyCall\"))\
+	local length, values = pack(...)\
+	return self:_finally(debug.traceback(nil, 2), function()\
+		return callback(unpack(values, 1, length))\
+	end)\
+end\
+\
+--[=[\
+	Attaches a `finally` handler to this Promise that discards the resolved value and returns the given value from it.\
+\
+	```lua\
+		promise:finallyReturn(\"some\", \"values\")\
+	```\
+\
+	This is sugar for\
+\
+	```lua\
+		promise:finally(function()\
+			return \"some\", \"values\"\
+		end)\
+	```\
+\
+	@param ... any -- Values to return from the function\
+	@return Promise\
+]=]\
+function Promise.prototype:finallyReturn(...)\
+	local length, values = pack(...)\
+	return self:_finally(debug.traceback(nil, 2), function()\
+		return unpack(values, 1, length)\
+	end)\
+end\
+\
+--[=[\
+	Yields the current thread until the given Promise completes. Returns the Promise's status, followed by the values that the promise resolved or rejected with.\
+\
+	@yields\
+	@return Status -- The Status representing the fate of the Promise\
+	@return ...any -- The values the Promise resolved or rejected with.\
+]=]\
+function Promise.prototype:awaitStatus()\
+	self._unhandledRejection = false\
+\
+	if self._status == Promise.Status.Started then\
+		local thread = coroutine.running()\
+\
+		self\
+			:finally(function()\
+				task.spawn(thread)\
+			end)\
+			-- The finally promise can propagate rejections, so we attach a catch handler to prevent the unhandled\
+			-- rejection warning from appearing\
+			:catch(\
+				function() end\
+			)\
+\
+		coroutine.yield()\
+	end\
+\
+	if self._status == Promise.Status.Resolved then\
+		return self._status, unpack(self._values, 1, self._valuesLength)\
+	elseif self._status == Promise.Status.Rejected then\
+		return self._status, unpack(self._values, 1, self._valuesLength)\
+	end\
+\
+	return self._status\
+end\
+\
+local function awaitHelper(status, ...)\
+	return status == Promise.Status.Resolved, ...\
+end\
+\
+--[=[\
+	Yields the current thread until the given Promise completes. Returns true if the Promise resolved, followed by the values that the promise resolved or rejected with.\
+\
+	:::caution\
+	If the Promise gets cancelled, this function will return `false`, which is indistinguishable from a rejection. If you need to differentiate, you should use [[Promise.awaitStatus]] instead.\
+	:::\
+\
+	```lua\
+		local worked, value = getTheValue():await()\
+\
+	if worked then\
+		print(\"got\", value)\
+	else\
+		warn(\"it failed\")\
+	end\
+	```\
+\
+	@yields\
+	@return boolean -- `true` if the Promise successfully resolved\
+	@return ...any -- The values the Promise resolved or rejected with.\
+]=]\
+function Promise.prototype:await()\
+	return awaitHelper(self:awaitStatus())\
+end\
+\
+local function expectHelper(status, ...)\
+	if status ~= Promise.Status.Resolved then\
+		error((...) == nil and \"Expected Promise rejected with no value.\" or (...), 3)\
+	end\
+\
+	return ...\
+end\
+\
+--[=[\
+	Yields the current thread until the given Promise completes. Returns the values that the promise resolved with.\
+\
+	```lua\
+	local worked = pcall(function()\
+		print(\"got\", getTheValue():expect())\
+	end)\
+\
+	if not worked then\
+		warn(\"it failed\")\
+	end\
+	```\
+\
+	This is essentially sugar for:\
+\
+	```lua\
+	select(2, assert(promise:await()))\
+	```\
+\
+	**Errors** if the Promise rejects or gets cancelled.\
+\
+	@error any -- Errors with the rejection value if this Promise rejects or gets cancelled.\
+	@yields\
+	@return ...any -- The values the Promise resolved with.\
+]=]\
+function Promise.prototype:expect()\
+	return expectHelper(self:awaitStatus())\
+end\
+\
+-- Backwards compatibility\
+Promise.prototype.awaitValue = Promise.prototype.expect\
+\
+--[[\
+	Intended for use in tests.\
+\
+	Similar to await(), but instead of yielding if the promise is unresolved,\
+	_unwrap will throw. This indicates an assumption that a promise has\
+	resolved.\
+]]\
+function Promise.prototype:_unwrap()\
+	if self._status == Promise.Status.Started then\
+		error(\"Promise has not resolved or rejected.\", 2)\
+	end\
+\
+	local success = self._status == Promise.Status.Resolved\
+\
+	return success, unpack(self._values, 1, self._valuesLength)\
+end\
+\
+function Promise.prototype:_resolve(...)\
+	if self._status ~= Promise.Status.Started then\
+		if Promise.is((...)) then\
+			(...):_consumerCancelled(self)\
+		end\
+		return\
+	end\
+\
+	-- If the resolved value was a Promise, we chain onto it!\
+	if Promise.is((...)) then\
+		-- Without this warning, arguments sometimes mysteriously disappear\
+		if select(\"#\", ...) > 1 then\
+			local message = string.format(\
+				\"When returning a Promise from andThen, extra arguments are \" .. \"discarded! See:\\n\\n%s\",\
+				self._source\
+			)\
+			warn(message)\
+		end\
+\
+		local chainedPromise = ...\
+\
+		local promise = chainedPromise:andThen(function(...)\
+			self:_resolve(...)\
+		end, function(...)\
+			local maybeRuntimeError = chainedPromise._values[1]\
+\
+			-- Backwards compatibility < v2\
+			if chainedPromise._error then\
+				maybeRuntimeError = Error.new({\
+					error = chainedPromise._error,\
+					kind = Error.Kind.ExecutionError,\
+					context = \"[No stack trace available as this Promise originated from an older version of the Promise library (< v2)]\",\
+				})\
+			end\
+\
+			if Error.isKind(maybeRuntimeError, Error.Kind.ExecutionError) then\
+				return self:_reject(maybeRuntimeError:extend({\
+					error = \"This Promise was chained to a Promise that errored.\",\
+					trace = \"\",\
+					context = string.format(\
+						\"The Promise at:\\n\\n%s\\n...Rejected because it was chained to the following Promise, which encountered an error:\\n\",\
+						self._source\
+					),\
+				}))\
+			end\
+\
+			self:_reject(...)\
+		end)\
+\
+		if promise._status == Promise.Status.Cancelled then\
+			self:cancel()\
+		elseif promise._status == Promise.Status.Started then\
+			-- Adopt ourselves into promise for cancellation propagation.\
+			self._parent = promise\
+			promise._consumers[self] = true\
+		end\
+\
+		return\
+	end\
+\
+	self._status = Promise.Status.Resolved\
+	self._valuesLength, self._values = pack(...)\
+\
+	-- We assume that these callbacks will not throw errors.\
+	for _, callback in ipairs(self._queuedResolve) do\
+		coroutine.wrap(callback)(...)\
+	end\
+\
+	self:_finalize()\
+end\
+\
+function Promise.prototype:_reject(...)\
+	if self._status ~= Promise.Status.Started then\
+		return\
+	end\
+\
+	self._status = Promise.Status.Rejected\
+	self._valuesLength, self._values = pack(...)\
+\
+	-- If there are any rejection handlers, call those!\
+	if not isEmpty(self._queuedReject) then\
+		-- We assume that these callbacks will not throw errors.\
+		for _, callback in ipairs(self._queuedReject) do\
+			coroutine.wrap(callback)(...)\
+		end\
+	else\
+		-- At this point, no one was able to observe the error.\
+		-- An error handler might still be attached if the error occurred\
+		-- synchronously. We'll wait one tick, and if there are still no\
+		-- observers, then we should put a message in the console.\
+\
+		local err = tostring((...))\
+\
+		coroutine.wrap(function()\
+			Promise._timeEvent:Wait()\
+\
+			-- Someone observed the error, hooray!\
+			if not self._unhandledRejection then\
+				return\
+			end\
+\
+			-- Build a reasonable message\
+			local message = string.format(\"Unhandled Promise rejection:\\n\\n%s\\n\\n%s\", err, self._source)\
+\
+			for _, callback in ipairs(Promise._unhandledRejectionCallbacks) do\
+				task.spawn(callback, self, unpack(self._values, 1, self._valuesLength))\
+			end\
+\
+			if Promise.TEST then\
+				-- Don't spam output when we're running tests.\
+				return\
+			end\
+\
+			warn(message)\
+		end)()\
+	end\
+\
+	self:_finalize()\
+end\
+\
+--[[\
+	Calls any :finally handlers. We need this to be a separate method and\
+	queue because we must call all of the finally callbacks upon a success,\
+	failure, *and* cancellation.\
+]]\
+function Promise.prototype:_finalize()\
+	for _, callback in ipairs(self._queuedFinally) do\
+		-- Purposefully not passing values to callbacks here, as it could be the\
+		-- resolved values, or rejected errors. If the developer needs the values,\
+		-- they should use :andThen or :catch explicitly.\
+		coroutine.wrap(callback)(self._status)\
+	end\
+\
+	self._queuedFinally = nil\
+	self._queuedReject = nil\
+	self._queuedResolve = nil\
+\
+	-- Clear references to other Promises to allow gc\
+	if not Promise.TEST then\
+		self._parent = nil\
+		self._consumers = nil\
+	end\
+\
+	task.defer(coroutine.close, self._thread)\
+end\
+\
+--[=[\
+	Chains a Promise from this one that is resolved if this Promise is already resolved, and rejected if it is not resolved at the time of calling `:now()`. This can be used to ensure your `andThen` handler occurs on the same frame as the root Promise execution.\
+\
+	```lua\
+	doSomething()\
+		:now()\
+		:andThen(function(value)\
+			print(\"Got\", value, \"synchronously.\")\
+		end)\
+	```\
+\
+	If this Promise is still running, Rejected, or Cancelled, the Promise returned from `:now()` will reject with the `rejectionValue` if passed, otherwise with a `Promise.Error(Promise.Error.Kind.NotResolvedInTime)`. This can be checked with [[Error.isKind]].\
+\
+	@param rejectionValue? any -- The value to reject with if the Promise isn't resolved\
+	@return Promise\
+]=]\
+function Promise.prototype:now(rejectionValue)\
+	local traceback = debug.traceback(nil, 2)\
+	if self._status == Promise.Status.Resolved then\
+		return self:_andThen(traceback, function(...)\
+			return ...\
+		end)\
+	else\
+		return Promise.reject(rejectionValue == nil and Error.new({\
+			kind = Error.Kind.NotResolvedInTime,\
+			error = \"This Promise was not resolved in time for :now()\",\
+			context = \":now() was called at:\\n\\n\" .. traceback,\
+		}) or rejectionValue)\
+	end\
+end\
+\
+--[=[\
+	Repeatedly calls a Promise-returning function up to `times` number of times, until the returned Promise resolves.\
+\
+	If the amount of retries is exceeded, the function will return the latest rejected Promise.\
+\
+	```lua\
+	local function canFail(a, b, c)\
+		return Promise.new(function(resolve, reject)\
+			-- do something that can fail\
+\
+			local failed, thing = doSomethingThatCanFail(a, b, c)\
+\
+			if failed then\
+				reject(\"it failed\")\
+			else\
+				resolve(thing)\
+			end\
+		end)\
+	end\
+\
+	local MAX_RETRIES = 10\
+	local value = Promise.retry(canFail, MAX_RETRIES, \"foo\", \"bar\", \"baz\") -- args to send to canFail\
+	```\
+\
+	@since 3.0.0\
+	@param callback (...: P) -> Promise<T>\
+	@param times number\
+	@param ...? P\
+	@return Promise<T>\
+]=]\
+function Promise.retry(callback, times, ...)\
+	assert(isCallable(callback), \"Parameter #1 to Promise.retry must be a function\")\
+	assert(type(times) == \"number\", \"Parameter #2 to Promise.retry must be a number\")\
+\
+	local args, length = { ... }, select(\"#\", ...)\
+\
+	return Promise.resolve(callback(...)):catch(function(...)\
+		if times > 0 then\
+			return Promise.retry(callback, times - 1, unpack(args, 1, length))\
+		else\
+			return Promise.reject(...)\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Repeatedly calls a Promise-returning function up to `times` number of times, waiting `seconds` seconds between each\
+	retry, until the returned Promise resolves.\
+\
+	If the amount of retries is exceeded, the function will return the latest rejected Promise.\
+\
+	@since v3.2.0\
+	@param callback (...: P) -> Promise<T>\
+	@param times number\
+	@param seconds number\
+	@param ...? P\
+	@return Promise<T>\
+]=]\
+function Promise.retryWithDelay(callback, times, seconds, ...)\
+	assert(isCallable(callback), \"Parameter #1 to Promise.retry must be a function\")\
+	assert(type(times) == \"number\", \"Parameter #2 (times) to Promise.retry must be a number\")\
+	assert(type(seconds) == \"number\", \"Parameter #3 (seconds) to Promise.retry must be a number\")\
+\
+	local args, length = { ... }, select(\"#\", ...)\
+\
+	return Promise.resolve(callback(...)):catch(function(...)\
+		if times > 0 then\
+			Promise.delay(seconds):await()\
+\
+			return Promise.retryWithDelay(callback, times - 1, seconds, unpack(args, 1, length))\
+		else\
+			return Promise.reject(...)\
+		end\
+	end)\
+end\
+\
+--[=[\
+	Converts an event into a Promise which resolves the next time the event fires.\
+\
+	The optional `predicate` callback, if passed, will receive the event arguments and should return `true` or `false`, based on if this fired event should resolve the Promise or not. If `true`, the Promise resolves. If `false`, nothing happens and the predicate will be rerun the next time the event fires.\
+\
+	The Promise will resolve with the event arguments.\
+\
+	:::tip\
+	This function will work given any object with a `Connect` method. This includes all Roblox events.\
+	:::\
+\
+	```lua\
+	-- Creates a Promise which only resolves when `somePart` is touched\
+	-- by a part named `\"Something specific\"`.\
+	return Promise.fromEvent(somePart.Touched, function(part)\
+		return part.Name == \"Something specific\"\
+	end)\
+	```\
+\
+	@since 3.0.0\
+	@param event Event -- Any object with a `Connect` method. This includes all Roblox events.\
+	@param predicate? (...: P) -> boolean -- A function which determines if the Promise should resolve with the given value, or wait for the next event to check again.\
+	@return Promise<P>\
+]=]\
+function Promise.fromEvent(event, predicate)\
+	predicate = predicate or function()\
+		return true\
+	end\
+\
+	return Promise._new(debug.traceback(nil, 2), function(resolve, _, onCancel)\
+		local connection\
+		local shouldDisconnect = false\
+\
+		local function disconnect()\
+			connection:Disconnect()\
+			connection = nil\
+		end\
+\
+		-- We use shouldDisconnect because if the callback given to Connect is called before\
+		-- Connect returns, connection will still be nil. This happens with events that queue up\
+		-- events when there's nothing connected, such as RemoteEvents\
+\
+		connection = event:Connect(function(...)\
+			local callbackValue = predicate(...)\
+\
+			if callbackValue == true then\
+				resolve(...)\
+\
+				if connection then\
+					disconnect()\
+				else\
+					shouldDisconnect = true\
+				end\
+			elseif type(callbackValue) ~= \"boolean\" then\
+				error(\"Promise.fromEvent predicate should always return a boolean\")\
+			end\
+		end)\
+\
+		if shouldDisconnect and connection then\
+			return disconnect()\
+		end\
+\
+		onCancel(disconnect)\
+	end)\
+end\
+\
+--[=[\
+	Registers a callback that runs when an unhandled rejection happens. An unhandled rejection happens when a Promise\
+	is rejected, and the rejection is not observed with `:catch`.\
+\
+	The callback is called with the actual promise that rejected, followed by the rejection values.\
+\
+	@since v3.2.0\
+	@param callback (promise: Promise, ...: any) -- A callback that runs when an unhandled rejection happens.\
+	@return () -> () -- Function that unregisters the `callback` when called\
+]=]\
+function Promise.onUnhandledRejection(callback)\
+	table.insert(Promise._unhandledRejectionCallbacks, callback)\
+\
+	return function()\
+		local index = table.find(Promise._unhandledRejectionCallbacks, callback)\
+\
+		if index then\
+			table.remove(Promise._unhandledRejectionCallbacks, index)\
+		end\
+	end\
+end\
+\
+return Promise"},
+{"Astrix/_Packages/Switch/Registry","ModuleScript","-- Switch\
+-- Registry.lua\
+-- Plinko Labs\
+\
+local Enums      = require(script.Parent.Enums)\
+local Action     = require(script.Parent.Action)\
+local Connection = require(script.Parent.Connection).Connection\
+local Types      = require(script.Parent.Types)\
+\
+local Registry = {}\
+\
+local _actions: { [string]: Types.ActionHandle } = {}\
+\
+function Registry.Define(name: string, config: Types.ActionConfig): Types.ActionHandle\
+	assert(typeof(name) == \"string\", \"[Switch] Define expects a string name\")\
+	assert(not _actions[name], \"[Switch] Action '\" .. name .. \"' is already defined\")\
+\
+	local action   = Action.new(name, config)\
+	_actions[name] = action\
+\
+	return action\
+end\
+\
+function Registry.Fetch(name: string): Types.ActionHandle?\
+	return _actions[name] or nil\
+end\
+\
+function Registry.Fork(name: string, newName: string, overrides: Types.ActionConfig?): Types.ActionHandle\
+	local source = _actions[name]\
+	assert(source,                \"[Switch] Fork: action '\" .. name    .. \"' does not exist\")\
+	assert(not _actions[newName], \"[Switch] Fork: action '\" .. newName .. \"' already exists\")\
+\
+	local config = {}\
+	for k, v in source.Config do\
+		config[k] = v\
+	end\
+	if overrides then\
+		for k, v in overrides do\
+			config[k] = v\
+		end\
+	end\
+\
+	local forked      = Action.new(newName, config)\
+	_actions[newName] = forked\
+\
+	return forked\
+end\
+\
+function Registry.Merge(...: Types.ActionHandle): Types.MergedHandle\
+	local actions = { ... }\
+	assert(#actions >= 2, \"[Switch] Merge expects at least 2 actions\")\
+\
+	local merged = {}\
+\
+	function merged:Next(state: Types.State)\
+		return Connection.new(function(fire)\
+			local disconnects = {}\
+\
+			for _, action in actions do\
+				local conn = action:Next(state)\
+				conn:Then(function(event)\
+					fire(event)\
+				end)\
+				table.insert(disconnects, function()\
+					conn:Destroy()\
+				end)\
+			end\
+\
+			return function()\
+				for _, disconnect in disconnects do\
+					disconnect()\
+				end\
+			end\
+		end)\
+	end\
+\
+	function merged:Poll(): Types.PollState\
+		for _, action in actions do\
+			if action:Poll() ~= Enums.Poll.Idle then\
+				return action:Poll()\
+			end\
+		end\
+		return Enums.Poll.Idle\
+	end\
+\
+	function merged:IsHeld(): boolean\
+		for _, action in actions do\
+			if action:IsHeld() then return true end\
+		end\
+		return false\
+	end\
+\
+	function merged:Destroy()\
+		for _, action in actions do\
+			action:Destroy()\
+		end\
+	end\
+\
+	return merged\
+end\
+\
+function Registry.Remove(name: string)\
+	local action = _actions[name]\
+	if action then\
+		action:Destroy()\
+		_actions[name] = nil\
+	end\
+end\
+\
+function Registry.Clear()\
+	for name, action in _actions do\
+		action:Destroy()\
+		_actions[name] = nil\
+	end\
+end\
+\
+function Registry.GetByTag(tag: string): { Types.ActionHandle }\
+	local results = {}\
+	for _, action in _actions do\
+		if action.Config.Tags and table.find(action.Config.Tags, tag) then\
+			table.insert(results, action)\
+		end\
+	end\
+	return results\
+end\
+\
+function Registry.All(): { Types.ActionHandle }\
+	local results = {}\
+	for _, action in _actions do\
+		table.insert(results, action)\
+	end\
+	return results\
+end\
+\
+return Registry"},
+{"Astrix/_Packages/Switch/Types","ModuleScript","-- Switch\
+-- Types.lua\
+-- Plinko Labs\
+\
+export type Platform = \"Console\" | \"Mobile\" | \"Computer\"\
+\
+export type Mode = \"Button\" | \"Axis\" | \"Combo\" | \"Shortcut\"\
+| \"Hold\" | \"Charge\" | \"DoubleTap\" | \"Mash\" | \"LongPress\" | \"Gesture\"\
+\
+export type State = \"Pressed\" | \"Released\" | \"Held\" | \"Changed\"\
+| \"Triggered\" | \"Canceled\" | \"Charged\" | \"Stepped\" | \"Moved\"\
+| \"DoubleTapped\" | \"LongPressed\" | \"Mashed\" | \"Conflicted\"\
+| \"Enabled\" | \"Disabled\"\
+\
+export type PollState = \"Idle\" | \"Active\" | \"Held\"\
+\
+export type Driver = \"IAS\" | \"CAS\" | \"UIS\"\
+\
+export type InputEvent = {\
+	Source:   Enum.KeyCode | Enum.UserInputType,\
+	State:    State,\
+	Delta:    Vector2?,\
+	Position: Vector2?,\
+	Progress: number?,\
+	Count:    number?,\
+	Step:     number?,\
+	Held:     boolean,\
+	Consumed: boolean,\
+	Consume:  (self: InputEvent) -> (),\
+}\
+\
+export type BindingConfig = {\
+	KeyCode:   (Enum.KeyCode | Enum.UserInputType)?,\
+	Modifier:  Enum.KeyCode?,\
+	Platforms: { Platform }?,\
+}\
+\
+export type ActionConfig = {\
+	Bindings:       { Enum.KeyCode | Enum.UserInputType | BindingConfig }?,\
+	Contexts:       { string }?,\
+	Driver:         Driver?,\
+	Mode:           Mode?,\
+	Sequence:       { Enum.KeyCode | Enum.UserInputType }?,\
+	Window:         number?,\
+	HoldTime:       number?,\
+	MashThreshold:  number?,\
+	Deadzone:       number?,\
+	RepeatInterval: number?,\
+	Priority:       number?,\
+	Platforms:      { Platform }?,\
+	Tags:           { string }?,\
+}\
+\
+export type ContextOptions = {\
+	Priority:  number?,\
+	Sink:      boolean?,\
+	Exclusive: boolean?,\
+}\
+\
+export type ContextEntry = {\
+	Name:     string,\
+	Priority: number,\
+	Sink:     boolean,\
+}\
+\
+export type MergedHandle = {\
+	Next:     (self: MergedHandle, state: State) -> Connection,\
+	Poll:     (self: MergedHandle) -> PollState,\
+	IsHeld:   (self: MergedHandle) -> boolean,\
+	Destroy:  (self: MergedHandle) -> (),\
+}\
+\
+export type Connection = {\
+	Then:    (self: Connection, cb: (InputEvent) -> any) -> Connection,\
+	Catch:   (self: Connection, cb: (string) -> ()) -> Connection,\
+	Once:    (self: Connection) -> Connection,\
+	Await:   (self: Connection) -> (boolean, InputEvent?),\
+	Destroy: (self: Connection) -> (),\
+}\
+\
+export type ActionHandle = {\
+	Name:        string,\
+	Config:      ActionConfig,\
+	Next:        (self: ActionHandle, state: State) -> Connection,\
+	HoldFor:     (self: ActionHandle, seconds: number) -> Connection,\
+	Poll:        (self: ActionHandle) -> PollState,\
+	IsHeld:      (self: ActionHandle) -> boolean,\
+	HeldDuration:(self: ActionHandle) -> number,\
+	Enable:      (self: ActionHandle) -> (),\
+	Disable:     (self: ActionHandle) -> (),\
+	Destroy:     (self: ActionHandle) -> (),\
+}\
+\
+return {}"},
 {"Astrix/_Patterns","Folder",nil},
 {"Astrix/_Patterns/CommandContext","ModuleScript","--!strict\
 \
@@ -4728,10 +24828,25 @@ return Profile\
 --- `Rank`. The two are independent on purpose — \"can open the console\" and\
 --- \"can run this\" are different questions.\
 \
-local Enums = require(script.Parent.Parent.Enums)\
+--- The rank bands.\
+---\
+--- **Placeholder values.** `Player 0-99`, `Admin 100-199`, `Owner 200` was\
+--- never confirmed in design; confirm before shipping, because changing them\
+--- later silently changes who can run what.\
+---\
+--- They live here rather than in a separate Enums module so the numbers and the\
+--- code that compares them cannot drift apart. `Astrix.Enums.Rank` is this\
+--- table.\
+local Bands = {\
+	Player = { Min = 0, Max = 99 },\
+	Admin = { Min = 100, Max = 199 },\
+	Owner = { Min = 200, Max = 200 },\
+}\
 \
 local Rank = {}\
 Rank.__index = Rank\
+\
+Rank.Bands = Bands\
 \
 export type Resolver = (Entity: any) -> number?\
 \
@@ -4757,13 +24872,13 @@ function Rank.new(): Ranks\
 	local self: Fields = {\
 		Assignments = {},\
 		Labels = {\
-			player = Enums.Rank.Player.Min,\
-			admin = Enums.Rank.Admin.Min,\
-			owner = Enums.Rank.Owner.Min,\
+			player = Bands.Player.Min,\
+			admin = Bands.Admin.Min,\
+			owner = Bands.Owner.Min,\
 		},\
 		Resolver = nil,\
-		Default = Enums.Rank.Player.Min,\
-		InterfaceRank = Enums.Rank.Player.Min,\
+		Default = Bands.Player.Min,\
+		InterfaceRank = Bands.Player.Min,\
 	}\
 \
 	return setmetatable(self, Rank)\
@@ -4824,9 +24939,9 @@ end\
 \
 --- The band a numeric rank falls in, for display.\
 function Rank.BandOf(self: Ranks, value: number): string\
-	if value >= Enums.Rank.Owner.Min then\
+	if value >= Bands.Owner.Min then\
 		return \"Owner\"\
-	elseif value >= Enums.Rank.Admin.Min then\
+	elseif value >= Bands.Admin.Min then\
 		return \"Admin\"\
 	end\
 \
@@ -5135,23 +25250,7 @@ return {\
 	},\
 }\
 "},
-{"Astrix/_Types","ModuleScript","--!strict\
-\
---- The argument type providers, keyed by the `ArgumentType` they serve.\
----\
---- Not to be confused with `Types.lua`, which holds the module's own type\
---- definitions. These are pluggable per-argument validators, casters and\
---- completers; add your own by assigning into this table before `Start`.\
-\
-return {\
-	String = require(script.String),\
-	Number = require(script.Number),\
-	Boolean = require(script.Boolean),\
-	Player = require(script.Player),\
-	Vector3 = require(script.Vector3),\
-	Enum = require(script.Enum),\
-}\
-"},
+{"Astrix/_Types","Folder",nil},
 {"Astrix/_Types/Boolean","ModuleScript","--!strict\
 \
 local Types = require(script.Parent.Parent.Types)\
@@ -5439,13 +25538,7 @@ local Provider: Types.ArgumentTypeProvider<Vector3> = {\
 \
 return Provider\
 "},
-{"Astrix/_Utility","ModuleScript","--!strict\
-\
---- Nothing has needed a generic helper yet. Kept as a home for the first thing\
---- that is genuinely shared rather than letting one appear in `_Patterns`.\
-\
-return {}\
-"},
+{"Astrix/_Utility","Folder",nil},
 }
 
 local options = (type(_G.AstrixInstall) == "table" and _G.AstrixInstall or {}) :: any

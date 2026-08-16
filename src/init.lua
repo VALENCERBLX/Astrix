@@ -26,7 +26,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local Types = require(script.Types)
-local Enums = require(script.Enums)
 
 local Command = require(script._Classes.Command)
 local Session = require(script._Classes.Input)
@@ -39,10 +38,26 @@ local Cooldown = require(script._Patterns.Cooldown)
 local Replication = require(script._Patterns.Replication)
 local Profile = require(script._Patterns.Profile)
 
-local Providers = require(script._Types)
 local Themes = require(script._Themes)
 local Functions = require(script._Functions)
-local Commands = require(script._Commands)
+
+--// `_Types` is a plain Folder, so its providers are required one by one and
+--// assembled here. Add your own by assigning into this table before `Start`.
+local Providers: { [string]: any } = {
+	String = require(script._Types.String),
+	Number = require(script._Types.Number),
+	Boolean = require(script._Types.Boolean),
+	Player = require(script._Types.Player),
+	Vector3 = require(script._Types.Vector3),
+	Enum = require(script._Types.Enum),
+}
+
+--// `_Commands` is a plain Folder too; each subfolder is its own manifest
+local Manifests = {
+	require(script._Commands._Local),
+	require(script._Commands._Server),
+	require(script._Commands._Service),
+}
 
 local Client = require(script._Main.Client)
 local Server = require(script._Main.Server)
@@ -58,6 +73,44 @@ export type AstrixOptions = Types.AstrixOptions
 export type AstrixProfile = Types.AstrixProfile
 export type Argument = Types.Argument
 export type Flag = Types.Flag
+
+--// enums -----------------------------------------------------------------------
+--- `Rank` is `_Patterns/Rank`'s own band table, not a copy — the numbers and
+--- the code that compares them cannot drift apart that way.
+local Enums = table.freeze({
+	Rank = Rank.Bands,
+
+	CommandType = table.freeze({ Local = "Local", Server = "Server", Service = "Service" }),
+	FlagKind = table.freeze({ IsValue = "IsValue", IsBool = "IsBool" }),
+
+	ArgumentType = table.freeze({
+		String = "String",
+		Number = "Number",
+		Boolean = "Boolean",
+		Player = "Player",
+		Vector3 = "Vector3",
+		Enum = "Enum",
+	}),
+
+	Resolve = table.freeze({
+		Ok = "Ok",
+		Fail = "Fail",
+		Warn = "Warn",
+		CommandNotFound = "CommandNotFound",
+		RankDenied = "RankDenied",
+		OnCooldown = "OnCooldown",
+		ParseFailed = "ParseFailed",
+		AbsoluteOverwrite = "AbsoluteOverwrite",
+	}),
+
+	HistoryKind = table.freeze({
+		Input = "Input",
+		Output = "Output",
+		Ok = "Ok",
+		Fail = "Fail",
+		Warn = "Warn",
+	}),
+})
 
 --// state -----------------------------------------------------------------------
 local registry = Lookup.new()
@@ -82,7 +135,12 @@ local function registerBuiltins()
 	builtinsRegistered = true
 
 	Functions.Install(natives)
-	Commands.Register(Astrix)
+
+	for _, manifest in Manifests do
+		for _, define in manifest do
+			define(Astrix)
+		end
+	end
 end
 
 --- Namespaced lookups available to Kyn. `@Players.Rin` lands here.
@@ -187,16 +245,22 @@ function Astrix.Start(options: AstrixOptions?)
 
 	started = true
 
-	--// the client learns server-only commands from the published schemas
-	Network.OnPublish(function(definitions)
-		for _, schema in definitions do
-			if not registry:Resolve(schema.Name) then
-				registry:Add(Replication.Hydrate(schema))
+	--// the client learns server-only commands from the published schemas.
+	--
+	--// Spawned, not awaited: the transport waits on instances the server
+	--// creates, so a client that boots first — or a place with no server half
+	--// at all — would otherwise stall here before the console ever opened.
+	task.spawn(function()
+		Network.OnPublish(function(definitions)
+			for _, schema in definitions do
+				if not registry:Resolve(schema.Name) then
+					registry:Add(Replication.Hydrate(schema))
+				end
 			end
-		end
-	end)
+		end)
 
-	Network.RequestPublish()
+		Network.RequestPublish()
+	end)
 
 	local Interface = require(script._Main.Interface)
 

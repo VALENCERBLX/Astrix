@@ -96,15 +96,13 @@ Windows are an arbitrary list rather than Konsole's hardcoded two channels.
 
 ## Install
 
-```toml
-# wally.toml
-[dependencies]
-Astrix = "valence/astrix@0.1.0"
-Lume = "kr3ative/lume@0.1.0"
-```
+Astrix is self-contained. Lume (UI), Switch (input) and Substance (networking)
+are vendored under `src/_Packages`, so there is nothing else to install and no
+version to keep in step.
 
-Or drop `src/` in as a ModuleScript tree — requires are real instance requires,
-so no build step is involved.
+Drop `src/` in as a ModuleScript tree, or sync it with Rojo —
+`default.project.json` already maps it to `ReplicatedStorage.Astrix`. Requires
+are real instance requires, so there is no build step.
 
 There is also a no-Rojo path: paste `dist/install.luau` into the Studio command
 bar. Regenerate it with `lune run scripts/build-installer` after changing
@@ -116,12 +114,12 @@ Honest list, so nothing reads as finished when it is not:
 
 - **Rank bands are placeholders.** `Player 0-99`, `Admin 100-199`, `Owner 200`
   was never confirmed. Changing them later silently changes who can run what.
-- **`Network.lua` is a RemoteFunction/RemoteEvent stand-in.** Substance is the
-  intended transport; the surface is already the shape Substance would give, so
-  it is a change in one file.
-- **Switch is not wired.** Keybinds are raw `UserInputService` connections.
-  They are the set that moves onto an `"AstrixConsole"` context so they go
-  quiet when the console is closed.
+- **`Network.lua` is a RemoteFunction/RemoteEvent stand-in.** Substance is
+  vendored and is the intended transport; the surface is already the shape
+  Substance would give, so it is a change in one file.
+- **Switch is vendored but not wired.** Keybinds are raw `UserInputService`
+  connections. They are the set that moves onto an `"AstrixConsole"` context so
+  they go quiet when the console is closed.
 - **Server tasks cannot stream output.** `ctx.Output.Reply/Error/Success` are
   no-ops on the server; only the returned resolve reaches the player.
 - **Lifecycle signals** (`PreExecute`, `PostExecute`, `PreSend`, `PostSend`,

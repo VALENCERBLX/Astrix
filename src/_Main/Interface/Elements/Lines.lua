@@ -8,7 +8,7 @@
 
 local Types = require(script.Parent.Parent.Parent.Parent.Types)
 local LineParser = require(script.Parent.Parent.Parent.Parent._Classes.Line)
-local Packages = require(script.Parent.Parent.Parent.Parent._Packages)
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)
 
 type HistoryEntry = Types.HistoryEntry
 
@@ -25,7 +25,6 @@ export type Fields = {
 export type Lines = typeof(setmetatable({} :: Fields, Lines))
 
 --// locals ---------------------------------------------------------------------
-local Lume = Packages.Lume()
 local Text = Lume.Text
 
 --- Colours one Kyn token by what the parser decided it is.

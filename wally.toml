@@ -8,9 +8,6 @@ registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 
 [dependencies]
-Lume = "kr3ative/lume@0.1.0"
-
-# Switch (input) and Substance (networking) are vendored under src/_Packages so
-# Astrix ships self-contained. Uncomment for Wally-managed copies instead.
-# Switch = "ker/switch@0.1.0"
-# Substance = "ker/substance@0.1.0"
+# None. Lume (UI), Switch (input) and Substance (networking) are all vendored
+# under src/_Packages, so Astrix installs as one self-contained tree and there
+# is no version to keep in step.

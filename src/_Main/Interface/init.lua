@@ -105,7 +105,7 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 			return
 		end
 
-		if not self.Container.Open then
+		if not self.Container.Shown then
 			return
 		end
 
@@ -184,7 +184,7 @@ function Interface.Hide(self: Interface)
 end
 
 function Interface.Toggle(self: Interface)
-	if self.Container.Open then
+	if self.Container.Shown then
 		Interface.Hide(self)
 	else
 		Interface.Show(self)

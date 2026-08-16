@@ -16,7 +16,7 @@
 local Players = game:GetService("Players")
 
 local LineParser = require(script.Parent.Parent.Parent.Parent._Classes.Line)
-local Packages = require(script.Parent.Parent.Parent.Parent._Packages)
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)
 
 local Suggestions = {}
 Suggestions.__index = Suggestions
@@ -33,7 +33,6 @@ export type Fields = {
 
 export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))
 
-local Lume = Packages.Lume()
 
 --// context -----------------------------------------------------------------------
 export type Context = {

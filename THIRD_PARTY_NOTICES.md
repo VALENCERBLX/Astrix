@@ -58,8 +58,17 @@ arbitrary-count `Window` model managed by `Container`.
 Astrix renders through **Lume** (<https://github.com/VALENCERBLX/Lume>), MIT,
 which is itself distilled from the Konsole console UI credited above.
 
+**Vendored** under `src/_Packages/Lume`, so Astrix installs as one tree with no
+separate dependency to keep in step.
+
 ---
 
 ## Switch, Substance
 
-Vendored under `src/_Packages`. Both MIT, by mkl48.
+Both MIT, by mkl48. **Vendored** under `src/_Packages/Switch` and
+`src/_Packages/Substance`.
+
+Switch is the intended home for every console keybind — a pushed
+`"AstrixConsole"` context so bindings go quiet when the console closes — and
+Substance the intended transport for `_Main/Network.lua`. Both are present and
+neither is wired yet; see the README.
