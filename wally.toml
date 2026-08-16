@@ -1,0 +1,16 @@
+[package]
+name = "valence/astrix"
+version = "0.1.0"
+description = "An in-game command console for Roblox, driven by Kyn — a bash-inspired shell language."
+license = "MIT"
+authors = ["Valence"]
+registry = "https://github.com/UpliftGames/wally-index"
+realm = "shared"
+
+[dependencies]
+Lume = "kr3ative/lume@0.1.0"
+
+# Switch (input) and Substance (networking) are vendored under src/_Packages so
+# Astrix ships self-contained. Uncomment for Wally-managed copies instead.
+# Switch = "ker/switch@0.1.0"
+# Substance = "ker/substance@0.1.0"

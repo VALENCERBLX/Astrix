@@ -1,0 +1,79 @@
+--!strict
+
+--- The server half: hosts `Tasks.Server` and publishes schema-only definitions.
+---
+--- Publishing is what makes a server-only command usable from a client that
+--- never defined it — the client learns the command's *shape* (name, aliases,
+--- arguments, flags, rank, cooldown) so autocomplete and argument hints work,
+--- while the function stays here.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local Types = require(script.Parent.Parent.Types)
+local Replication = require(script.Parent.Parent._Patterns.Replication)
+local Network = require(script.Parent.Network)
+local Client = require(script.Parent.Client)
+
+local Server = {}
+
+export type Fields = {
+	Registry: any,
+	Ranks: any,
+	Cooldowns: any,
+	Providers: { [string]: any },
+	Runtime: any,
+	Started: boolean,
+}
+
+--- Stands the server up: binds the invoke handler, publishes to everybody who
+--- is already here, and republishes whenever the registry changes or somebody
+--- joins.
+function Server.Start(deps: Fields)
+	assert(RunService:IsServer(), "Astrix.Start with Type Server must run on the server")
+
+	if deps.Started then
+		return
+	end
+
+	deps.Started = true
+
+	Network.Host(Client.MakeServerHandler({
+		Registry = deps.Registry,
+		Ranks = deps.Ranks,
+		Cooldowns = deps.Cooldowns,
+		Providers = deps.Providers,
+		Runtime = deps.Runtime,
+	}))
+
+	local function publish(player: Player?)
+		Network.Publish(Replication.StripAll(deps.Registry:List()), player)
+	end
+
+	--// a client that finishes loading after the first publish would otherwise
+	--// never learn the command set
+	Players.PlayerAdded:Connect(function(player)
+		publish(player)
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		if deps.Runtime then
+			deps.Runtime:Release(player)
+		end
+	end)
+
+	deps.Registry:Watch(function()
+		publish(nil)
+	end)
+
+	for _, player in Players:GetPlayers() do
+		publish(player)
+	end
+end
+
+--- Publishes the current command set on demand.
+function Server.Publish(deps: Fields, player: Player?)
+	Network.Publish(Replication.StripAll(deps.Registry:List()), player)
+end
+
+return Server

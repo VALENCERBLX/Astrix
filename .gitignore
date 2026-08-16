@@ -1,0 +1,12 @@
+# generated docs live on the gh-pages branch
+/docs/
+
+# wally install dirs
+/Packages/
+/ServerPackages/
+/DevPackages/
+
+# place files
+*.rbxl
+*.rbxlx
+*.rbxl.lock

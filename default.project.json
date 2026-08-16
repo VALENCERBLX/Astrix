@@ -1,0 +1,11 @@
+{
+	"name": "Astrix",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"Astrix": {
+				"$path": "src"
+			}
+		}
+	}
+}
