@@ -33,8 +33,8 @@ export type Argument = {
 	Default: any?,
 	Description: string?,
 
-	--- Only meaningful for `Type = "Enum"`. Without it there is nothing to
-	--- validate against, which is why the Enum provider used to never run.
+	--// only meaningful for `Type = "Enum"`. Without it there is nothing to
+	--// validate against, which is why the Enum provider used to never run
 	EnumValues: { string }?,
 }
 

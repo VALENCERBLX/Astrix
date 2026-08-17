@@ -97,8 +97,8 @@ export type Argument = Types.Argument\
 export type Flag = Types.Flag\
 \
 --// enums -----------------------------------------------------------------------\
---- `Rank` is `_Patterns/Rank`'s own band table, not a copy — the numbers and\
---- the code that compares them cannot drift apart that way.\
+--// `Rank` is `_Patterns/Rank`'s own band table, not a copy, so the numbers\
+--// and the code comparing them cannot drift apart\
 local Enums = table.freeze({\
 	Rank = Rank.Bands,\
 \
@@ -197,9 +197,9 @@ local function constructors(): { [string]: (...any) -> any }\
 		Color3 = function(r: any, g: any, b: any): Color3\
 			return Color3.fromRGB(tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0)\
 		end,\
-		--- Kept as a passthrough. Enum *arguments* validate against their\
-		--- declared `EnumValues`; this constructor is a bare tag with nothing\
-		--- to check it against, so it hands the name straight back.\
+		--// kept as a passthrough. Enum *arguments* validate against their\
+		--// declared `EnumValues`; this constructor is a bare tag with nothing\
+		--// to check it against, so it hands the name straight back\
 		Enum = function(name: any): string\
 			return tostring(name)\
 		end,\
@@ -328,6 +328,9 @@ function Astrix.Run(text: string): CommandResolve\
 	end\
 \
 	if interface then\
+		--// running anything opens the bar into a terminal, the way a console\
+		--// grows the moment it has something to say\
+		interface:Reveal()\
 		interface:Echo(text)\
 	end\
 \
@@ -358,8 +361,8 @@ function Astrix.Bind(key: Enum.KeyCode)\
 end\
 \
 --// windows ----------------------------------------------------------------------\
---- `Open` / `Close` / `List`, so a command can spawn its own panel. Inside a\
---- task prefer `ctx.Windows`, which is this same table.\
+--// `Open` / `Close` / `List`, so a command can spawn its own panel. Inside a\
+--// task prefer `ctx.Windows`, which is this same table\
 Astrix.Windows = {\
 	Open = function(config: Types.WindowConfig)\
 		return interface and interface.Container:Open(config)\
@@ -373,6 +376,25 @@ Astrix.Windows = {\
 		return if interface then interface.Container:List() else {}\
 	end,\
 }\
+\
+--// theming ----------------------------------------------------------------------\
+--- Switches the console theme. Returns false if no theme by that name exists.\
+function Astrix.SetTheme(name: string): boolean\
+	if not interface then\
+		return false\
+	end\
+\
+	return interface:SetTheme(name) ~= nil\
+end\
+\
+function Astrix.CurrentTheme(): string\
+	return if interface then interface:ThemeName() else \"Default\"\
+end\
+\
+--- Registers a theme, optionally extending an existing one.\
+function Astrix.DefineTheme(name: string, tokens: { [string]: any }, extends: string?)\
+	return Themes.Register(name, tokens, extends)\
+end\
 \
 --// ranks -------------------------------------------------------------------------\
 function Astrix.SetRank(entity: any, rank: number | string): number\
@@ -476,8 +498,8 @@ export type Argument = {\
 	Default: any?,\
 	Description: string?,\
 \
-	--- Only meaningful for `Type = \"Enum\"`. Without it there is nothing to\
-	--- validate against, which is why the Enum provider used to never run.\
+	--// only meaningful for `Type = \"Enum\"`. Without it there is nothing to\
+	--// validate against, which is why the Enum provider used to never run\
 	EnumValues: { string }?,\
 }\
 \
@@ -1016,17 +1038,17 @@ local Input = {}\
 Input.__index = Input\
 \
 export type Config = {\
-	--- Runs one command. Receives the head name, resolved positional values,\
-	--- resolved flags, and the raw line for context.\
+	--// runs one command: head name, resolved positional values, resolved\
+	--// flags, and the raw line for context\
 	Dispatch: ((Head: string, Args: { any }, Flags: { [string]: any }, Raw: string) -> CommandResolve)?,\
 \
-	--- `Astrix.Native` functions. Reserved: a `@Function` may not shadow one.\
+	--// `Astrix.Native` functions. Reserved: a `@Function` may not shadow one\
 	Natives: { [string]: (...any) -> any }?,\
 \
-	--- Namespaced lookups: `@Players.Rin` calls `Namespaces.Players(\"Rin\")`.\
+	--// namespaced lookups: `@Players.Rin` calls `Namespaces.Players(\"Rin\")`\
 	Namespaces: { [string]: (key: string) -> any }?,\
 \
-	--- `@Vector3(1, 2, 3)` and friends.\
+	--// `@Vector3(1, 2, 3)` and friends\
 	Constructors: { [string]: (...any) -> any }?,\
 \
 	MaxDepth: number?,\
@@ -2196,6 +2218,7 @@ return Window\
 return {\
 	require(script.Help),\
 	require(script.Teleport),\
+	require(script.Theme),\
 }\
 "},
 {"Astrix/_Commands/_Local/Help","ModuleScript","--!strict\
@@ -2307,6 +2330,55 @@ return function(Astrix: any)\
 				;(root :: BasePart).CFrame = CFrame.new(destination)\
 \
 				return Astrix.Resolve.Ok(`teleported {target.Name}`, target)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Local/Theme","ModuleScript","--!strict\
+\
+--- `theme [name]` — switches the console's theme, or lists what is registered.\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Theme\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Switches the console theme, or lists them\")\
+		:Parsed({\
+			{\
+				Name = \"Name\",\
+				Type = \"Enum\",\
+				Required = false,\
+				Description = \"a registered theme\",\
+				--// filled in at registration from the registry, so completion\
+				--// offers exactly what is installed\
+				EnumValues = Astrix.Themes.List(),\
+			},\
+		})\
+		:Tasks({\
+			Local = function(context)\
+				local elements = context.Output.Elements\
+				local wanted = context.Parsed.Name\
+\
+				if not wanted then\
+					local rows = {}\
+\
+					for _, name in Astrix.Themes.List() do\
+						table.insert(rows, { name, if name == Astrix.CurrentTheme() then \"active\" else \"\" })\
+					end\
+\
+					context.Output.Reply(elements.Table({ \"Theme\", \"\" }, rows))\
+\
+					return Astrix.Resolve.Ok(nil, #rows)\
+				end\
+\
+				local applied = Astrix.SetTheme(wanted)\
+\
+				if not applied then\
+					return Astrix.Resolve.Fail(`no theme named \"{wanted}\"`)\
+				end\
+\
+				return Astrix.Resolve.Ok(`theme set to {wanted}`, wanted)\
 			end,\
 		})\
 		:Register()\
@@ -2695,11 +2767,23 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 			return\
 		end\
 \
+		--// only while the console owns the keyboard. Without this, Tab and the\
+		--// arrows would still be driving the dropdown while the player is\
+		--// typing into some other part of the game\
+		if not view.Input:Focused() then\
+			return\
+		end\
+\
 		local code = input.KeyCode\
 		local visible = self.Suggestions:Visible()\
 \
+		--// Tab autofill. The dropdown and the ghost hint are the same thing seen\
+		--// two ways — the highlighted match is what is ghosted after the caret —\
+		--// so accepting either is one call\
 		if code == Enum.KeyCode.Tab then\
 			if visible then\
+				self.Suggestions:Accept()\
+			elseif self.Suggestions:Highlighted() then\
 				self.Suggestions:Accept()\
 			end\
 		elseif code == Enum.KeyCode.Up then\
@@ -2714,9 +2798,13 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 			elseif not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then\
 				view.Input:Recall(1)\
 			end\
+		--// Escape backs out one level at a time: the dropdown, then the\
+		--// expanded terminal, then the console itself\
 		elseif code == Enum.KeyCode.Escape then\
 			if visible then\
 				self.Suggestions:Hide()\
+			elseif self.Container:Expanded(self.Main) then\
+				self.Container:Collapse(self.Main)\
 			else\
 				self.Container:Hide()\
 			end\
@@ -2751,6 +2839,16 @@ function Interface.Resolve(self: Interface, resolve: Types.CommandResolve)\
 	end\
 end\
 \
+--- Output arriving is what turns a bar into a terminal, so anything that\
+--- writes makes sure the window is expanded to show it.\
+function Interface.Reveal(self: Interface)\
+	if not self.Container.Shown then\
+		self.Container:Show()\
+	end\
+\
+	self.Container:Expand(self.Main)\
+end\
+\
 function Interface.Write(self: Interface, kind: Types.HistoryKind, text: string, content: Types.ContentElement?)\
 	self.Container:Write(self.Main, kind, text, content)\
 end\
@@ -2759,6 +2857,7 @@ function Interface.Clear(self: Interface)\
 	self.Container:Clear(self.Main)\
 end\
 \
+--- Shows the console and opens it into a terminal.\
 function Interface.Show(self: Interface)\
 	self.Container:Show()\
 	self.Container:FocusWindow(self.Main)\
@@ -2769,12 +2868,48 @@ function Interface.Hide(self: Interface)\
 	self.Container:Hide()\
 end\
 \
+--- The activation key. Konsole toggles between a collapsed pill and an open\
+--- terminal rather than between shown and gone, so that is what this does:\
+--- hidden opens, collapsed expands, expanded collapses.\
 function Interface.Toggle(self: Interface)\
-	if self.Container.Shown then\
-		Interface.Hide(self)\
-	else\
+	if not self.Container.Shown then\
 		Interface.Show(self)\
+\
+		return\
 	end\
+\
+	if self.Container:Expanded(self.Main) then\
+		self.Suggestions:Hide()\
+		self.Container:Collapse(self.Main)\
+	else\
+		self.Container:FocusWindow(self.Main)\
+	end\
+end\
+\
+--- Whether the main window is open as a terminal rather than a bar.\
+function Interface.Expanded(self: Interface): boolean\
+	return self.Container:Expanded(self.Main)\
+end\
+\
+--- Switches theme at runtime. Returns the applied theme, or nil if unknown.\
+function Interface.SetTheme(self: Interface, name: string): any\
+	local resolved = Themes.Resolve(name)\
+\
+	--// Resolve falls back to Default on an unknown name, so an unrecognised\
+	--// one is detected by comparing rather than by trusting the return\
+	if string.lower(resolved.Name) ~= string.lower(name) then\
+		return nil\
+	end\
+\
+	self.Theme = resolved\
+\
+	self.Container:Restyle(resolved)\
+\
+	return resolved\
+end\
+\
+function Interface.ThemeName(self: Interface): string\
+	return self.Theme.Name\
 end\
 \
 --- `Astrix.Windows` — commands reach this as `ctx.Windows`.\
@@ -2815,13 +2950,24 @@ return Interface\
 \
 --- The shell: one Lume app hosting any number of console windows.\
 ---\
---- Konsole hardcoded two channels and branched on `channel == 2` throughout.\
---- Here a window is just an entry in `Windows`, stacked in `Order`, and nothing\
---- asks which one it is. Opening a third costs the same as opening the second.\
+--- This is a transpile of Konsole's console, not an approximation of it. The\
+--- behaviour it reproduces:\
 ---\
---- Each window is a Lume `bar` panel: a collapsed pill that grows upward as\
---- output arrives and morphs from pill to rounded rectangle on the way. That\
---- behaviour is Lume's, which is why none of Konsole's spring maths came over.\
+--- **Three widths, not one.** Collapsed the bar is `CollapsedWidth` (204).\
+--- Expanded with nothing to show it is `Width` (252). Once it has output it is\
+--- `OutputWidth` (338) — and from there it grows to whatever its longest line\
+--- needs, clamped by the viewport. That is Konsole's `activeWidth`:\
+--- `base = hasOutput and outputWidth or width`, then `max(base, measured)`.\
+---\
+--- **A collapsed bar is a button.** Click it and it expands, focuses, and\
+--- reveals its history. Collapsed, the input hides itself when empty so only\
+--- the placeholder shows.\
+---\
+--- **The morph.** Pill while it is one row tall, `OutputRadius` (12) once it\
+--- has grown. Lume does that; the numbers are Konsole's.\
+---\
+--- Konsole hardcoded two channels and branched on `channel == 2` throughout.\
+--- Here a window is an entry in `Windows`, and nothing asks which one it is.\
 \
 local Types = require(script.Parent.Parent.Parent.Parent.Types)\
 local Window = require(script.Parent.Parent.Parent.Parent._Classes.Window)\
@@ -2836,12 +2982,12 @@ type WindowConfig = Types.WindowConfig\
 local Container = {}\
 Container.__index = Container\
 \
-\
 export type View = {\
 	Window: any,\
 	Panel: any,\
 	Lines: any,\
 	Input: any,\
+	Expanded: boolean,\
 }\
 \
 export type Fields = {\
@@ -2856,25 +3002,32 @@ export type Fields = {\
 	Shown: boolean,\
 	OnSubmit: ((id: string, text: string) -> ())?,\
 	OnChange: ((id: string, text: string) -> ())?,\
+	OnExpand: ((id: string, expanded: boolean) -> ())?,\
 }\
 \
 export type Container = typeof(setmetatable({} :: Fields, Container))\
 \
 --// locals ---------------------------------------------------------------------\
---- Applies the console's own metrics onto a Lume panel.\
+--- Applies the console's metrics onto a Lume panel.\
 local function shape(panel: any, theme: any, config: WindowConfig)\
 	panel:setAnchor(if config.Docked == false then \"center\" else \"bottom\")\
 	panel:setInset(theme.Spacing.ViewportInset)\
 	panel:setPadding(theme.Spacing.PaddingX, theme.Spacing.PaddingY)\
 	panel:setGap(theme.Spacing.PaddingY)\
 	panel:setRadius(\"pill\")\
-	panel:setWidth(\"auto\")\
-	panel:setMinSize(config.Width or theme.Size.CollapsedWidth, 0)\
-	panel:setMaxSize(100000, theme.Size.HistoryMaxHeight + theme.Size.Height)\
 	panel:setColor(theme.Color.Background)\
 	panel:setTransparency(theme.Transparency.Panel)\
+	panel:setBorder(false)\
 	panel:setDraggable(true)\
-	panel:setShadow(true)\
+\
+	--// no shadow. Konsole's was a nine-sliced asset tuned to its own instance\
+	--// tree; tracked against a Lume panel it reads as a smear behind the bar,\
+	--// and the console is perfectly legible without it\
+	panel:setShadow(false)\
+\
+	--// starts collapsed: a fixed-width pill, no content growth\
+	panel:setWidth(theme.Size.CollapsedWidth)\
+	panel:setMaxSize(100000, theme.Size.HistoryMaxHeight + theme.Size.Height)\
 \
 	if config.Position then\
 		panel:moveTo(config.Position)\
@@ -2891,6 +3044,10 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 			displayOrder = settings.DisplayOrder or theme.Size.DisplayOrder,\
 		})\
 \
+	--// the console draws no shadows at all, so the token is cleared once here\
+	--// rather than switched off per panel\
+	app:restyle({ shadow = { image = \"\" } })\
+\
 	local self: Fields = {\
 		App = app,\
 		Theme = theme,\
@@ -2901,6 +3058,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Shown = false,\
 		OnSubmit = nil,\
 		OnChange = nil,\
+		OnExpand = nil,\
 	}\
 \
 	self.Stack:setGap(theme.Spacing.StackGap)\
@@ -2935,6 +3093,7 @@ function Container.Open(self: Container, config: WindowConfig): View\
 		Panel = panel,\
 		Lines = lines,\
 		Input = input,\
+		Expanded = false,\
 	}\
 \
 	input.OnSubmit = function(text)\
@@ -2949,6 +3108,12 @@ function Container.Open(self: Container, config: WindowConfig): View\
 		end\
 	end\
 \
+	--// a collapsed bar is a button\
+	panel:setActivatable(true)\
+	panel:onActivated(function()\
+		Container.Expand(self, config.Id)\
+	end)\
+\
 	self.Windows[config.Id] = view\
 \
 	table.insert(self.Order, config.Id)\
@@ -2959,10 +3124,115 @@ function Container.Open(self: Container, config: WindowConfig): View\
 \
 	panel:open()\
 \
+	Container.Collapse(self, config.Id)\
+\
 	self.Focus = config.Id\
 	self.Shown = true\
 \
 	return view\
+end\
+\
+--- Re-applies the width rule for a window's current state.\
+---\
+--- This is `activeWidth` from Konsole's panel module: collapsed is a fixed\
+--- pill, expanded starts at `Width`, and having output moves the floor to\
+--- `OutputWidth` — with Lume free to grow past it for a long line.\
+function Container.Resize(self: Container, id: string)\
+	local view = self.Windows[id]\
+\
+	if not view then\
+		return\
+	end\
+\
+	local theme = self.Theme\
+\
+	if not view.Expanded then\
+		view.Panel:setWidth(theme.Size.CollapsedWidth)\
+\
+		return\
+	end\
+\
+	local hasOutput = #view.Window.History > 0\
+	local base = if hasOutput then theme.Size.OutputWidth else theme.Size.Width\
+\
+	view.Panel:setWidth(\"auto\")\
+	view.Panel:setMinSize(base, 0)\
+end\
+\
+--- Opens the bar into a terminal: history visible, input focused.\
+function Container.Expand(self: Container, id: string)\
+	local view = self.Windows[id]\
+\
+	if not view or view.Expanded then\
+		return\
+	end\
+\
+	view.Expanded = true\
+\
+	--// the click target sits above the content; it has to step aside for the\
+	--// input to receive anything\
+	view.Panel:setActivatable(false)\
+\
+	view.Input:SetVisible(true)\
+	view.Lines:SetVisible(#view.Window.History > 0)\
+\
+	Container.Resize(self, id)\
+\
+	self.Focus = id\
+\
+	view.Panel:front()\
+	view.Input:Focus()\
+\
+	if self.OnExpand then\
+		self.OnExpand(id, true)\
+	end\
+end\
+\
+--- Shrinks back to the pill. An empty input hides so only the placeholder\
+--- shows, which is what makes the collapsed bar read as a prompt.\
+function Container.Collapse(self: Container, id: string)\
+	local view = self.Windows[id]\
+\
+	if not view then\
+		return\
+	end\
+\
+	view.Expanded = false\
+\
+	--// the input ROW stays: collapsed, the console still shows its prompt and\
+	--// placeholder, which is what makes the pill read as something you can type\
+	--// into. Konsole hides the TextBox, not the row — the difference is the\
+	--// caret, not the 34px of height\
+	view.Input:Blur()\
+	view.Lines:SetVisible(false)\
+\
+	Container.Resize(self, id)\
+\
+	view.Panel:setActivatable(true)\
+\
+	if self.OnExpand then\
+		self.OnExpand(id, false)\
+	end\
+end\
+\
+function Container.ToggleExpanded(self: Container, id: string)\
+	local view = self.Windows[id]\
+\
+	if not view then\
+		return\
+	end\
+\
+	if view.Expanded then\
+		Container.Collapse(self, id)\
+	else\
+		Container.Expand(self, id)\
+	end\
+end\
+\
+function Container.Expanded(self: Container, id: string): boolean\
+	local view = self.Windows[id]\
+\
+	return view ~= nil and view.Expanded\
 end\
 \
 function Container.Close(self: Container, id: string)\
@@ -3001,7 +3271,16 @@ function Container.List(self: Container): { string }\
 end\
 \
 --- Writes into a window and repaints it.\
-function Container.Write(self: Container, id: string, kind: Types.HistoryKind, text: string, content: Types.ContentElement?)\
+---\
+--- The first line of output is what turns a bar into a terminal, so the width\
+--- rule is re-applied on every write.\
+function Container.Write(\
+	self: Container,\
+	id: string,\
+	kind: Types.HistoryKind,\
+	text: string,\
+	content: Types.ContentElement?\
+)\
 	local view = self.Windows[id]\
 \
 	if not view then\
@@ -3015,6 +3294,12 @@ function Container.Write(self: Container, id: string, kind: Types.HistoryKind, t
 	end\
 \
 	view.Lines:Render()\
+\
+	if view.Expanded then\
+		view.Lines:SetVisible(#view.Window.History > 0)\
+\
+		Container.Resize(self, id)\
+	end\
 end\
 \
 function Container.Clear(self: Container, id: string)\
@@ -3026,9 +3311,12 @@ function Container.Clear(self: Container, id: string)\
 \
 	view.Window:Clear()\
 	view.Lines:Render()\
+	view.Lines:SetVisible(false)\
+\
+	Container.Resize(self, id)\
 end\
 \
---- Raises a window and puts the caret in it.\
+--- Raises a window, expands it and puts the caret in it.\
 function Container.FocusWindow(self: Container, id: string)\
 	local view = self.Windows[id]\
 \
@@ -3039,7 +3327,8 @@ function Container.FocusWindow(self: Container, id: string)\
 	self.Focus = id\
 \
 	view.Panel:front()\
-	view.Input:Focus()\
+\
+	Container.Expand(self, id)\
 end\
 \
 --- The stacking order, newest last. Mirrors `RuntimeEntry.Interface.State`.\
@@ -3057,6 +3346,8 @@ end\
 \
 function Container.Hide(self: Container)\
 	for _, id in self.Order do\
+		Container.Collapse(self, id)\
+\
 		self.Windows[id].Panel:close()\
 	end\
 \
@@ -3068,6 +3359,27 @@ function Container.Toggle(self: Container)\
 		Container.Hide(self)\
 	else\
 		Container.Show(self)\
+	end\
+end\
+\
+--- Re-applies a theme to every window that already exists.\
+---\
+--- Colours and transparencies are pushed onto the live instances rather than\
+--- rebuilt, so switching themes keeps your history, your scroll position and\
+--- whatever you were half-way through typing.\
+function Container.Restyle(self: Container, theme: any)\
+	self.Theme = theme\
+\
+	for _, id in self.Order do\
+		local view = self.Windows[id]\
+\
+		view.Panel:setColor(theme.Color.Background)\
+		view.Panel:setTransparency(theme.Transparency.Panel)\
+\
+		view.Input:Restyle(theme)\
+		view.Lines:Restyle(theme)\
+\
+		Container.Resize(self, id)\
 	end\
 end\
 \
@@ -3107,6 +3419,7 @@ export type Fields = {\
 	History: { string },\
 	Cursor: number,\
 	Draft: string,\
+	Multiline: boolean,\
 	OnSubmit: ((string) -> ())?,\
 	OnChange: ((string) -> ())?,\
 }\
@@ -3124,12 +3437,30 @@ function Input.new(panel: any, theme: any): Console\
 	field:setTextSize(theme.TextSize.Input)\
 	field:setClearOnSubmit(true)\
 \
+	--// the panel behind it already is the surface, so the input draws neither\
+	--// a well nor a border — that is what makes the row read as a prompt\
+	--// rather than as a text box sitting on a panel\
+	field:setSurface(theme.Color.Background, 1)\
+	field:setBorder(false)\
+	field:setRadius(0)\
+\
+	field:setColors({\
+		text = theme.Color.TextPrimary,\
+		placeholder = theme.Color.TextPrompt,\
+		prefix = theme.Color.TextPrompt,\
+		hint = theme.Color.TextGhost,\
+		icon = theme.Color.TextPrompt,\
+	})\
+\
+	field:setTrailingIcon(theme.Asset.Arrow)\
+\
 	local self: Fields = {\
 		Theme = theme,\
 		Field = field,\
 		History = {},\
 		Cursor = 0,\
 		Draft = \"\",\
+		Multiline = false,\
 		OnSubmit = nil,\
 		OnChange = nil,\
 	}\
@@ -3137,22 +3468,52 @@ function Input.new(panel: any, theme: any): Console\
 	local console = setmetatable(self, Input)\
 \
 	field:onChanged(function(text)\
+		Input.SyncMultiline(console, text)\
+\
 		if self.OnChange then\
 			self.OnChange(text)\
 		end\
 	end)\
 \
 	field:onSubmitted(function(text)\
-		if text ~= \"\" then\
-			Input.Remember(console, text)\
+		--// inside a [[ block Enter is a newline, not a submit\
+		if self.Multiline then\
+			return\
+		end\
+\
+		local body = Input.Unwrap(text)\
+\
+		if body ~= \"\" then\
+			Input.Remember(console, body)\
 		end\
 \
 		if self.OnSubmit then\
-			self.OnSubmit(text)\
+			self.OnSubmit(body)\
 		end\
 	end)\
 \
 	return console\
+end\
+\
+--- Re-applies a theme's colours to the live field.\
+function Input.Restyle(self: Console, theme: any)\
+	self.Theme = theme\
+\
+	self.Field:setColors({\
+		text = theme.Color.TextPrimary,\
+		placeholder = theme.Color.TextPrompt,\
+		prefix = theme.Color.TextPrompt,\
+		hint = theme.Color.TextGhost,\
+		icon = theme.Color.TextPrompt,\
+	})\
+\
+	self.Field:setTrailingIcon(theme.Asset.Arrow)\
+end\
+\
+--- Hides the whole input row. Konsole hides it when the bar is collapsed and\
+--- empty, leaving just the placeholder.\
+function Input.SetVisible(self: Console, visible: boolean)\
+	self.Field:setVisible(visible)\
 end\
 \
 function Input.Text(self: Console): string\
@@ -3167,12 +3528,79 @@ function Input.SetHint(self: Console, hint: string)\
 	self.Field:setHint(hint)\
 end\
 \
+--- Deferred on purpose.\
+---\
+--- Capturing focus during the same `InputBegan` that opened the console makes\
+--- the TextBox eat that keystroke, so pressing the activation key types its\
+--- own letter into the prompt. Waiting a frame lets the key finish being a\
+--- keybind before the field starts being a field.\
 function Input.Focus(self: Console)\
-	self.Field:focus()\
+	task.defer(function()\
+		self.Field:focus()\
+	end)\
+end\
+\
+--- Whether this input owns the keyboard. Console shortcuts check it so they\
+--- cannot fire while the player is typing somewhere else in the game.\
+function Input.Focused(self: Console): boolean\
+	return (self.Field :: any).focused == true\
 end\
 \
 function Input.Blur(self: Console)\
 	self.Field:blur()\
+end\
+\
+--- `[[` opens an inline multiline block and `]]` closes it.\
+---\
+--- While the block is open Enter inserts a newline instead of submitting, so a\
+--- long chain can be written across lines. Closing it submits immediately —\
+--- typing `]]` is the submit.\
+function Input.SyncMultiline(self: Console, text: string)\
+	local opens = select(2, string.gsub(text, \"%[%[\", \"\"))\
+	local closes = select(2, string.gsub(text, \"%]%]\", \"\"))\
+\
+	local inside = opens > closes\
+\
+	if inside == self.Multiline then\
+		return\
+	end\
+\
+	self.Multiline = inside\
+\
+	self.Field:setMultiline(inside)\
+\
+	--// the block just closed: submit what was inside it\
+	if not inside and opens > 0 then\
+		local body = Input.Unwrap(text)\
+\
+		if body ~= \"\" then\
+			Input.Remember(self, body)\
+\
+			if self.OnSubmit then\
+				self.OnSubmit(body)\
+			end\
+		end\
+\
+		Input.SetText(self, \"\")\
+	end\
+end\
+\
+--- Strips the `[[` / `]]` markers, leaving the command inside.\
+function Input.Unwrap(text: string): string\
+	local inner = string.match(text, \"^%s*%[%[(.*)%]%]%s*$\")\
+\
+	if inner then\
+		--// trim BOTH ends: `[[ Help ]]` is the command `Help`, and a trailing\
+		--// space would make it a different token stream\
+		return (string.match(inner, \"^%s*(.-)%s*$\")) or inner\
+	end\
+\
+	return (string.match(text, \"^%s*(.-)%s*$\")) or text\
+end\
+\
+--- Whether a multiline block is currently open.\
+function Input.InBlock(self: Console): boolean\
+	return self.Multiline\
 end\
 \
 --- Records a submitted line for up-arrow recall.\
@@ -3281,6 +3709,12 @@ end\
 function Input.BindLeaping(self: Console): () -> ()\
 	local connection = UserInputService.InputBegan:Connect(function(input, processed)\
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
+			return\
+		end\
+\
+		--// only while this input owns the keyboard, or Ctrl+Arrow would move a\
+		--// caret that is not on screen\
+		if not Input.Focused(self) then\
 			return\
 		end\
 \
@@ -3491,6 +3925,38 @@ function Lines.Render(self: Lines)\
 	window.Dirty = false\
 end\
 \
+--- Re-applies a theme and repaints. The renderer closes over the theme, so it\
+--- is rebound rather than merely swapped on the field.\
+function Lines.Restyle(self: Lines, theme: any)\
+	self.Theme = theme\
+\
+	self.List:setFont(theme.Font.Mono)\
+	self.List:setTextSize(theme.TextSize.Line)\
+	self.List:setRowHeight(theme.Size.LineHeight)\
+\
+	self.List:setRenderer(function(item)\
+		local entry = item.data :: HistoryEntry\
+\
+		if not entry then\
+			return Text.escape(item.text or \"\")\
+		end\
+\
+		if entry.Kind == \"Input\" then\
+			return Lines.Highlight(entry.Text, theme)\
+		end\
+\
+		return Text.color(Text.escape(entry.Text), toneOf(entry, theme))\
+	end)\
+\
+	Lines.Render(self)\
+end\
+\
+--- Hides the history entirely. A collapsed bar shows only its input row, so\
+--- the list must take no space rather than merely be empty.\
+function Lines.SetVisible(self: Lines, visible: boolean)\
+	self.List:setVisible(visible)\
+end\
+\
 function Lines.Destroy(self: Lines)\
 	self.List:destroy()\
 end\
@@ -3535,9 +4001,22 @@ export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))\
 \
 --// context -----------------------------------------------------------------------\
 export type Context = {\
-	Kind: \"Command\" | \"Player\" | \"Reference\" | \"Argument\" | \"None\",\
+	Kind: \"Command\" | \"Player\" | \"Reference\" | \"Argument\" | \"Flag\" | \"Stack\" | \"None\",\
 	Prefix: string,\
 	Argument: any?,\
+	Command: any?,\
+}\
+\
+--// Kyn's own vocabulary. Always offerable after `@`, because these exist\
+--// whether or not the player has defined anything yet\
+local BUILTINS = {\
+	\"Set\",\
+	\"Unset\",\
+	\"Function\",\
+	\"Players\",\
+	\"Vector3\",\
+	\"Color3\",\
+	\"Enum\",\
 }\
 \
 --- Works out what the caret is sitting on.\
@@ -3553,6 +4032,20 @@ function Suggestions.Context(raw: string, cursor: number, registry: any): Contex
 	local trailing = string.sub(upto, -1) == \" \"\
 	local current = if trailing then \"\" else (tokens[#tokens] and tokens[#tokens].Text or \"\")\
 	local position = if trailing then #tokens + 1 else #tokens\
+\
+	--// `::Kout`, the stack reference\
+	if string.sub(current, 1, 2) == \"::\" then\
+		return { Kind = \"Stack\", Prefix = string.sub(current, 3) }\
+	end\
+\
+	--// `--Flag`, which needs the command at the head of this segment to know\
+	--// what flags even exist\
+	if string.sub(current, 1, 2) == \"--\" then\
+		local head = tokens[1] and tokens[1].Text\
+		local definition = head and registry and registry:Resolve(head)\
+\
+		return { Kind = \"Flag\", Prefix = string.sub(current, 3), Command = definition }\
+	end\
 \
 	if string.sub(current, 1, 1) == \"@\" then\
 		local body = string.sub(current, 2)\
@@ -3630,14 +4123,30 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number)\
 			table.insert(options, player.Name)\
 		end\
 	elseif context.Kind == \"Reference\" then\
-		--// session variables, session functions, and the natives — which used\
-		--// to be missing from this list (open item #8)\
+		--// Kyn's builtins, then session variables, then session functions and\
+		--// the natives folded in with them\
+		for _, name in BUILTINS do\
+			table.insert(options, name)\
+		end\
+\
 		for _, name in self.Session:VariableNames() do\
 			table.insert(options, name)\
 		end\
 \
 		for _, name in self.Session:FunctionNames() do\
 			table.insert(options, name)\
+		end\
+	elseif context.Kind == \"Stack\" then\
+		options = { \"Kout\" }\
+	elseif context.Kind == \"Flag\" then\
+		local definition = context.Command\
+\
+		for _, flag in (definition and definition.Flags) or {} do\
+			table.insert(options, flag.Name)\
+\
+			for _, alias in flag.Aliases or {} do\
+				table.insert(options, alias)\
+			end\
 		end\
 	elseif context.Kind == \"Argument\" then\
 		local argument = context.Argument\
@@ -3702,6 +4211,13 @@ function Suggestions.Accept(self: Suggestions)\
 	self.Suggest:accept()\
 \
 	Suggestions.Hide(self)\
+end\
+\
+--- The match currently ghosted after the caret, if any. Tab accepts this even\
+--- when the dropdown is closed, which is what makes inline completion work\
+--- without the list in the way.\
+function Suggestions.Highlighted(self: Suggestions): any\
+	return self.Suggest:highlighted()\
 end\
 \
 function Suggestions.Destroy(self: Suggestions)\
@@ -6787,6 +7303,7 @@ export type Fields = Types.NodeFields & Types.ElementFields & {\
 \
 	font: Enum.Font,\
 	textSize: number,\
+	trailingImage: string,\
 	multiline: boolean,\
 	masked: boolean,\
 	maxLength: number,\
@@ -6864,6 +7381,25 @@ function Field.new(app: Types.App): Types.Field\
 					Visible = false,\
 					Name = \"Prefix\",\
 					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"ImageLabel\",\
+				ref = \"trailing\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					ImageColor3 = theme.color.textGhost,\
+					ImageTransparency = theme.transparency.arrow,\
+					ScaleType = Enum.ScaleType.Fit,\
+\
+					AnchorPoint = Vector2.new(1, 0.5),\
+					Position = UDim2.new(1, 0, 0.5, 0),\
+					Size = UDim2.fromOffset(12, 12),\
+\
+					Visible = false,\
+					Name = \"Trailing\",\
+					Image = \"\",\
+					ZIndex = 4,\
 				},\
 			},\
 			{\
@@ -6990,6 +7526,7 @@ function Field.new(app: Types.App): Types.Field\
 \
 		font = theme.font.body,\
 		textSize = theme.text.md,\
+		trailingImage = \"\",\
 		multiline = false,\
 		masked = false,\
 		maxLength = 0,\
@@ -7211,6 +7748,88 @@ function Field.setTextSize(self: Fields & Types.Field, size: number): Types.Fiel
 	return self:invalidate()\
 end\
 \
+--- A glyph pinned to the right edge — the console's submit arrow. It floats\
+--- above the input rather than joining the row, so it does not shift the caret.\
+function Field.setTrailingIcon(self: Fields & Types.Field, image: Types.Bindable<string>): Types.Field\
+	local icon = self.refs.trailing :: ImageLabel\
+\
+	Node.bind(self, \"trailing\", image, function(next: string)\
+		local value = tostring(next)\
+\
+		self.trailingImage = value\
+\
+		icon.Image = value\
+		icon.Visible = value ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+--- Recolours the parts independently. Omitted keys are left alone.\
+function Field.setColors(self: Fields & Types.Field, colors: { [string]: Color3 }): Types.Field\
+	local map = {\
+		text = { \"input\", \"mask\" },\
+		placeholder = { \"placeholder\" },\
+		prefix = { \"prefix\" },\
+		hint = { \"hint\" },\
+		icon = { \"icon\", \"trailing\" },\
+	}\
+\
+	for key, targets in map do\
+		local colour = colors[key]\
+\
+		if not colour then\
+			continue\
+		end\
+\
+		for _, name in targets do\
+			local instance = self.refs[name]\
+\
+			if not instance then\
+				continue\
+			end\
+\
+			if instance:IsA(\"ImageLabel\") then\
+				(instance :: ImageLabel).ImageColor3 = colour\
+			else\
+				(instance :: any).TextColor3 = colour\
+			end\
+		end\
+	end\
+\
+	return self\
+end\
+\
+--- The input's own corner radius, independent of the panel's.\
+function Field.setRadius(self: Fields & Types.Field, radius: number | \"pill\"): Types.Field\
+	local corner = self.instance:FindFirstChildOfClass(\"UICorner\")\
+\
+	if corner then\
+		corner.CornerRadius = if radius == \"pill\" then UDim.new(1, 0) else UDim.new(0, radius :: number)\
+	end\
+\
+	return self\
+end\
+\
+--- The well the text sits in. A console wants this invisible, since the panel\
+--- behind it already is the surface.\
+function Field.setSurface(self: Fields & Types.Field, color: Color3, transparency: number): Types.Field\
+	local root = self.instance :: Frame\
+\
+	root.BackgroundColor3 = color\
+	root.BackgroundTransparency = transparency\
+\
+	return self\
+end\
+\
+function Field.setBorder(self: Fields & Types.Field, enabled: boolean): Types.Field\
+	(self.refs.stroke :: UIStroke).Enabled = enabled ~= false\
+\
+	return self\
+end\
+\
 function Field.setMultiline(self: Fields & Types.Field, multiline: boolean): Types.Field\
 	local input = self.refs.input :: TextBox\
 \
@@ -7318,6 +7937,10 @@ function Field.measure(self: Fields & Types.Field, available: Vector2): Vector2\
 		content += self.app.measure:width(self.prefixText, self.textSize, theme.font.mono) + theme.space.xs\
 	end\
 \
+	if self.trailingImage ~= \"\" then\
+		content += 12 + theme.space.xs\
+	end\
+\
 	local natural = math.max(160, content + theme.space.sm * 2 + theme.space.md)\
 	local width = math.min(natural, math.max(1, available.X - self.margin * 2))\
 \
@@ -7344,6 +7967,10 @@ function Field.commit(self: Fields & Types.Field, inner: Vector2, vertical: bool
 \
 	if self.prefixText ~= \"\" then\
 		used += self.app.measure:width(self.prefixText, self.textSize, theme.font.mono) + theme.space.xs\
+	end\
+\
+	if self.trailingImage ~= \"\" then\
+		used += 12 + theme.space.xs\
 	end\
 \
 	;(self.refs.box :: Frame).Size = UDim2.new(0, math.max(0, width - used), 1, 0)\
@@ -13949,6 +14576,7 @@ function Panel.new(app: Types.App, preset: Types.Preset?): Panel\
 		mounted = false,\
 \
 		backdrop = nil,\
+		hitbox = nil,\
 		attachTarget = nil,\
 		attachSide = \"bottom\",\
 		attachGap = theme.space.xs,\
@@ -14328,6 +14956,50 @@ function Panel.setCloseButton(self: Panel, enabled: boolean): Panel\
 	self.refs.close.Visible = enabled ~= false\
 \
 	return self\
+end\
+\
+--- Covers the panel with a click target.\
+---\
+--- A collapsed console bar is a button: you click it and it opens. The target\
+--- sits above the content, so turning it off is what lets the expanded panel's\
+--- own children take input again.\
+function Panel.setActivatable(self: Panel, enabled: boolean): Panel\
+	if not enabled then\
+		if self.hitbox then\
+			self.hitbox.Visible = false\
+		end\
+\
+		return self\
+	end\
+\
+	if self.hitbox then\
+		self.hitbox.Visible = true\
+\
+		return self\
+	end\
+\
+	local button = Instance.new(\"TextButton\")\
+\
+	button.BackgroundTransparency = 1\
+	button.AutoButtonColor = false\
+	button.Size = UDim2.fromScale(1, 1)\
+	button.Text = \"\"\
+	button.Name = \"Hitbox\"\
+	button.ZIndex = 50\
+	button.Parent = self.instance\
+\
+	self.scope:add(button)\
+	self.scope:add(button.Activated:Connect(function()\
+		self:emit(\"activated\")\
+	end))\
+\
+	self.hitbox = button\
+\
+	return self\
+end\
+\
+function Panel.onActivated(self: Panel, handler: () -> ()): Panel\
+	return self:on(\"activated\", handler)\
 end\
 \
 --- Creates the dimming backdrop a modal sits on.\
@@ -16365,6 +17037,11 @@ export type PanelApi<T> = {\
 	setAnchor: (self: T, anchor: Anchor, offset: Vector2?) -> T,\
 	setLayer: (self: T, layer: string) -> T,\
 	setRadius: (self: T, radius: number | \"pill\") -> T,\
+	--- Makes the whole panel clickable, for a collapsed bar that expands when\
+	--- you click it. The target sits above the content, so it is turned off\
+	--- automatically while the panel is expanded.\
+	setActivatable: (self: T, enabled: boolean) -> T,\
+	onActivated: (self: T, handler: () -> ()) -> T,\
 	setColor: (self: T, color: Bindable<Color3>) -> T,\
 	setTransparency: (self: T, transparency: Bindable<number>) -> T,\
 	setBorder: (self: T, enabled: boolean) -> T,\
@@ -16499,6 +17176,14 @@ export type Field = NodeFields & ElementFields & NodeApi<Field> & ElementApi<Fie
 	setHint: (self: Field, hint: Bindable<string>) -> Field,\
 	setFont: (self: Field, font: Enum.Font) -> Field,\
 	setTextSize: (self: Field, size: number) -> Field,\
+	--- A trailing glyph on the right edge — the console's submit arrow.\
+	setTrailingIcon: (self: Field, image: Bindable<string>) -> Field,\
+	--- Recolours the parts independently: `text`, `placeholder`, `prefix`,\
+	--- `hint`, `icon`. Omitted keys keep their current colour.\
+	setColors: (self: Field, colors: { [string]: Color3 }) -> Field,\
+	setRadius: (self: Field, radius: number | \"pill\") -> Field,\
+	setSurface: (self: Field, color: Color3, transparency: number) -> Field,\
+	setBorder: (self: Field, enabled: boolean) -> Field,\
 	setMultiline: (self: Field, multiline: boolean) -> Field,\
 	setMasked: (self: Field, masked: boolean) -> Field,\
 	setMaxLength: (self: Field, length: number) -> Field,\
@@ -24828,15 +25513,15 @@ return Profile\
 --- `Rank`. The two are independent on purpose — \"can open the console\" and\
 --- \"can run this\" are different questions.\
 \
---- The rank bands.\
----\
---- **Placeholder values.** `Player 0-99`, `Admin 100-199`, `Owner 200` was\
---- never confirmed in design; confirm before shipping, because changing them\
---- later silently changes who can run what.\
----\
---- They live here rather than in a separate Enums module so the numbers and the\
---- code that compares them cannot drift apart. `Astrix.Enums.Rank` is this\
---- table.\
+--// The rank bands.\
+--//\
+--// **Placeholder values.** `Player 0-99`, `Admin 100-199`, `Owner 200` was\
+--// never confirmed in design; confirm before shipping, because changing them\
+--// later silently changes who can run what.\
+--//\
+--// They live here rather than in a separate Enums module so the numbers and\
+--// the code comparing them cannot drift apart. `Astrix.Enums.Rank` is this\
+--// same table\
 local Bands = {\
 	Player = { Min = 0, Max = 99 },\
 	Admin = { Min = 100, Max = 199 },\
@@ -24856,9 +25541,32 @@ export type Fields = {\
 	Resolver: Resolver?,\
 	Default: number,\
 	InterfaceRank: number,\
+	OwnerIsCreator: boolean,\
 }\
 \
 export type Ranks = typeof(setmetatable({} :: Fields, Rank))\
+\
+--- The place owner, so a solo developer is not locked out of their own console\
+--- the moment they install it.\
+---\
+--- This is the fallback, not an override: an explicit `SetRank` or a bound\
+--- resolver both win. Group-owned places get nothing automatic, because \"who\
+--- owns the group\" is a question only the game can answer.\
+local function creatorRank(entity: any): number?\
+	local id = if typeof(entity) == \"Instance\" and (entity :: Instance):IsA(\"Player\")\
+		then (entity :: Player).UserId\
+		else tonumber(entity)\
+\
+	if not id then\
+		return nil\
+	end\
+\
+	if game.CreatorType == Enum.CreatorType.User and game.CreatorId == id then\
+		return Bands.Owner.Min\
+	end\
+\
+	return nil\
+end\
 \
 local function userIdOf(entity: any): number?\
 	if typeof(entity) == \"Instance\" and (entity :: Instance):IsA(\"Player\") then\
@@ -24879,6 +25587,7 @@ function Rank.new(): Ranks\
 		Resolver = nil,\
 		Default = Bands.Player.Min,\
 		InterfaceRank = Bands.Player.Min,\
+		OwnerIsCreator = true,\
 	}\
 \
 	return setmetatable(self, Rank)\
@@ -24914,6 +25623,14 @@ function Rank.Get(self: Ranks, entity: any): number\
 \
 	if id and self.Assignments[id] then\
 		return self.Assignments[id]\
+	end\
+\
+	if self.OwnerIsCreator then\
+		local creator = creatorRank(entity)\
+\
+		if creator then\
+			return creator\
+		end\
 	end\
 \
 	return self.Default\
@@ -25104,6 +25821,11 @@ end\
 \
 Themes.Default = Default\
 \
+--// `Konsole` ships alongside `Default`: the same console with the brand\
+--// layer taken off. Registered here rather than in `init.lua` so the registry\
+--// is populated the moment anything requires this module\
+Themes.Konsole = Themes.Register(\"Konsole\", require(script.Konsole), \"Default\")\
+\
 return Themes\
 "},
 {"Astrix/_Themes/Default","ModuleScript","--!strict\
@@ -25247,6 +25969,44 @@ return {\
 		Shadow = \"rbxassetid://1316045217\",\
 		Arrow = \"rbxassetid://6031104654\",\
 		AddWindow = \"rbxassetid://6035047391\",\
+	},\
+}\
+"},
+{"Astrix/_Themes/Konsole","ModuleScript","--!strict\
+\
+--- The console with no brand colour at all — Konsole exactly as it was.\
+---\
+--- Astrix's `Default` is this palette plus one purple layer on the mark, the\
+--- prompt glyph, the focus ring and the active suggestion. This theme takes\
+--- that layer back off: `Accent` becomes the same white the suggestion\
+--- highlight already used, so nothing on screen is Valence-branded.\
+---\
+--- Registered as an override on `Default`, so it inherits every metric and\
+--- only restates what differs.\
+\
+local rgb = Color3.fromRGB\
+\
+return {\
+	Accent = {\
+		Primary = rgb(255, 255, 255),\
+		Soft = rgb(207, 207, 207), --// suggSub\
+		Contrast = rgb(0, 0, 0),\
+	},\
+\
+	Rich = {\
+		Accent = \"#FFFFFF\",\
+	},\
+\
+	--// Kyn still needs highlighting, but in greys rather than a palette\
+	Syntax = {\
+		Ref = \"#EEEEEE\",\
+		Stack = \"#CFCFCF\",\
+		Flag = \"#FFD36A\",\
+		String = \"#89FF7E\",\
+		Number = \"#CFCFCF\",\
+		Operator = \"#9F9F9F\",\
+		Comment = \"#6E6E6E\",\
+		Command = \"#FFFFFF\",\
 	},\
 }\
 "},

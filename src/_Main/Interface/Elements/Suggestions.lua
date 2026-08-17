@@ -36,9 +36,22 @@ export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))
 
 --// context -----------------------------------------------------------------------
 export type Context = {
-	Kind: "Command" | "Player" | "Reference" | "Argument" | "None",
+	Kind: "Command" | "Player" | "Reference" | "Argument" | "Flag" | "Stack" | "None",
 	Prefix: string,
 	Argument: any?,
+	Command: any?,
+}
+
+--// Kyn's own vocabulary. Always offerable after `@`, because these exist
+--// whether or not the player has defined anything yet
+local BUILTINS = {
+	"Set",
+	"Unset",
+	"Function",
+	"Players",
+	"Vector3",
+	"Color3",
+	"Enum",
 }
 
 --- Works out what the caret is sitting on.
@@ -54,6 +67,20 @@ function Suggestions.Context(raw: string, cursor: number, registry: any): Contex
 	local trailing = string.sub(upto, -1) == " "
 	local current = if trailing then "" else (tokens[#tokens] and tokens[#tokens].Text or "")
 	local position = if trailing then #tokens + 1 else #tokens
+
+	--// `::Kout`, the stack reference
+	if string.sub(current, 1, 2) == "::" then
+		return { Kind = "Stack", Prefix = string.sub(current, 3) }
+	end
+
+	--// `--Flag`, which needs the command at the head of this segment to know
+	--// what flags even exist
+	if string.sub(current, 1, 2) == "--" then
+		local head = tokens[1] and tokens[1].Text
+		local definition = head and registry and registry:Resolve(head)
+
+		return { Kind = "Flag", Prefix = string.sub(current, 3), Command = definition }
+	end
 
 	if string.sub(current, 1, 1) == "@" then
 		local body = string.sub(current, 2)
@@ -131,14 +158,30 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number)
 			table.insert(options, player.Name)
 		end
 	elseif context.Kind == "Reference" then
-		--// session variables, session functions, and the natives — which used
-		--// to be missing from this list (open item #8)
+		--// Kyn's builtins, then session variables, then session functions and
+		--// the natives folded in with them
+		for _, name in BUILTINS do
+			table.insert(options, name)
+		end
+
 		for _, name in self.Session:VariableNames() do
 			table.insert(options, name)
 		end
 
 		for _, name in self.Session:FunctionNames() do
 			table.insert(options, name)
+		end
+	elseif context.Kind == "Stack" then
+		options = { "Kout" }
+	elseif context.Kind == "Flag" then
+		local definition = context.Command
+
+		for _, flag in (definition and definition.Flags) or {} do
+			table.insert(options, flag.Name)
+
+			for _, alias in flag.Aliases or {} do
+				table.insert(options, alias)
+			end
 		end
 	elseif context.Kind == "Argument" then
 		local argument = context.Argument
@@ -203,6 +246,13 @@ function Suggestions.Accept(self: Suggestions)
 	self.Suggest:accept()
 
 	Suggestions.Hide(self)
+end
+
+--- The match currently ghosted after the caret, if any. Tab accepts this even
+--- when the dropdown is closed, which is what makes inline completion work
+--- without the list in the way.
+function Suggestions.Highlighted(self: Suggestions): any
+	return self.Suggest:highlighted()
 end
 
 function Suggestions.Destroy(self: Suggestions)

@@ -32,6 +32,7 @@ export type Fields = Types.NodeFields & Types.ElementFields & {
 
 	font: Enum.Font,
 	textSize: number,
+	trailingImage: string,
 	multiline: boolean,
 	masked: boolean,
 	maxLength: number,
@@ -109,6 +110,25 @@ function Field.new(app: Types.App): Types.Field
 					Visible = false,
 					Name = "Prefix",
 					Text = "",
+				},
+			},
+			{
+				class = "ImageLabel",
+				ref = "trailing",
+				props = {
+					BackgroundTransparency = 1,
+					ImageColor3 = theme.color.textGhost,
+					ImageTransparency = theme.transparency.arrow,
+					ScaleType = Enum.ScaleType.Fit,
+
+					AnchorPoint = Vector2.new(1, 0.5),
+					Position = UDim2.new(1, 0, 0.5, 0),
+					Size = UDim2.fromOffset(12, 12),
+
+					Visible = false,
+					Name = "Trailing",
+					Image = "",
+					ZIndex = 4,
 				},
 			},
 			{
@@ -235,6 +255,7 @@ function Field.new(app: Types.App): Types.Field
 
 		font = theme.font.body,
 		textSize = theme.text.md,
+		trailingImage = "",
 		multiline = false,
 		masked = false,
 		maxLength = 0,
@@ -456,6 +477,88 @@ function Field.setTextSize(self: Fields & Types.Field, size: number): Types.Fiel
 	return self:invalidate()
 end
 
+--- A glyph pinned to the right edge — the console's submit arrow. It floats
+--- above the input rather than joining the row, so it does not shift the caret.
+function Field.setTrailingIcon(self: Fields & Types.Field, image: Types.Bindable<string>): Types.Field
+	local icon = self.refs.trailing :: ImageLabel
+
+	Node.bind(self, "trailing", image, function(next: string)
+		local value = tostring(next)
+
+		self.trailingImage = value
+
+		icon.Image = value
+		icon.Visible = value ~= ""
+
+		self:invalidate()
+	end)
+
+	return self
+end
+
+--- Recolours the parts independently. Omitted keys are left alone.
+function Field.setColors(self: Fields & Types.Field, colors: { [string]: Color3 }): Types.Field
+	local map = {
+		text = { "input", "mask" },
+		placeholder = { "placeholder" },
+		prefix = { "prefix" },
+		hint = { "hint" },
+		icon = { "icon", "trailing" },
+	}
+
+	for key, targets in map do
+		local colour = colors[key]
+
+		if not colour then
+			continue
+		end
+
+		for _, name in targets do
+			local instance = self.refs[name]
+
+			if not instance then
+				continue
+			end
+
+			if instance:IsA("ImageLabel") then
+				(instance :: ImageLabel).ImageColor3 = colour
+			else
+				(instance :: any).TextColor3 = colour
+			end
+		end
+	end
+
+	return self
+end
+
+--- The input's own corner radius, independent of the panel's.
+function Field.setRadius(self: Fields & Types.Field, radius: number | "pill"): Types.Field
+	local corner = self.instance:FindFirstChildOfClass("UICorner")
+
+	if corner then
+		corner.CornerRadius = if radius == "pill" then UDim.new(1, 0) else UDim.new(0, radius :: number)
+	end
+
+	return self
+end
+
+--- The well the text sits in. A console wants this invisible, since the panel
+--- behind it already is the surface.
+function Field.setSurface(self: Fields & Types.Field, color: Color3, transparency: number): Types.Field
+	local root = self.instance :: Frame
+
+	root.BackgroundColor3 = color
+	root.BackgroundTransparency = transparency
+
+	return self
+end
+
+function Field.setBorder(self: Fields & Types.Field, enabled: boolean): Types.Field
+	(self.refs.stroke :: UIStroke).Enabled = enabled ~= false
+
+	return self
+end
+
 function Field.setMultiline(self: Fields & Types.Field, multiline: boolean): Types.Field
 	local input = self.refs.input :: TextBox
 
@@ -563,6 +666,10 @@ function Field.measure(self: Fields & Types.Field, available: Vector2): Vector2
 		content += self.app.measure:width(self.prefixText, self.textSize, theme.font.mono) + theme.space.xs
 	end
 
+	if self.trailingImage ~= "" then
+		content += 12 + theme.space.xs
+	end
+
 	local natural = math.max(160, content + theme.space.sm * 2 + theme.space.md)
 	local width = math.min(natural, math.max(1, available.X - self.margin * 2))
 
@@ -589,6 +696,10 @@ function Field.commit(self: Fields & Types.Field, inner: Vector2, vertical: bool
 
 	if self.prefixText ~= "" then
 		used += self.app.measure:width(self.prefixText, self.textSize, theme.font.mono) + theme.space.xs
+	end
+
+	if self.trailingImage ~= "" then
+		used += 12 + theme.space.xs
 	end
 
 	;(self.refs.box :: Frame).Size = UDim2.new(0, math.max(0, width - used), 1, 0)

@@ -342,6 +342,11 @@ export type PanelApi<T> = {
 	setAnchor: (self: T, anchor: Anchor, offset: Vector2?) -> T,
 	setLayer: (self: T, layer: string) -> T,
 	setRadius: (self: T, radius: number | "pill") -> T,
+	--- Makes the whole panel clickable, for a collapsed bar that expands when
+	--- you click it. The target sits above the content, so it is turned off
+	--- automatically while the panel is expanded.
+	setActivatable: (self: T, enabled: boolean) -> T,
+	onActivated: (self: T, handler: () -> ()) -> T,
 	setColor: (self: T, color: Bindable<Color3>) -> T,
 	setTransparency: (self: T, transparency: Bindable<number>) -> T,
 	setBorder: (self: T, enabled: boolean) -> T,
@@ -476,6 +481,14 @@ export type Field = NodeFields & ElementFields & NodeApi<Field> & ElementApi<Fie
 	setHint: (self: Field, hint: Bindable<string>) -> Field,
 	setFont: (self: Field, font: Enum.Font) -> Field,
 	setTextSize: (self: Field, size: number) -> Field,
+	--- A trailing glyph on the right edge — the console's submit arrow.
+	setTrailingIcon: (self: Field, image: Bindable<string>) -> Field,
+	--- Recolours the parts independently: `text`, `placeholder`, `prefix`,
+	--- `hint`, `icon`. Omitted keys keep their current colour.
+	setColors: (self: Field, colors: { [string]: Color3 }) -> Field,
+	setRadius: (self: Field, radius: number | "pill") -> Field,
+	setSurface: (self: Field, color: Color3, transparency: number) -> Field,
+	setBorder: (self: Field, enabled: boolean) -> Field,
 	setMultiline: (self: Field, multiline: boolean) -> Field,
 	setMasked: (self: Field, masked: boolean) -> Field,
 	setMaxLength: (self: Field, length: number) -> Field,

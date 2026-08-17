@@ -8,15 +8,15 @@
 --- `Rank`. The two are independent on purpose — "can open the console" and
 --- "can run this" are different questions.
 
---- The rank bands.
----
---- **Placeholder values.** `Player 0-99`, `Admin 100-199`, `Owner 200` was
---- never confirmed in design; confirm before shipping, because changing them
---- later silently changes who can run what.
----
---- They live here rather than in a separate Enums module so the numbers and the
---- code that compares them cannot drift apart. `Astrix.Enums.Rank` is this
---- table.
+--// The rank bands.
+--//
+--// **Placeholder values.** `Player 0-99`, `Admin 100-199`, `Owner 200` was
+--// never confirmed in design; confirm before shipping, because changing them
+--// later silently changes who can run what.
+--//
+--// They live here rather than in a separate Enums module so the numbers and
+--// the code comparing them cannot drift apart. `Astrix.Enums.Rank` is this
+--// same table
 local Bands = {
 	Player = { Min = 0, Max = 99 },
 	Admin = { Min = 100, Max = 199 },
@@ -36,9 +36,32 @@ export type Fields = {
 	Resolver: Resolver?,
 	Default: number,
 	InterfaceRank: number,
+	OwnerIsCreator: boolean,
 }
 
 export type Ranks = typeof(setmetatable({} :: Fields, Rank))
+
+--- The place owner, so a solo developer is not locked out of their own console
+--- the moment they install it.
+---
+--- This is the fallback, not an override: an explicit `SetRank` or a bound
+--- resolver both win. Group-owned places get nothing automatic, because "who
+--- owns the group" is a question only the game can answer.
+local function creatorRank(entity: any): number?
+	local id = if typeof(entity) == "Instance" and (entity :: Instance):IsA("Player")
+		then (entity :: Player).UserId
+		else tonumber(entity)
+
+	if not id then
+		return nil
+	end
+
+	if game.CreatorType == Enum.CreatorType.User and game.CreatorId == id then
+		return Bands.Owner.Min
+	end
+
+	return nil
+end
 
 local function userIdOf(entity: any): number?
 	if typeof(entity) == "Instance" and (entity :: Instance):IsA("Player") then
@@ -59,6 +82,7 @@ function Rank.new(): Ranks
 		Resolver = nil,
 		Default = Bands.Player.Min,
 		InterfaceRank = Bands.Player.Min,
+		OwnerIsCreator = true,
 	}
 
 	return setmetatable(self, Rank)
@@ -94,6 +118,14 @@ function Rank.Get(self: Ranks, entity: any): number
 
 	if id and self.Assignments[id] then
 		return self.Assignments[id]
+	end
+
+	if self.OwnerIsCreator then
+		local creator = creatorRank(entity)
+
+		if creator then
+			return creator
+		end
 	end
 
 	return self.Default

@@ -145,6 +145,7 @@ function Panel.new(app: Types.App, preset: Types.Preset?): Panel
 		mounted = false,
 
 		backdrop = nil,
+		hitbox = nil,
 		attachTarget = nil,
 		attachSide = "bottom",
 		attachGap = theme.space.xs,
@@ -524,6 +525,50 @@ function Panel.setCloseButton(self: Panel, enabled: boolean): Panel
 	self.refs.close.Visible = enabled ~= false
 
 	return self
+end
+
+--- Covers the panel with a click target.
+---
+--- A collapsed console bar is a button: you click it and it opens. The target
+--- sits above the content, so turning it off is what lets the expanded panel's
+--- own children take input again.
+function Panel.setActivatable(self: Panel, enabled: boolean): Panel
+	if not enabled then
+		if self.hitbox then
+			self.hitbox.Visible = false
+		end
+
+		return self
+	end
+
+	if self.hitbox then
+		self.hitbox.Visible = true
+
+		return self
+	end
+
+	local button = Instance.new("TextButton")
+
+	button.BackgroundTransparency = 1
+	button.AutoButtonColor = false
+	button.Size = UDim2.fromScale(1, 1)
+	button.Text = ""
+	button.Name = "Hitbox"
+	button.ZIndex = 50
+	button.Parent = self.instance
+
+	self.scope:add(button)
+	self.scope:add(button.Activated:Connect(function()
+		self:emit("activated")
+	end))
+
+	self.hitbox = button
+
+	return self
+end
+
+function Panel.onActivated(self: Panel, handler: () -> ()): Panel
+	return self:on("activated", handler)
 end
 
 --- Creates the dimming backdrop a modal sits on.

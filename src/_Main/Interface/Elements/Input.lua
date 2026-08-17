@@ -24,6 +24,7 @@ export type Fields = {
 	History: { string },
 	Cursor: number,
 	Draft: string,
+	Multiline: boolean,
 	OnSubmit: ((string) -> ())?,
 	OnChange: ((string) -> ())?,
 }
@@ -41,12 +42,30 @@ function Input.new(panel: any, theme: any): Console
 	field:setTextSize(theme.TextSize.Input)
 	field:setClearOnSubmit(true)
 
+	--// the panel behind it already is the surface, so the input draws neither
+	--// a well nor a border — that is what makes the row read as a prompt
+	--// rather than as a text box sitting on a panel
+	field:setSurface(theme.Color.Background, 1)
+	field:setBorder(false)
+	field:setRadius(0)
+
+	field:setColors({
+		text = theme.Color.TextPrimary,
+		placeholder = theme.Color.TextPrompt,
+		prefix = theme.Color.TextPrompt,
+		hint = theme.Color.TextGhost,
+		icon = theme.Color.TextPrompt,
+	})
+
+	field:setTrailingIcon(theme.Asset.Arrow)
+
 	local self: Fields = {
 		Theme = theme,
 		Field = field,
 		History = {},
 		Cursor = 0,
 		Draft = "",
+		Multiline = false,
 		OnSubmit = nil,
 		OnChange = nil,
 	}
@@ -54,22 +73,52 @@ function Input.new(panel: any, theme: any): Console
 	local console = setmetatable(self, Input)
 
 	field:onChanged(function(text)
+		Input.SyncMultiline(console, text)
+
 		if self.OnChange then
 			self.OnChange(text)
 		end
 	end)
 
 	field:onSubmitted(function(text)
-		if text ~= "" then
-			Input.Remember(console, text)
+		--// inside a [[ block Enter is a newline, not a submit
+		if self.Multiline then
+			return
+		end
+
+		local body = Input.Unwrap(text)
+
+		if body ~= "" then
+			Input.Remember(console, body)
 		end
 
 		if self.OnSubmit then
-			self.OnSubmit(text)
+			self.OnSubmit(body)
 		end
 	end)
 
 	return console
+end
+
+--- Re-applies a theme's colours to the live field.
+function Input.Restyle(self: Console, theme: any)
+	self.Theme = theme
+
+	self.Field:setColors({
+		text = theme.Color.TextPrimary,
+		placeholder = theme.Color.TextPrompt,
+		prefix = theme.Color.TextPrompt,
+		hint = theme.Color.TextGhost,
+		icon = theme.Color.TextPrompt,
+	})
+
+	self.Field:setTrailingIcon(theme.Asset.Arrow)
+end
+
+--- Hides the whole input row. Konsole hides it when the bar is collapsed and
+--- empty, leaving just the placeholder.
+function Input.SetVisible(self: Console, visible: boolean)
+	self.Field:setVisible(visible)
 end
 
 function Input.Text(self: Console): string
@@ -84,12 +133,79 @@ function Input.SetHint(self: Console, hint: string)
 	self.Field:setHint(hint)
 end
 
+--- Deferred on purpose.
+---
+--- Capturing focus during the same `InputBegan` that opened the console makes
+--- the TextBox eat that keystroke, so pressing the activation key types its
+--- own letter into the prompt. Waiting a frame lets the key finish being a
+--- keybind before the field starts being a field.
 function Input.Focus(self: Console)
-	self.Field:focus()
+	task.defer(function()
+		self.Field:focus()
+	end)
+end
+
+--- Whether this input owns the keyboard. Console shortcuts check it so they
+--- cannot fire while the player is typing somewhere else in the game.
+function Input.Focused(self: Console): boolean
+	return (self.Field :: any).focused == true
 end
 
 function Input.Blur(self: Console)
 	self.Field:blur()
+end
+
+--- `[[` opens an inline multiline block and `]]` closes it.
+---
+--- While the block is open Enter inserts a newline instead of submitting, so a
+--- long chain can be written across lines. Closing it submits immediately —
+--- typing `]]` is the submit.
+function Input.SyncMultiline(self: Console, text: string)
+	local opens = select(2, string.gsub(text, "%[%[", ""))
+	local closes = select(2, string.gsub(text, "%]%]", ""))
+
+	local inside = opens > closes
+
+	if inside == self.Multiline then
+		return
+	end
+
+	self.Multiline = inside
+
+	self.Field:setMultiline(inside)
+
+	--// the block just closed: submit what was inside it
+	if not inside and opens > 0 then
+		local body = Input.Unwrap(text)
+
+		if body ~= "" then
+			Input.Remember(self, body)
+
+			if self.OnSubmit then
+				self.OnSubmit(body)
+			end
+		end
+
+		Input.SetText(self, "")
+	end
+end
+
+--- Strips the `[[` / `]]` markers, leaving the command inside.
+function Input.Unwrap(text: string): string
+	local inner = string.match(text, "^%s*%[%[(.*)%]%]%s*$")
+
+	if inner then
+		--// trim BOTH ends: `[[ Help ]]` is the command `Help`, and a trailing
+		--// space would make it a different token stream
+		return (string.match(inner, "^%s*(.-)%s*$")) or inner
+	end
+
+	return (string.match(text, "^%s*(.-)%s*$")) or text
+end
+
+--- Whether a multiline block is currently open.
+function Input.InBlock(self: Console): boolean
+	return self.Multiline
 end
 
 --- Records a submitted line for up-arrow recall.
@@ -198,6 +314,12 @@ end
 function Input.BindLeaping(self: Console): () -> ()
 	local connection = UserInputService.InputBegan:Connect(function(input, processed)
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then
+			return
+		end
+
+		--// only while this input owns the keyboard, or Ctrl+Arrow would move a
+		--// caret that is not on screen
+		if not Input.Focused(self) then
 			return
 		end
 

@@ -1,11 +1,14 @@
+<div align="center">
+
 # Astrix
 
-An in-game command console for Roblox, driven by **Kyn** — a bash-inspired
-shell language.
+**An in-game command console for Roblox, driven by Kyn — a bash-inspired shell language.**
 
-Forked from [Konsole](https://github.com/KYRORBLX/Konsole) (MIT) as its engine
-foundation, rendered through [Lume](https://github.com/VALENCERBLX/Lume), and
-rebuilt around a real grammar instead of a token splitter.
+**[Read the docs](https://valencerblx.github.io/Astrix/)**
+
+</div>
+
+---
 
 ```lua
 local Astrix = require(ReplicatedStorage.Astrix)
@@ -13,7 +16,6 @@ local Astrix = require(ReplicatedStorage.Astrix)
 Astrix.Define("Kick")
     :Type("Server")
     :Rank(Astrix.Enums.Rank.Admin.Min)
-    :Describe("Removes a player from the server")
     :Parsed({
         { Name = "Target", Type = "Player", Required = true },
         { Name = "Reason", Type = "String", Required = false, Default = "No reason given" },
@@ -39,102 +41,59 @@ console and evaluates Kyn.
 A command line is a grammar, not a list of words.
 
 ```
-@Function Greet {
-    return "Hi"
-}
-
 @Set("Target", @Players.Rin)
 Teleport @Target @Vector3(1, 2, 3) >> echo ::Kout : Notify "done" -> Notify "failed"
 ```
 
-| | |
-|---|---|
-| `@Name` | a reference — variable, function, or namespaced lookup |
-| `@Players.Rin` | the only way to name a player |
-| `@Vector3(1, 2, 3)` | type constructor |
-| `@Set("Name", Value)` | assignment; the name must be quoted |
-| `@Function Name { return … }` | define; `@Name()` calls it, `@Name` is its value |
-| `::Kout`, `::Kout(n)` | the last result, or `n` steps further back |
-| `--Flag`, `--Flag=Value` | boolean and valued flags |
-| `:` `>>` `->` | chain always / on success / on failure |
-| `\|` | pipe the previous result in as the first argument |
-| `#` | comment to end of line |
-
-The `::Kout` stack keeps the last 50 results per session. Recursion is capped at
-10 and returns a failure rather than overflowing. Names registered through
-`Astrix.Native` are **absolute** — redefining one is refused.
-
-**The entire session is client-side.** `Server` and `Service` commands never
-receive raw Kyn, only already-resolved typed values.
-
-## Commands
-
-Three types. `Local` runs on the client, `Server` on the server, `Service` runs
-both — the server first and authoritative by default, or `:LocalFirst(true)` to
-run the client first for instant feedback and hand its result to the server.
-
-Definitions replicate **schema-only**: a server command's name, arguments,
-flags, rank and cooldown reach the client so autocomplete works, while the
-function that does the work never leaves the server.
+Chains (`:` `>>` `->`), pipes (`|`), references (`@Name`), a result stack
+(`::Kout`), user functions, flags, comments, and `[[ … ]]` multiline blocks.
+The whole session is client-side — server commands only ever receive resolved,
+typed values.
 
 ## The console
 
-Konsole's visual language, unchanged: a collapsed 204×34 pill at the bottom of
-the screen that expands upward as output accumulates, morphing from pill to a
-12px rounded rectangle on the way, on a pure-black surface at 0.5 transparency.
+Konsole's visual language, transpiled onto [Lume](https://github.com/VALENCERBLX/Lume).
+A 204×34 pill you click to open; 252 wide with the prompt showing; 338 once it
+has output, then as wide as its longest line. Pill radius morphing to 12 on the
+way. Pure black at 0.5 transparency.
 
-Those numbers, and the greys, motion durations and sizes in `_Themes/Default`,
-are Konsole's `config.luau` verbatim rather than approximated.
-
-What Astrix adds on top is one layer of brand colour — `Accent` is its own
-top-level token group, used on the mark, the prompt glyph, the focus ring and
-the active suggestion — plus `Syntax` tokens, since Konsole had no language to
-highlight and Kyn does.
-
-Windows are an arbitrary list rather than Konsole's hardcoded two channels.
-`ctx.Windows:Open(…)` lets a command spawn its own panel.
+Those numbers are Konsole's `config.luau` verbatim, not estimated.
 
 ## Install
 
-Astrix is self-contained. Lume (UI), Switch (input) and Substance (networking)
-are vendored under `src/_Packages`, so there is nothing else to install and no
-version to keep in step.
+Self-contained — Lume, Switch and Substance are vendored under
+`src/_Packages`. Sync `src/` with Rojo (`default.project.json` maps it to
+`ReplicatedStorage.Astrix`), or paste `dist/install.luau` into the Studio
+command bar for a no-Rojo install.
 
-Drop `src/` in as a ModuleScript tree, or sync it with Rojo —
-`default.project.json` already maps it to `ReplicatedStorage.Astrix`. Requires
-are real instance requires, so there is no build step.
+## Working on it
 
-There is also a no-Rojo path: paste `dist/install.luau` into the Studio command
-bar. Regenerate it with `lune run scripts/build-installer` after changing
-`src/`.
+```sh
+lune run scripts/vendor           # refresh vendored Lume/Switch/Substance
+lune run scripts/build-installer  # regenerate dist/install.luau
+lune run scripts/Docket           # rebuild docs/index.html
+```
+
+The vendored copies are *copies*. Editing upstream Lume does nothing here until
+`scripts/vendor` runs — that is the one footgun in this repo.
 
 ## Not done yet
 
-Honest list, so nothing reads as finished when it is not:
-
 - **Rank bands are placeholders.** `Player 0-99`, `Admin 100-199`, `Owner 200`
-  was never confirmed. Changing them later silently changes who can run what.
+  was never confirmed. The place creator is granted Owner automatically so a
+  solo developer is not locked out; everything else defaults to Player.
 - **`Network.lua` is a RemoteFunction/RemoteEvent stand-in.** Substance is
-  vendored and is the intended transport; the surface is already the shape
-  Substance would give, so it is a change in one file.
-- **Switch is vendored but not wired.** Keybinds are raw `UserInputService`
-  connections. They are the set that moves onto an `"AstrixConsole"` context so
-  they go quiet when the console is closed.
-- **Server tasks cannot stream output.** `ctx.Output.Reply/Error/Success` are
-  no-ops on the server; only the returned resolve reaches the player.
-- **Lifecycle signals** (`PreExecute`, `PostExecute`, `PreSend`, `PostSend`,
-  `Runtime`, `Fail`) are named in the design but not implemented.
-- **`Window:VisibleLineRange` is unused.** Lume's list is already virtualised,
-  so only on-screen rows become instances; what is not skipped yet is rebuilding
-  the item array.
-- **One theme.** The registry takes more; none has been designed.
-- **No mobile or touch input.** Out of scope for v1.
-- **No `Server` or `Service` example commands in `_Commands/`.** Both shapes are
-  demonstrated in `examples/ServerStartup.lua` instead.
+  vendored and intended.
+- **Switch is vendored but not wired.** Keybinds are raw connections, gated on
+  console focus.
+- **Server tasks cannot stream output** — only the returned resolve reaches the
+  player.
+- **Lifecycle signals** are named in the design but not implemented.
+- **No mobile or touch input.**
 
 ## Credit
 
-Konsole by KYRORBLX — driftingAurora, dullflowerr, alias, kioukaii. MIT, see
-`THIRD_PARTY_NOTICES.md`.
+Forked from [Konsole](https://github.com/KYRORBLX/Konsole) by KYRORBLX —
+driftingAurora, dullflowerr, alias, kioukaii. MIT, see `THIRD_PARTY_NOTICES.md`.
 
 Part of Valence Libs, by Valence.

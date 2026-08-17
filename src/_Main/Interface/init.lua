@@ -109,11 +109,23 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 			return
 		end
 
+		--// only while the console owns the keyboard. Without this, Tab and the
+		--// arrows would still be driving the dropdown while the player is
+		--// typing into some other part of the game
+		if not view.Input:Focused() then
+			return
+		end
+
 		local code = input.KeyCode
 		local visible = self.Suggestions:Visible()
 
+		--// Tab autofill. The dropdown and the ghost hint are the same thing seen
+		--// two ways — the highlighted match is what is ghosted after the caret —
+		--// so accepting either is one call
 		if code == Enum.KeyCode.Tab then
 			if visible then
+				self.Suggestions:Accept()
+			elseif self.Suggestions:Highlighted() then
 				self.Suggestions:Accept()
 			end
 		elseif code == Enum.KeyCode.Up then
@@ -128,9 +140,13 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 			elseif not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
 				view.Input:Recall(1)
 			end
+		--// Escape backs out one level at a time: the dropdown, then the
+		--// expanded terminal, then the console itself
 		elseif code == Enum.KeyCode.Escape then
 			if visible then
 				self.Suggestions:Hide()
+			elseif self.Container:Expanded(self.Main) then
+				self.Container:Collapse(self.Main)
 			else
 				self.Container:Hide()
 			end
@@ -165,6 +181,16 @@ function Interface.Resolve(self: Interface, resolve: Types.CommandResolve)
 	end
 end
 
+--- Output arriving is what turns a bar into a terminal, so anything that
+--- writes makes sure the window is expanded to show it.
+function Interface.Reveal(self: Interface)
+	if not self.Container.Shown then
+		self.Container:Show()
+	end
+
+	self.Container:Expand(self.Main)
+end
+
 function Interface.Write(self: Interface, kind: Types.HistoryKind, text: string, content: Types.ContentElement?)
 	self.Container:Write(self.Main, kind, text, content)
 end
@@ -173,6 +199,7 @@ function Interface.Clear(self: Interface)
 	self.Container:Clear(self.Main)
 end
 
+--- Shows the console and opens it into a terminal.
 function Interface.Show(self: Interface)
 	self.Container:Show()
 	self.Container:FocusWindow(self.Main)
@@ -183,12 +210,48 @@ function Interface.Hide(self: Interface)
 	self.Container:Hide()
 end
 
+--- The activation key. Konsole toggles between a collapsed pill and an open
+--- terminal rather than between shown and gone, so that is what this does:
+--- hidden opens, collapsed expands, expanded collapses.
 function Interface.Toggle(self: Interface)
-	if self.Container.Shown then
-		Interface.Hide(self)
-	else
+	if not self.Container.Shown then
 		Interface.Show(self)
+
+		return
 	end
+
+	if self.Container:Expanded(self.Main) then
+		self.Suggestions:Hide()
+		self.Container:Collapse(self.Main)
+	else
+		self.Container:FocusWindow(self.Main)
+	end
+end
+
+--- Whether the main window is open as a terminal rather than a bar.
+function Interface.Expanded(self: Interface): boolean
+	return self.Container:Expanded(self.Main)
+end
+
+--- Switches theme at runtime. Returns the applied theme, or nil if unknown.
+function Interface.SetTheme(self: Interface, name: string): any
+	local resolved = Themes.Resolve(name)
+
+	--// Resolve falls back to Default on an unknown name, so an unrecognised
+	--// one is detected by comparing rather than by trusting the return
+	if string.lower(resolved.Name) ~= string.lower(name) then
+		return nil
+	end
+
+	self.Theme = resolved
+
+	self.Container:Restyle(resolved)
+
+	return resolved
+end
+
+function Interface.ThemeName(self: Interface): string
+	return self.Theme.Name
 end
 
 --- `Astrix.Windows` — commands reach this as `ctx.Windows`.

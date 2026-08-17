@@ -23,17 +23,17 @@ local Input = {}
 Input.__index = Input
 
 export type Config = {
-	--- Runs one command. Receives the head name, resolved positional values,
-	--- resolved flags, and the raw line for context.
+	--// runs one command: head name, resolved positional values, resolved
+	--// flags, and the raw line for context
 	Dispatch: ((Head: string, Args: { any }, Flags: { [string]: any }, Raw: string) -> CommandResolve)?,
 
-	--- `Astrix.Native` functions. Reserved: a `@Function` may not shadow one.
+	--// `Astrix.Native` functions. Reserved: a `@Function` may not shadow one
 	Natives: { [string]: (...any) -> any }?,
 
-	--- Namespaced lookups: `@Players.Rin` calls `Namespaces.Players("Rin")`.
+	--// namespaced lookups: `@Players.Rin` calls `Namespaces.Players("Rin")`
 	Namespaces: { [string]: (key: string) -> any }?,
 
-	--- `@Vector3(1, 2, 3)` and friends.
+	--// `@Vector3(1, 2, 3)` and friends
 	Constructors: { [string]: (...any) -> any }?,
 
 	MaxDepth: number?,

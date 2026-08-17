@@ -174,6 +174,38 @@ function Lines.Render(self: Lines)
 	window.Dirty = false
 end
 
+--- Re-applies a theme and repaints. The renderer closes over the theme, so it
+--- is rebound rather than merely swapped on the field.
+function Lines.Restyle(self: Lines, theme: any)
+	self.Theme = theme
+
+	self.List:setFont(theme.Font.Mono)
+	self.List:setTextSize(theme.TextSize.Line)
+	self.List:setRowHeight(theme.Size.LineHeight)
+
+	self.List:setRenderer(function(item)
+		local entry = item.data :: HistoryEntry
+
+		if not entry then
+			return Text.escape(item.text or "")
+		end
+
+		if entry.Kind == "Input" then
+			return Lines.Highlight(entry.Text, theme)
+		end
+
+		return Text.color(Text.escape(entry.Text), toneOf(entry, theme))
+	end)
+
+	Lines.Render(self)
+end
+
+--- Hides the history entirely. A collapsed bar shows only its input row, so
+--- the list must take no space rather than merely be empty.
+function Lines.SetVisible(self: Lines, visible: boolean)
+	self.List:setVisible(visible)
+end
+
 function Lines.Destroy(self: Lines)
 	self.List:destroy()
 end

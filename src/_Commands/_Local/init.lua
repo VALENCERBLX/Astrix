@@ -5,4 +5,5 @@
 return {
 	require(script.Help),
 	require(script.Teleport),
+	require(script.Theme),
 }

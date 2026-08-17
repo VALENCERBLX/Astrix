@@ -75,8 +75,8 @@ export type Argument = Types.Argument
 export type Flag = Types.Flag
 
 --// enums -----------------------------------------------------------------------
---- `Rank` is `_Patterns/Rank`'s own band table, not a copy — the numbers and
---- the code that compares them cannot drift apart that way.
+--// `Rank` is `_Patterns/Rank`'s own band table, not a copy, so the numbers
+--// and the code comparing them cannot drift apart
 local Enums = table.freeze({
 	Rank = Rank.Bands,
 
@@ -175,9 +175,9 @@ local function constructors(): { [string]: (...any) -> any }
 		Color3 = function(r: any, g: any, b: any): Color3
 			return Color3.fromRGB(tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0)
 		end,
-		--- Kept as a passthrough. Enum *arguments* validate against their
-		--- declared `EnumValues`; this constructor is a bare tag with nothing
-		--- to check it against, so it hands the name straight back.
+		--// kept as a passthrough. Enum *arguments* validate against their
+		--// declared `EnumValues`; this constructor is a bare tag with nothing
+		--// to check it against, so it hands the name straight back
 		Enum = function(name: any): string
 			return tostring(name)
 		end,
@@ -306,6 +306,9 @@ function Astrix.Run(text: string): CommandResolve
 	end
 
 	if interface then
+		--// running anything opens the bar into a terminal, the way a console
+		--// grows the moment it has something to say
+		interface:Reveal()
 		interface:Echo(text)
 	end
 
@@ -336,8 +339,8 @@ function Astrix.Bind(key: Enum.KeyCode)
 end
 
 --// windows ----------------------------------------------------------------------
---- `Open` / `Close` / `List`, so a command can spawn its own panel. Inside a
---- task prefer `ctx.Windows`, which is this same table.
+--// `Open` / `Close` / `List`, so a command can spawn its own panel. Inside a
+--// task prefer `ctx.Windows`, which is this same table
 Astrix.Windows = {
 	Open = function(config: Types.WindowConfig)
 		return interface and interface.Container:Open(config)
@@ -351,6 +354,25 @@ Astrix.Windows = {
 		return if interface then interface.Container:List() else {}
 	end,
 }
+
+--// theming ----------------------------------------------------------------------
+--- Switches the console theme. Returns false if no theme by that name exists.
+function Astrix.SetTheme(name: string): boolean
+	if not interface then
+		return false
+	end
+
+	return interface:SetTheme(name) ~= nil
+end
+
+function Astrix.CurrentTheme(): string
+	return if interface then interface:ThemeName() else "Default"
+end
+
+--- Registers a theme, optionally extending an existing one.
+function Astrix.DefineTheme(name: string, tokens: { [string]: any }, extends: string?)
+	return Themes.Register(name, tokens, extends)
+end
 
 --// ranks -------------------------------------------------------------------------
 function Astrix.SetRank(entity: any, rank: number | string): number
