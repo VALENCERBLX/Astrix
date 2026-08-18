@@ -38,6 +38,8 @@ export type Fields = {
 	Default: number,
 	InterfaceRank: number,
 	OwnerIsCreator: boolean,
+	--// set by the server so a change can be pushed to that player's client
+	OnChanged: ((entity: any) -> ())?,
 }
 
 export type Ranks = typeof(setmetatable({} :: Fields, Rank))
@@ -84,6 +86,7 @@ function Rank.new(): Ranks
 		Default = Bands.Player.Min,
 		InterfaceRank = Bands.Player.Min,
 		OwnerIsCreator = true,
+		OnChanged = nil,
 	}
 
 	return setmetatable(self, Rank)
@@ -100,6 +103,10 @@ function Rank.Set(self: Ranks, entity: any, rank: number | string): number
 	assert(value, `unknown rank '{tostring(rank)}'`)
 
 	self.Assignments[id] = value
+
+	if self.OnChanged then
+		self.OnChanged(entity)
+	end
 
 	return value
 end

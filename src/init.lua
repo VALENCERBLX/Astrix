@@ -268,6 +268,18 @@ function Astrix.Start(options: AstrixOptions?)
 			end
 		end)
 
+		--// the client checks rank before dispatching, so it needs the number
+		--// the server is using. Without this every player looks like rank zero
+		--// client-side and anything above Player is refused locally, before the
+		--// server ever hears about it
+		Network.OnRank(function(rank: number)
+			local player = Players.LocalPlayer
+
+			if player then
+				ranks.Assignments[player.UserId] = rank
+			end
+		end)
+
 		Network.RequestPublish()
 	end)
 

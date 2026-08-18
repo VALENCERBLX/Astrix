@@ -51,10 +51,26 @@ function Server.Start(deps: Fields)
 		Network.Publish(Replication.StripAll(deps.Registry:List()), player)
 	end
 
+	--- Tells a client its own rank, so its pre-dispatch check has the same
+	--- number the server will use.
+	local function publishRank(player: Player)
+		Network.PublishRank(player, deps.Ranks:Get(player))
+	end
+
+	--// pushed whenever anything changes it, not only on join: a rank granted
+	--// mid-session has to reach the client or their console keeps refusing
+	--// commands the server would happily run
+	deps.Ranks.OnChanged = function(player: Player)
+		if typeof(player) == "Instance" and player:IsA("Player") then
+			publishRank(player)
+		end
+	end
+
 	--// a client that finishes loading after the first publish would otherwise
 	--// never learn the command set
 	Players.PlayerAdded:Connect(function(player)
 		publish(player)
+		publishRank(player)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player)
@@ -69,6 +85,7 @@ function Server.Start(deps: Fields)
 
 	for _, player in Players:GetPlayers() do
 		publish(player)
+		publishRank(player)
 	end
 end
 

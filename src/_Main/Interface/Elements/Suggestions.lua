@@ -30,6 +30,7 @@ export type Fields = {
 	Session: any,
 	Providers: { [string]: any },
 	Anchor: any,
+	Last: Context?,
 }
 
 export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))
@@ -41,6 +42,14 @@ export type Context = {
 	Prefix: string,
 	Argument: any?,
 	Command: any?,
+
+	--- Where the completed word begins, and where the caret was.
+	---
+	--- The prefix is always the characters immediately before the caret, so
+	--- the range to replace is `[Caret - #Prefix, Caret - 1]` whatever the
+	--- shape of the token. That is what lets a completion swap one word out of
+	--- a line instead of replacing the line.
+	Caret: number,
 }
 
 --// Kyn's own vocabulary. Always offerable after `@`, because these exist
@@ -77,7 +86,7 @@ function Suggestions.Context(raw: string, cursor: number?, registry: any): Conte
 
 	--// `::Kout`, the stack reference
 	if string.sub(current, 1, 2) == "::" then
-		return { Kind = "Stack", Prefix = string.sub(current, 3) }
+		return { Kind = "Stack", Prefix = string.sub(current, 3), Caret = caret }
 	end
 
 	--// `--Flag`, which needs the command at the head of this segment to know
@@ -86,7 +95,7 @@ function Suggestions.Context(raw: string, cursor: number?, registry: any): Conte
 		local head = tokens[1] and tokens[1].Text
 		local definition = head and registry and registry:Resolve(head)
 
-		return { Kind = "Flag", Prefix = string.sub(current, 3), Command = definition }
+		return { Kind = "Flag", Prefix = string.sub(current, 3), Command = definition, Caret = caret }
 	end
 
 	if string.sub(current, 1, 1) == "@" then
@@ -97,17 +106,17 @@ function Suggestions.Context(raw: string, cursor: number?, registry: any): Conte
 			local namespace = string.sub(body, 1, dot - 1)
 
 			if string.lower(namespace) == "players" then
-				return { Kind = "Player", Prefix = string.sub(body, dot + 1) }
+				return { Kind = "Player", Prefix = string.sub(body, dot + 1), Caret = caret }
 			end
 
-			return { Kind = "None", Prefix = body }
+			return { Kind = "None", Prefix = body, Caret = caret }
 		end
 
-		return { Kind = "Reference", Prefix = body }
+		return { Kind = "Reference", Prefix = body, Caret = caret }
 	end
 
 	if position <= 1 then
-		return { Kind = "Command", Prefix = current }
+		return { Kind = "Command", Prefix = current, Caret = caret }
 	end
 
 	--// a positional slot on a command we know about
@@ -148,6 +157,7 @@ function Suggestions.new(app: any, theme: any, registry: any, session: any, prov
 		Session = session,
 		Providers = providers,
 		Anchor = nil,
+		Last = nil,
 	}
 
 	return setmetatable(self, Suggestions)
@@ -167,6 +177,8 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number?)
 
 	local context = Suggestions.Context(raw, cursor, self.Registry)
 	local options: { string } = {}
+
+	self.Last = context
 
 	if context.Kind == "Command" then
 		options = self.Registry:CommandNames()
@@ -269,26 +281,22 @@ function Suggestions.Previous(self: Suggestions)
 	self.Suggest:previous()
 end
 
---- Accepts the highlighted match.
+--- Accepts the highlighted match, replacing only the word being completed.
 ---
---- ContextActionService cannot sink a key while a TextBox has focus — Roblox
---- routes text input below where an action binding can reach — so `Sink` alone
---- does not stop Tab from being typed. Two things together do:
+--- Setting the field to the completion outright is fine while you are typing
+--- the first word and wrong the moment you are not: completing an argument
+--- would throw away the command in front of it. The prefix is always the
+--- characters immediately before the caret, so the span to swap is
+--- `[caret - #prefix, caret - 1]` and everything either side is kept.
 ---
---- 1. **Drop focus before writing.** A TextBox that is not focused cannot
----    receive the tab, so releasing first gives the key nowhere to land.
---- 2. **Strip and rewrite a frame later.** Whatever did get through arrives
----    after this call returns, so the completion is re-applied on the next
----    frame with every tab removed — not merely trimmed from the end, since
----    the caret is rarely at the end when Tab is pressed.
----
---- Focus is then recaptured with the caret past the completion, so typing
---- carries on where the word finished.
+--- ContextActionService cannot sink a key while a TextBox has focus, so the
+--- Tab that triggered this is still on its way in. Focus is dropped before the
+--- write, and the text re-applied a frame later with tabs stripped.
 function Suggestions.Accept(self: Suggestions)
 	local field = (self.Suggest :: any).field
+	local option = self.Suggest:highlighted()
 
-	if not field then
-		self.Suggest:accept()
+	if not field or not option then
 		Suggestions.Hide(self)
 
 		return
@@ -297,15 +305,28 @@ function Suggestions.Accept(self: Suggestions)
 	local box = field.refs.input :: TextBox
 	local focused = box:IsFocused()
 
+	local raw = field:value()
+	local context = self.Last
+
+	local prefix = if context then context.Prefix else ""
+	local caret = if context and context.Caret then context.Caret else #raw + 1
+
+	local head = math.max(0, caret - #prefix - 1)
+
+	local before = string.sub(raw, 1, head)
+	local after = string.sub(raw, caret)
+
+	local completed = (string.gsub(before .. option.text .. after, "\t", ""))
+	local position = #before + #option.text + 1
+
 	if focused then
 		box:ReleaseFocus(false)
 	end
 
-	self.Suggest:accept()
+	field:setText(completed)
+	field:setHint("")
 
 	Suggestions.Hide(self)
-
-	local completed = (string.gsub(box.Text, "\t", ""))
 
 	task.defer(function()
 		if not box.Parent then
@@ -320,7 +341,7 @@ function Suggestions.Accept(self: Suggestions)
 			box:CaptureFocus()
 		end
 
-		box.CursorPosition = #completed + 1
+		box.CursorPosition = position
 	end)
 end
 

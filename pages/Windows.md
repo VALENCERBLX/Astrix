@@ -43,9 +43,17 @@ body needing to require the whole module:
 ## Cycling between them
 
 The activation key does double duty. Pressed on its own it toggles the console.
-Pressed **again within 1.5 seconds**, with more than one window open, it moves
-to the next one instead — so tapping it three times quickly lands you on the
-third. Pause, and the next press goes back to toggling.
+Pressed **again within 1.5 seconds** it moves to the next window instead — so
+tapping it three times quickly lands you on the third. Pause, and the next
+press goes back to toggling.
+
+**This needs more than one window.** With only the default `Main` open there is
+nothing to cycle to and every press just toggles, which looks like the feature
+is broken. Open a second first:
+
+```
+window open Logs
+```
 
 Each window keeps its own history, and output goes to whichever one has the
 caret. Cycling to a second window and running something there leaves the first

@@ -70,6 +70,13 @@ end)
 `InterfaceRank` is a separate gate: below it the console will not open at all,
 whatever the individual command ranks say.
 
+**Ranks are server-authoritative and replicate.** Set them on the server —
+`SetRank`, or a `BindRanks` resolver — and the server tells each client its own
+rank on join and whenever it changes. The client needs that number because it
+checks rank *before* dispatching, so a rank set only on the client would be
+ignored by the server, and a rank set only on the server would have the
+client refusing commands locally with `No Command Assertion`.
+
 ## Your first command
 
 ```lua

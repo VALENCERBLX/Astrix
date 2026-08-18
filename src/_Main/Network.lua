@@ -28,6 +28,7 @@ local Network = {}
 local FOLDER = "AstrixNetwork"
 local INVOKE = "Invoke"
 local PUBLISH = "Publish"
+local RANK = "Rank"
 
 --- The transport folder. Nil on a client whose server has not hosted yet —
 --- which is a normal state, not an error, so every caller handles it.
@@ -119,6 +120,7 @@ function Network.Host(handler: (player: Player, name: string, args: { any }, fla
 	end
 
 	remote("RemoteEvent", PUBLISH)
+	remote("RemoteEvent", RANK)
 end
 
 --- Sends the schema-only definitions to one player, or everybody.
@@ -138,6 +140,22 @@ function Network.Publish(definitions: { ReplicatedDefinition }, player: Player?)
 	end
 
 	publish:FireAllClients(definitions)
+end
+
+--- Tells a client what rank it has.
+---
+--- The client runs its own rank check before dispatching, so without this it
+--- is checking against a number the server never told it — every player looks
+--- like rank zero client-side and anything above Player is refused before it
+--- ever reaches the server.
+function Network.PublishRank(player: Player, rank: number)
+	assert(RunService:IsServer(), "Network.PublishRank is server-only")
+
+	local channel = remote("RemoteEvent", RANK) :: RemoteEvent?
+
+	if channel then
+		channel:FireClient(player, rank)
+	end
 end
 
 --// client ---------------------------------------------------------------------
@@ -175,6 +193,17 @@ function Network.OnPublish(handler: (definitions: { ReplicatedDefinition }) -> (
 	end
 
 	return publish.OnClientEvent:Connect(handler)
+end
+
+--- Listens for this client's rank.
+function Network.OnRank(handler: (rank: number) -> ()): RBXScriptConnection?
+	local channel = remote("RemoteEvent", RANK) :: RemoteEvent?
+
+	if not channel then
+		return nil
+	end
+
+	return channel.OnClientEvent:Connect(handler)
 end
 
 --- Asks the server to resend, for a client that started late.
