@@ -74,6 +74,17 @@ function Input.new(panel: any, theme: any): Console
 	local console = setmetatable(self, Input)
 
 	field:onChanged(function(text)
+		--// a literal tab is never meaningful in a command line, and Roblox will
+		--// happily insert one whatever the key bindings say. Strip it wherever
+		--// it lands rather than only at the end
+		if string.find(text, "\t", 1, true) then
+			local cleaned = (string.gsub(text, "\t", ""))
+
+			field:setText(cleaned)
+
+			return
+		end
+
 		Input.SyncMultiline(console, text)
 
 		if self.OnChange then

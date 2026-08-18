@@ -417,6 +417,19 @@ Astrix.Windows = {\
 	List = function(): { string }\
 		return if interface then interface.Container:List() else {}\
 	end,\
+\
+	--- The window that currently has the caret. Output goes here, so this is\
+	--- also \"where the next command's result will appear\".\
+	Focused = function(): string?\
+		return if interface then interface:Target() else nil\
+	end,\
+\
+	--- Moves focus to a window and re-points the completion dropdown at it.\
+	Focus = function(id: string)\
+		if interface then\
+			interface:FocusWindow(id)\
+		end\
+	end,\
 }\
 \
 --- How many console windows may exist at once. Three by default; opening past\
@@ -2841,6 +2854,7 @@ export type Fields = {\
 	Registry: any,\
 	Main: string,\
 	Bindings: { () -> () },\
+	LastActivate: number,\
 	OnSubmit: ((text: string) -> ())?,\
 }\
 \
@@ -2861,6 +2875,7 @@ function Interface.new(config: Config): Interface\
 		Registry = config.Registry,\
 		Main = MAIN_WINDOW,\
 		Bindings = {},\
+		LastActivate = 0,\
 		OnSubmit = config.OnSubmit,\
 	}\
 \
@@ -2986,9 +3001,22 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 	end\
 end\
 \
+--- Which window output belongs to: whichever one has focus, falling back to\
+--- the main one. Every window keeps its own history, so cycling to a second\
+--- and running something there leaves the first untouched.\
+function Interface.Target(self: Interface): string\
+	local focus = self.Container.Focus\
+\
+	if focus and self.Container:Get(focus) then\
+		return focus\
+	end\
+\
+	return self.Main\
+end\
+\
 --- Echoes the line the player typed, the way a shell does.\
 function Interface.Echo(self: Interface, text: string)\
-	self.Container:Write(self.Main, \"Input\", text)\
+	self.Container:Write(Interface.Target(self), \"Input\", text)\
 end\
 \
 --- Prints a resolve into the main window, choosing its tone from the kind.\
@@ -2998,14 +3026,16 @@ function Interface.Resolve(self: Interface, resolve: Types.CommandResolve)\
 		elseif resolve.Kind == \"Warn\" or resolve.Kind == \"OnCooldown\" then \"Warn\"\
 		else \"Fail\"\
 \
+	local target = Interface.Target(self)\
+\
 	if resolve.Content then\
-		self.Container:Write(self.Main, kind, \"\", resolve.Content)\
+		self.Container:Write(target, kind, \"\", resolve.Content)\
 \
 		return\
 	end\
 \
 	if resolve.Output and resolve.Output ~= \"\" then\
-		self.Container:Write(self.Main, kind, resolve.Output)\
+		self.Container:Write(target, kind, resolve.Output)\
 	end\
 end\
 \
@@ -3016,11 +3046,11 @@ function Interface.Reveal(self: Interface)\
 		self.Container:Show()\
 	end\
 \
-	self.Container:Expand(self.Main)\
+	self.Container:Expand(Interface.Target(self))\
 end\
 \
 function Interface.Write(self: Interface, kind: Types.HistoryKind, text: string, content: Types.ContentElement?)\
-	self.Container:Write(self.Main, kind, text, content)\
+	self.Container:Write(Interface.Target(self), kind, text, content)\
 end\
 \
 function Interface.Clear(self: Interface)\
@@ -3030,7 +3060,8 @@ end\
 --- Shows the console and opens it into a terminal.\
 function Interface.Show(self: Interface)\
 	self.Container:Show()\
-	self.Container:FocusWindow(self.Main)\
+\
+	Interface.FocusWindow(self, Interface.Target(self))\
 end\
 \
 function Interface.Hide(self: Interface)\
@@ -3038,22 +3069,66 @@ function Interface.Hide(self: Interface)\
 	self.Container:Hide()\
 end\
 \
---- The activation key. Konsole toggles between a collapsed pill and an open\
---- terminal rather than between shown and gone, so that is what this does:\
---- hidden opens, collapsed expands, expanded collapses.\
+--- The activation key.\
+---\
+--- Pressed on its own it toggles between a collapsed pill and an open terminal,\
+--- the way Konsole does — hidden opens, collapsed expands, expanded collapses.\
+---\
+--- Pressed **again within `CYCLE_WINDOW`** and with more than one window open,\
+--- it moves to the next window instead. Tapping it three times quickly lands on\
+--- the third; pausing resets, so the same key is both \"open the console\" and\
+--- \"the one after this\", without a second binding to remember.\
+local CYCLE_WINDOW = 1.5\
+\
 function Interface.Toggle(self: Interface)\
+	local now = os.clock()\
+	local rapid = (now - self.LastActivate) <= CYCLE_WINDOW\
+\
+	self.LastActivate = now\
+\
 	if not self.Container.Shown then\
 		Interface.Show(self)\
 \
 		return\
 	end\
 \
-	if self.Container:Expanded(self.Main) then\
-		self.Suggestions:Hide()\
-		self.Container:Collapse(self.Main)\
-	else\
-		self.Container:FocusWindow(self.Main)\
+	local order = self.Container:List()\
+\
+	if rapid and #order > 1 then\
+		--// step from where focus actually IS, not from a counter. A counter\
+		--// drifts the moment anything else moves focus — clicking a window,\
+		--// opening one, closing one — and the first press then jumps somewhere\
+		--// arbitrary instead of to the next window along\
+		local current = table.find(order, Interface.Target(self)) or 0\
+\
+		Interface.FocusWindow(self, order[(current % #order) + 1])\
+\
+		return\
 	end\
+\
+	local target = Interface.Target(self)\
+\
+	if self.Container:Expanded(target) then\
+		self.Suggestions:Hide()\
+		self.Container:Collapse(target)\
+	else\
+		Interface.FocusWindow(self, target)\
+	end\
+end\
+\
+--- Focuses a window and re-points the dropdown at its input, so completion\
+--- happens in the window you are actually typing into.\
+function Interface.FocusWindow(self: Interface, id: string)\
+	local view = self.Container:Get(id)\
+\
+	if not view then\
+		return\
+	end\
+\
+	self.Suggestions:Hide()\
+	self.Suggestions:Attach(view.Panel, view.Input.Field)\
+\
+	self.Container:FocusWindow(id)\
 end\
 \
 --- Whether the main window is open as a terminal rather than a bar.\
@@ -3198,7 +3273,11 @@ local function shape(panel: any, theme: any, config: WindowConfig)\
 	panel:setColor(theme.Color.Background)\
 	panel:setTransparency(theme.Transparency.Panel)\
 	panel:setBorder(false)\
-	panel:setDraggable(true)\
+\
+	--// springy follow with a little overshoot on release, rather than pinned\
+	--// to the cursor. A console has weight; a window that snaps exactly to the\
+	--// pointer reads as a sticker\
+	panel:setDraggable(true, { smooth = true, follow = \"drag\", settle = \"toss\" })\
 \
 	--// no shadow. Konsole's was a nine-sliced asset tuned to its own instance\
 	--// tree; tracked against a Lume panel it reads as a smear behind the bar,\
@@ -3293,6 +3372,16 @@ function Container.Open(self: Container, config: WindowConfig): View\
 		if self.OnChange then\
 			self.OnChange(config.Id, text)\
 		end\
+	end\
+\
+	--// dragging a window detaches it: the stack would otherwise pull it back\
+	--// into line on the next reflow, which is not what a drag means\
+	if panel.drag then\
+		panel.drag.started:connect(function()\
+			if panel.stack then\
+				panel.stack:remove(panel)\
+			end\
+		end)\
 	end\
 \
 	--// a collapsed bar is a button\
@@ -3666,6 +3755,17 @@ function Input.new(panel: any, theme: any): Console\
 	local console = setmetatable(self, Input)\
 \
 	field:onChanged(function(text)\
+		--// a literal tab is never meaningful in a command line, and Roblox will\
+		--// happily insert one whatever the key bindings say. Strip it wherever\
+		--// it lands rather than only at the end\
+		if string.find(text, \"\\t\", 1, true) then\
+			local cleaned = (string.gsub(text, \"\\t\", \"\"))\
+\
+			field:setText(cleaned)\
+\
+			return\
+		end\
+\
 		Input.SyncMultiline(console, text)\
 \
 		if self.OnChange then\
@@ -4434,28 +4534,59 @@ function Suggestions.Previous(self: Suggestions)\
 	self.Suggest:previous()\
 end\
 \
---- Accepts the highlighted match and puts the caret after it.\
+--- Accepts the highlighted match.\
 ---\
---- No cleanup pass. The Tab that triggered this is sunk by the console's\
---- action binding, so it never reaches the field — an earlier version wrote\
---- the completion and then tried to strip the tab that arrived afterwards,\
---- which is a race the tab sometimes won.\
+--- ContextActionService cannot sink a key while a TextBox has focus — Roblox\
+--- routes text input below where an action binding can reach — so `Sink` alone\
+--- does not stop Tab from being typed. Two things together do:\
+---\
+--- 1. **Drop focus before writing.** A TextBox that is not focused cannot\
+---    receive the tab, so releasing first gives the key nowhere to land.\
+--- 2. **Strip and rewrite a frame later.** Whatever did get through arrives\
+---    after this call returns, so the completion is re-applied on the next\
+---    frame with every tab removed — not merely trimmed from the end, since\
+---    the caret is rarely at the end when Tab is pressed.\
+---\
+--- Focus is then recaptured with the caret past the completion, so typing\
+--- carries on where the word finished.\
 function Suggestions.Accept(self: Suggestions)\
+	local field = (self.Suggest :: any).field\
+\
+	if not field then\
+		self.Suggest:accept()\
+		Suggestions.Hide(self)\
+\
+		return\
+	end\
+\
+	local box = field.refs.input :: TextBox\
+	local focused = box:IsFocused()\
+\
+	if focused then\
+		box:ReleaseFocus(false)\
+	end\
+\
 	self.Suggest:accept()\
 \
 	Suggestions.Hide(self)\
 \
-	local field = (self.Suggest :: any).field\
+	local completed = (string.gsub(box.Text, \"\\t\", \"\"))\
 \
-	if not field then\
-		return\
-	end\
+	task.defer(function()\
+		if not box.Parent then\
+			return\
+		end\
 \
-	--// leave the caret at the end of what was just completed, so typing\
-	--// continues the line rather than landing mid-word\
-	local box = (field :: any).refs.input :: TextBox\
+		if box.Text ~= completed then\
+			box.Text = completed\
+		end\
 \
-	box.CursorPosition = #box.Text + 1\
+		if focused then\
+			box:CaptureFocus()\
+		end\
+\
+		box.CursorPosition = #completed + 1\
+	end)\
 end\
 \
 --- The match currently ghosted after the caret, if any. Tab accepts this even\
@@ -12674,12 +12805,16 @@ return Toggle\
 {"Astrix/_Packages/Lume/Input","Folder",nil},
 {"Astrix/_Packages/Lume/Input/Drag","ModuleScript","--!strict\
 \
---- Dragging, one-to-one with the pointer.\
+--- Dragging.\
 ---\
---- Movement is assigned straight to `Position` rather than routed through the\
---- motion driver: a dragged panel that lags its cursor by even two frames feels\
---- broken. The spring only comes back on release, when the panel settles into\
---- the viewport if the throw took it past the edge.\
+--- By default movement is assigned straight to `Position`, because a dragged\
+--- panel that lags its cursor by even two frames feels broken.\
+---\
+--- `smooth` opts into the other behaviour: the position is retargeted on a\
+--- spring each frame, so the panel trails the pointer with a little weight and\
+--- overshoots slightly when released. Retargeting a live spring keeps its\
+--- velocity, so a continuous drag is one weighted movement rather than a chain\
+--- of restarts.\
 --- @section Input\
 \
 local UserInputService = game:GetService(\"UserInputService\")\
@@ -12700,6 +12835,15 @@ export type Options = {\
 	bounds: boolean?,\
 	inset: number?,\
 	axis: (\"x\" | \"y\")?,\
+\
+	--- Spring the panel toward the pointer instead of pinning it there.\
+	---\
+	--- Off by default, because a window that lags its cursor usually feels\
+	--- broken. It is worth turning on for a console: the weight reads as the\
+	--- panel having mass, and the settle overshoots slightly on release.\
+	smooth: boolean?,\
+	follow: (Types.MotionSpec | string)?,\
+	settle: (Types.MotionSpec | string)?,\
 }\
 \
 export type Fields = {\
@@ -12719,6 +12863,10 @@ export type Fields = {\
 	bounded: boolean,\
 	inset: number,\
 	axis: (\"x\" | \"y\")?,\
+\
+	smooth: boolean,\
+	follow: (Types.MotionSpec | string)?,\
+	settle: (Types.MotionSpec | string)?,\
 }\
 \
 local DRAG_INPUTS: { [Enum.UserInputType]: boolean } = {\
@@ -12754,6 +12902,10 @@ function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Type
 		bounded = settings.bounds ~= false,\
 		inset = settings.inset or app.theme.space.sm,\
 		axis = settings.axis,\
+\
+		smooth = settings.smooth == true,\
+		follow = settings.follow or \"drag\",\
+		settle = settings.settle or \"toss\",\
 	}\
 \
 	local handle = setmetatable(self, Drag) :: any\
@@ -12799,7 +12951,13 @@ function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Type
 			self.anchor.Y.Offset + delta.Y\
 		)\
 \
-		target.Position = next\
+		--// retargeting a live spring keeps its velocity, so a continuous drag\
+		--// reads as one weighted movement rather than a chain of restarts\
+		if self.smooth then\
+			Motion.animate(target, { Position = next }, app.theme:spec(self.follow))\
+		else\
+			target.Position = next\
+		end\
 \
 		self.moved:fire(next)\
 	end\
@@ -12821,10 +12979,13 @@ function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Type
 				app:viewport(),\
 				self.inset\
 			)\
+		end\
 \
-			if settled ~= target.Position then\
-				Motion.animate(target, { Position = settled }, app.theme:spec(\"drag\"))\
-			end\
+		--// a smooth drag is still mid-flight when the pointer lets go, so it\
+		--// always gets a settle; a pinned one only needs it when it has to be\
+		--// pushed back inside the viewport\
+		if self.smooth or settled ~= target.Position then\
+			Motion.animate(target, { Position = settled }, app.theme:spec(self.settle))\
 		end\
 \
 		self.ended:fire(settled)\
@@ -15183,7 +15344,7 @@ function Panel.setScroll(self: Panel, enabled: boolean): Panel\
 end\
 \
 --// behaviour\
-function Panel.setDraggable(self: Panel, enabled: boolean): Panel\
+function Panel.setDraggable(self: Panel, enabled: boolean, options: Drag.Options?): Panel\
 	if not enabled then\
 		if self.drag then\
 			self.drag:destroy()\
@@ -15194,18 +15355,33 @@ function Panel.setDraggable(self: Panel, enabled: boolean): Panel\
 		return self\
 	end\
 \
+	--// a preset already created one, so a later call carrying options has to\
+	--// rebuild rather than return early — otherwise the options are silently\
+	--// dropped and the panel keeps the preset's plain drag\
 	if self.drag then\
-		return self\
+		if not options then\
+			return self\
+		end\
+\
+		self.drag:destroy()\
+\
+		self.drag = nil\
 	end\
 \
 	--// drag by the titlebar when there is one, so content interaction never\
 	--// moves the panel out from under the pointer\
 	local handles = if self.hasTitle then { self.refs.titlebar :: GuiObject } else { self.instance :: GuiObject }\
 \
-	self.drag = Drag.attach(self.app, self.instance, {\
+	local settings: Drag.Options = {\
 		handles = handles,\
 		scope = self.scope,\
-	})\
+	}\
+\
+	for key, value in options or {} do\
+		(settings :: any)[key] = value\
+	end\
+\
+	self.drag = Drag.attach(self.app, self.instance, settings)\
 \
 	local handle = self.drag :: Types.DragHandle\
 \
@@ -16960,7 +17136,13 @@ return {\
 \
 		layout = { stiffness = 190, damping = 24 },\
 		morph = { stiffness = 210, damping = 26 },\
-		drag = { stiffness = 420, damping = 34 },\
+		--// the follow while a pointer is down: stiff and heavily damped, so it\
+		--// trails the cursor without wobbling under it\
+		drag = { stiffness = 620, damping = 42 },\
+		--// the settle after release. Damping is deliberately under the critical\
+		--// value (2 * sqrt(340) is about 37) so it overshoots a little and comes\
+		--// back — that small bounce is what reads as weight\
+		toss = { stiffness = 340, damping = 22 },\
 		reveal = { stiffness = 150, damping = 20 },\
 		snap = { stiffness = 600, damping = 40 },\
 	},\
@@ -17333,7 +17515,10 @@ export type PanelApi<T> = {\
 	setScroll: (self: T, enabled: boolean) -> T,\
 \
 	--// behaviour\
-	setDraggable: (self: T, enabled: boolean) -> T,\
+	--- `options` forwards to `Input/Drag` — `smooth` for a springy follow with\
+	--- a little overshoot on release, `axis` to lock one direction, `bounds`\
+	--- to allow leaving the viewport.\
+	setDraggable: (self: T, enabled: boolean, options: { [string]: any }?) -> T,\
 	setDismissable: (self: T, enabled: boolean) -> T,\
 	setCloseButton: (self: T, enabled: boolean) -> T,\
 	attachTo: (self: T, target: GuiObject | Element | Panel, side: Edge?, gap: number?) -> T,\

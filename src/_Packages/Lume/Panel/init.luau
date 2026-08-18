@@ -479,7 +479,7 @@ function Panel.setScroll(self: Panel, enabled: boolean): Panel
 end
 
 --// behaviour
-function Panel.setDraggable(self: Panel, enabled: boolean): Panel
+function Panel.setDraggable(self: Panel, enabled: boolean, options: Drag.Options?): Panel
 	if not enabled then
 		if self.drag then
 			self.drag:destroy()
@@ -490,18 +490,33 @@ function Panel.setDraggable(self: Panel, enabled: boolean): Panel
 		return self
 	end
 
+	--// a preset already created one, so a later call carrying options has to
+	--// rebuild rather than return early — otherwise the options are silently
+	--// dropped and the panel keeps the preset's plain drag
 	if self.drag then
-		return self
+		if not options then
+			return self
+		end
+
+		self.drag:destroy()
+
+		self.drag = nil
 	end
 
 	--// drag by the titlebar when there is one, so content interaction never
 	--// moves the panel out from under the pointer
 	local handles = if self.hasTitle then { self.refs.titlebar :: GuiObject } else { self.instance :: GuiObject }
 
-	self.drag = Drag.attach(self.app, self.instance, {
+	local settings: Drag.Options = {
 		handles = handles,
 		scope = self.scope,
-	})
+	}
+
+	for key, value in options or {} do
+		(settings :: any)[key] = value
+	end
+
+	self.drag = Drag.attach(self.app, self.instance, settings)
 
 	local handle = self.drag :: Types.DragHandle
 

@@ -269,28 +269,59 @@ function Suggestions.Previous(self: Suggestions)
 	self.Suggest:previous()
 end
 
---- Accepts the highlighted match and puts the caret after it.
+--- Accepts the highlighted match.
 ---
---- No cleanup pass. The Tab that triggered this is sunk by the console's
---- action binding, so it never reaches the field — an earlier version wrote
---- the completion and then tried to strip the tab that arrived afterwards,
---- which is a race the tab sometimes won.
+--- ContextActionService cannot sink a key while a TextBox has focus — Roblox
+--- routes text input below where an action binding can reach — so `Sink` alone
+--- does not stop Tab from being typed. Two things together do:
+---
+--- 1. **Drop focus before writing.** A TextBox that is not focused cannot
+---    receive the tab, so releasing first gives the key nowhere to land.
+--- 2. **Strip and rewrite a frame later.** Whatever did get through arrives
+---    after this call returns, so the completion is re-applied on the next
+---    frame with every tab removed — not merely trimmed from the end, since
+---    the caret is rarely at the end when Tab is pressed.
+---
+--- Focus is then recaptured with the caret past the completion, so typing
+--- carries on where the word finished.
 function Suggestions.Accept(self: Suggestions)
+	local field = (self.Suggest :: any).field
+
+	if not field then
+		self.Suggest:accept()
+		Suggestions.Hide(self)
+
+		return
+	end
+
+	local box = field.refs.input :: TextBox
+	local focused = box:IsFocused()
+
+	if focused then
+		box:ReleaseFocus(false)
+	end
+
 	self.Suggest:accept()
 
 	Suggestions.Hide(self)
 
-	local field = (self.Suggest :: any).field
+	local completed = (string.gsub(box.Text, "\t", ""))
 
-	if not field then
-		return
-	end
+	task.defer(function()
+		if not box.Parent then
+			return
+		end
 
-	--// leave the caret at the end of what was just completed, so typing
-	--// continues the line rather than landing mid-word
-	local box = (field :: any).refs.input :: TextBox
+		if box.Text ~= completed then
+			box.Text = completed
+		end
 
-	box.CursorPosition = #box.Text + 1
+		if focused then
+			box:CaptureFocus()
+		end
+
+		box.CursorPosition = #completed + 1
+	end)
 end
 
 --- The match currently ghosted after the caret, if any. Tab accepts this even

@@ -365,7 +365,10 @@ export type PanelApi<T> = {
 	setScroll: (self: T, enabled: boolean) -> T,
 
 	--// behaviour
-	setDraggable: (self: T, enabled: boolean) -> T,
+	--- `options` forwards to `Input/Drag` — `smooth` for a springy follow with
+	--- a little overshoot on release, `axis` to lock one direction, `bounds`
+	--- to allow leaving the viewport.
+	setDraggable: (self: T, enabled: boolean, options: { [string]: any }?) -> T,
 	setDismissable: (self: T, enabled: boolean) -> T,
 	setCloseButton: (self: T, enabled: boolean) -> T,
 	attachTo: (self: T, target: GuiObject | Element | Panel, side: Edge?, gap: number?) -> T,

@@ -395,6 +395,19 @@ Astrix.Windows = {
 	List = function(): { string }
 		return if interface then interface.Container:List() else {}
 	end,
+
+	--- The window that currently has the caret. Output goes here, so this is
+	--- also "where the next command's result will appear".
+	Focused = function(): string?
+		return if interface then interface:Target() else nil
+	end,
+
+	--- Moves focus to a window and re-points the completion dropdown at it.
+	Focus = function(id: string)
+		if interface then
+			interface:FocusWindow(id)
+		end
+	end,
 }
 
 --- How many console windows may exist at once. Three by default; opening past

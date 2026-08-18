@@ -1,11 +1,15 @@
 --!strict
 
---- Dragging, one-to-one with the pointer.
+--- Dragging.
 ---
---- Movement is assigned straight to `Position` rather than routed through the
---- motion driver: a dragged panel that lags its cursor by even two frames feels
---- broken. The spring only comes back on release, when the panel settles into
---- the viewport if the throw took it past the edge.
+--- By default movement is assigned straight to `Position`, because a dragged
+--- panel that lags its cursor by even two frames feels broken.
+---
+--- `smooth` opts into the other behaviour: the position is retargeted on a
+--- spring each frame, so the panel trails the pointer with a little weight and
+--- overshoots slightly when released. Retargeting a live spring keeps its
+--- velocity, so a continuous drag is one weighted movement rather than a chain
+--- of restarts.
 --- @section Input
 
 local UserInputService = game:GetService("UserInputService")
@@ -26,6 +30,15 @@ export type Options = {
 	bounds: boolean?,
 	inset: number?,
 	axis: ("x" | "y")?,
+
+	--- Spring the panel toward the pointer instead of pinning it there.
+	---
+	--- Off by default, because a window that lags its cursor usually feels
+	--- broken. It is worth turning on for a console: the weight reads as the
+	--- panel having mass, and the settle overshoots slightly on release.
+	smooth: boolean?,
+	follow: (Types.MotionSpec | string)?,
+	settle: (Types.MotionSpec | string)?,
 }
 
 export type Fields = {
@@ -45,6 +58,10 @@ export type Fields = {
 	bounded: boolean,
 	inset: number,
 	axis: ("x" | "y")?,
+
+	smooth: boolean,
+	follow: (Types.MotionSpec | string)?,
+	settle: (Types.MotionSpec | string)?,
 }
 
 local DRAG_INPUTS: { [Enum.UserInputType]: boolean } = {
@@ -80,6 +97,10 @@ function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Type
 		bounded = settings.bounds ~= false,
 		inset = settings.inset or app.theme.space.sm,
 		axis = settings.axis,
+
+		smooth = settings.smooth == true,
+		follow = settings.follow or "drag",
+		settle = settings.settle or "toss",
 	}
 
 	local handle = setmetatable(self, Drag) :: any
@@ -125,7 +146,13 @@ function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Type
 			self.anchor.Y.Offset + delta.Y
 		)
 
-		target.Position = next
+		--// retargeting a live spring keeps its velocity, so a continuous drag
+		--// reads as one weighted movement rather than a chain of restarts
+		if self.smooth then
+			Motion.animate(target, { Position = next }, app.theme:spec(self.follow))
+		else
+			target.Position = next
+		end
 
 		self.moved:fire(next)
 	end
@@ -147,10 +174,13 @@ function Drag.attach(app: Types.App, target: GuiObject, options: Options?): Type
 				app:viewport(),
 				self.inset
 			)
+		end
 
-			if settled ~= target.Position then
-				Motion.animate(target, { Position = settled }, app.theme:spec("drag"))
-			end
+		--// a smooth drag is still mid-flight when the pointer lets go, so it
+		--// always gets a settle; a pinned one only needs it when it has to be
+		--// pushed back inside the viewport
+		if self.smooth or settled ~= target.Position then
+			Motion.animate(target, { Position = settled }, app.theme:spec(self.settle))
 		end
 
 		self.ended:fire(settled)

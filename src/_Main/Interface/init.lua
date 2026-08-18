@@ -38,6 +38,7 @@ export type Fields = {
 	Registry: any,
 	Main: string,
 	Bindings: { () -> () },
+	LastActivate: number,
 	OnSubmit: ((text: string) -> ())?,
 }
 
@@ -58,6 +59,7 @@ function Interface.new(config: Config): Interface
 		Registry = config.Registry,
 		Main = MAIN_WINDOW,
 		Bindings = {},
+		LastActivate = 0,
 		OnSubmit = config.OnSubmit,
 	}
 
@@ -183,9 +185,22 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 	end
 end
 
+--- Which window output belongs to: whichever one has focus, falling back to
+--- the main one. Every window keeps its own history, so cycling to a second
+--- and running something there leaves the first untouched.
+function Interface.Target(self: Interface): string
+	local focus = self.Container.Focus
+
+	if focus and self.Container:Get(focus) then
+		return focus
+	end
+
+	return self.Main
+end
+
 --- Echoes the line the player typed, the way a shell does.
 function Interface.Echo(self: Interface, text: string)
-	self.Container:Write(self.Main, "Input", text)
+	self.Container:Write(Interface.Target(self), "Input", text)
 end
 
 --- Prints a resolve into the main window, choosing its tone from the kind.
@@ -195,14 +210,16 @@ function Interface.Resolve(self: Interface, resolve: Types.CommandResolve)
 		elseif resolve.Kind == "Warn" or resolve.Kind == "OnCooldown" then "Warn"
 		else "Fail"
 
+	local target = Interface.Target(self)
+
 	if resolve.Content then
-		self.Container:Write(self.Main, kind, "", resolve.Content)
+		self.Container:Write(target, kind, "", resolve.Content)
 
 		return
 	end
 
 	if resolve.Output and resolve.Output ~= "" then
-		self.Container:Write(self.Main, kind, resolve.Output)
+		self.Container:Write(target, kind, resolve.Output)
 	end
 end
 
@@ -213,11 +230,11 @@ function Interface.Reveal(self: Interface)
 		self.Container:Show()
 	end
 
-	self.Container:Expand(self.Main)
+	self.Container:Expand(Interface.Target(self))
 end
 
 function Interface.Write(self: Interface, kind: Types.HistoryKind, text: string, content: Types.ContentElement?)
-	self.Container:Write(self.Main, kind, text, content)
+	self.Container:Write(Interface.Target(self), kind, text, content)
 end
 
 function Interface.Clear(self: Interface)
@@ -227,7 +244,8 @@ end
 --- Shows the console and opens it into a terminal.
 function Interface.Show(self: Interface)
 	self.Container:Show()
-	self.Container:FocusWindow(self.Main)
+
+	Interface.FocusWindow(self, Interface.Target(self))
 end
 
 function Interface.Hide(self: Interface)
@@ -235,22 +253,66 @@ function Interface.Hide(self: Interface)
 	self.Container:Hide()
 end
 
---- The activation key. Konsole toggles between a collapsed pill and an open
---- terminal rather than between shown and gone, so that is what this does:
---- hidden opens, collapsed expands, expanded collapses.
+--- The activation key.
+---
+--- Pressed on its own it toggles between a collapsed pill and an open terminal,
+--- the way Konsole does — hidden opens, collapsed expands, expanded collapses.
+---
+--- Pressed **again within `CYCLE_WINDOW`** and with more than one window open,
+--- it moves to the next window instead. Tapping it three times quickly lands on
+--- the third; pausing resets, so the same key is both "open the console" and
+--- "the one after this", without a second binding to remember.
+local CYCLE_WINDOW = 1.5
+
 function Interface.Toggle(self: Interface)
+	local now = os.clock()
+	local rapid = (now - self.LastActivate) <= CYCLE_WINDOW
+
+	self.LastActivate = now
+
 	if not self.Container.Shown then
 		Interface.Show(self)
 
 		return
 	end
 
-	if self.Container:Expanded(self.Main) then
-		self.Suggestions:Hide()
-		self.Container:Collapse(self.Main)
-	else
-		self.Container:FocusWindow(self.Main)
+	local order = self.Container:List()
+
+	if rapid and #order > 1 then
+		--// step from where focus actually IS, not from a counter. A counter
+		--// drifts the moment anything else moves focus — clicking a window,
+		--// opening one, closing one — and the first press then jumps somewhere
+		--// arbitrary instead of to the next window along
+		local current = table.find(order, Interface.Target(self)) or 0
+
+		Interface.FocusWindow(self, order[(current % #order) + 1])
+
+		return
 	end
+
+	local target = Interface.Target(self)
+
+	if self.Container:Expanded(target) then
+		self.Suggestions:Hide()
+		self.Container:Collapse(target)
+	else
+		Interface.FocusWindow(self, target)
+	end
+end
+
+--- Focuses a window and re-points the dropdown at its input, so completion
+--- happens in the window you are actually typing into.
+function Interface.FocusWindow(self: Interface, id: string)
+	local view = self.Container:Get(id)
+
+	if not view then
+		return
+	end
+
+	self.Suggestions:Hide()
+	self.Suggestions:Attach(view.Panel, view.Input.Field)
+
+	self.Container:FocusWindow(id)
 end
 
 --- Whether the main window is open as a terminal rather than a bar.

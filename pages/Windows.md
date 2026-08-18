@@ -40,6 +40,28 @@ body needing to require the whole module:
 })
 ```
 
+## Cycling between them
+
+The activation key does double duty. Pressed on its own it toggles the console.
+Pressed **again within 1.5 seconds**, with more than one window open, it moves
+to the next one instead — so tapping it three times quickly lands you on the
+third. Pause, and the next press goes back to toggling.
+
+Each window keeps its own history, and output goes to whichever one has the
+caret. Cycling to a second window and running something there leaves the first
+untouched.
+
+## Dragging
+
+Windows drag on a spring rather than pinned to the cursor: they trail the
+pointer with a little weight and overshoot slightly when released. Dragging a
+window also detaches it from the stack, since otherwise the next reflow would
+pull it straight back into line.
+
+```lua
+panel:setDraggable(true, { smooth = true, follow = "drag", settle = "toss" })
+```
+
 ## The cap
 
 **Three by default.** A console that can spawn windows without limit is one

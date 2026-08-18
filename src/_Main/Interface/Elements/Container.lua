@@ -75,7 +75,11 @@ local function shape(panel: any, theme: any, config: WindowConfig)
 	panel:setColor(theme.Color.Background)
 	panel:setTransparency(theme.Transparency.Panel)
 	panel:setBorder(false)
-	panel:setDraggable(true)
+
+	--// springy follow with a little overshoot on release, rather than pinned
+	--// to the cursor. A console has weight; a window that snaps exactly to the
+	--// pointer reads as a sticker
+	panel:setDraggable(true, { smooth = true, follow = "drag", settle = "toss" })
 
 	--// no shadow. Konsole's was a nine-sliced asset tuned to its own instance
 	--// tree; tracked against a Lume panel it reads as a smear behind the bar,
@@ -170,6 +174,16 @@ function Container.Open(self: Container, config: WindowConfig): View
 		if self.OnChange then
 			self.OnChange(config.Id, text)
 		end
+	end
+
+	--// dragging a window detaches it: the stack would otherwise pull it back
+	--// into line on the next reflow, which is not what a drag means
+	if panel.drag then
+		panel.drag.started:connect(function()
+			if panel.stack then
+				panel.stack:remove(panel)
+			end
+		end)
 	end
 
 	--// a collapsed bar is a button

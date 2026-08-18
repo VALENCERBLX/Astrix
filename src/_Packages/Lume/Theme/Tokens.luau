@@ -185,7 +185,13 @@ return {
 
 		layout = { stiffness = 190, damping = 24 },
 		morph = { stiffness = 210, damping = 26 },
-		drag = { stiffness = 420, damping = 34 },
+		--// the follow while a pointer is down: stiff and heavily damped, so it
+		--// trails the cursor without wobbling under it
+		drag = { stiffness = 620, damping = 42 },
+		--// the settle after release. Damping is deliberately under the critical
+		--// value (2 * sqrt(340) is about 37) so it overshoots a little and comes
+		--// back — that small bounce is what reads as weight
+		toss = { stiffness = 340, damping = 22 },
 		reveal = { stiffness = 150, damping = 20 },
 		snap = { stiffness = 600, damping = 40 },
 	},
