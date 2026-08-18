@@ -55,9 +55,15 @@ local BUILTINS = {
 }
 
 --- Works out what the caret is sitting on.
-function Suggestions.Context(raw: string, cursor: number, registry: any): Context
-	local upto = string.sub(raw, 1, math.max(0, cursor - 1))
-	local segment = LineParser.SegmentAt(raw, cursor)
+function Suggestions.Context(raw: string, cursor: number?, registry: any): Context
+	--// `CursorPosition` is -1 on an unfocused TextBox and can arrive nil from a
+	--// caller that has not got one at all. Either way the sensible reading is
+	--// "the caret is at the end", and doing arithmetic on it first is how the
+	--// whole change handler used to die
+	local caret = if type(cursor) == "number" and cursor >= 1 then cursor else #raw + 1
+
+	local upto = string.sub(raw, 1, math.max(0, caret - 1))
+	local segment = LineParser.SegmentAt(raw, caret)
 
 	local within = string.sub(upto, segment.Start)
 	local tokens = LineParser.Tokenize(within)
@@ -147,7 +153,17 @@ function Suggestions.new(app: any, theme: any, registry: any, session: any, prov
 end
 
 --- Recomputes the source list for the caret's context, then shows or hides.
-function Suggestions.Update(self: Suggestions, raw: string, cursor: number)
+function Suggestions.Update(self: Suggestions, raw: string, cursor: number?)
+	--// nothing typed, nothing to suggest. Without this, submitting a command
+	--// clears the field, which fires a change with an empty prefix, which
+	--// matches every command — so the dropdown reappears the instant you hit
+	--// Enter
+	if raw == "" then
+		Suggestions.Hide(self)
+
+		return
+	end
+
 	local context = Suggestions.Context(raw, cursor, self.Registry)
 	local options: { string } = {}
 
@@ -210,8 +226,18 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number)
 	Suggestions.Show(self)
 end
 
-function Suggestions.Attach(self: Suggestions, anchor: any)
+--- Anchors the dropdown to a panel and points it at that window's field.
+---
+--- `setField` rather than `attach`: attaching would make the list filter itself
+--- from the raw text, and Kyn needs the caret's context — `@Players.` means
+--- players, `--` means flags. The field reference is still needed so accepting
+--- writes into it and the ghost hint lands after the caret.
+function Suggestions.Attach(self: Suggestions, anchor: any, field: any)
 	self.Anchor = anchor
+
+	if field then
+		self.Suggest:setField(field)
+	end
 end
 
 function Suggestions.Show(self: Suggestions)
@@ -242,10 +268,32 @@ function Suggestions.Previous(self: Suggestions)
 	self.Suggest:previous()
 end
 
+--- Accepts the highlighted match.
+---
+--- The Tab that triggered this is still on its way into the TextBox, and
+--- Roblox will append it after we have written the completion. Deferring a
+--- cleanup pass strips it, so accepting never leaves a stray tab behind.
 function Suggestions.Accept(self: Suggestions)
 	self.Suggest:accept()
 
 	Suggestions.Hide(self)
+
+	local field = (self.Suggest :: any).field
+
+	if not field then
+		return
+	end
+
+	local accepted = field:value()
+
+	task.defer(function()
+		local current = field:value()
+
+		if current ~= accepted then
+			--// whatever arrived after the completion was the Tab itself
+			field:setText((string.gsub(current, "[\t%s]+$", "")))
+		end
+	end)
 end
 
 --- The match currently ghosted after the caret, if any. Tab accepts this even

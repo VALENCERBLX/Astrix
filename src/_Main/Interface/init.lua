@@ -71,7 +71,7 @@ function Interface.new(config: Config): Interface
 		config.Providers
 	)
 
-	self.Suggestions:Attach(view.Panel)
+	self.Suggestions:Attach(view.Panel, view.Input.Field)
 
 	container.OnChange = function(_, text)
 		local box = view.Input.Field.refs.input :: TextBox
@@ -231,6 +231,11 @@ end
 --- Whether the main window is open as a terminal rather than a bar.
 function Interface.Expanded(self: Interface): boolean
 	return self.Container:Expanded(self.Main)
+end
+
+--- How many console windows may exist at once. Three by default.
+function Interface.SetMaxWindows(self: Interface, count: number)
+	self.Container:SetMaxWindows(count)
 end
 
 --- Switches theme at runtime. Returns the applied theme, or nil if unknown.

@@ -275,6 +275,15 @@ function List.buildRow(self: Fields, index: number): Row
 	button.Parent = self.refs.canvas
 
 	Hover.attach(self.scope, row.button, function(hovering)
+		--// a list that cannot be selected is output, not a menu. Highlighting a
+		--// line of console output on hover makes it look clickable when it is
+		--// not, so rows stay flat
+		if not self.selectable then
+			row.button.BackgroundTransparency = 1
+
+			return
+		end
+
 		local item = self.items[row.index]
 		local selected = item ~= nil and item.id == self.selectedId
 
@@ -349,7 +358,7 @@ function List.render(self: Fields)
 		row.button.Visible = true
 		row.button.Position = UDim2.fromOffset(0, Virtual.offset(index, self.rowHeight))
 		row.button.Size = UDim2.new(1, 0, 0, self.rowHeight)
-		row.button.BackgroundTransparency = if selected then 0.82 else 1
+		row.button.BackgroundTransparency = if selected and self.selectable then 0.82 else 1
 
 		row.title.Text = if self.renderer then self.renderer(item, index) else Text.escape(item.text or "")
 		row.title.TextColor3 = if selected then theme.color.text else theme.color.text

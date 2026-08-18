@@ -96,15 +96,16 @@ local function toneOf(entry: HistoryEntry, theme: any): string
 
 	if kind == "Fail" then
 		return theme.Rich.Error
-	elseif kind == "Ok" then
-		return theme.Rich.Success
 	elseif kind == "Warn" then
 		return theme.Rich.Warn
 	elseif kind == "Input" then
 		return theme.Rich.Sub
 	end
 
-	return "#FFFFFF"
+	--// Ok AND Output. Anything a command hands back is a result, and a result
+	--// that did not fail is green — the console reads as green because most of
+	--// what it prints succeeded
+	return theme.Rich.Success
 end
 
 --// public api ------------------------------------------------------------------

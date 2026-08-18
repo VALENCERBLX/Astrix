@@ -649,6 +649,8 @@ export type Suggest = NodeFields & ElementFields & NodeApi<Suggest> & ElementApi
 	setLimit: (self: Suggest, limit: number) -> Suggest,
 	setMatcher: (self: Suggest, matcher: (string, string) -> (boolean, number)) -> Suggest,
 	attach: (self: Suggest, field: Field) -> Suggest,
+	--- Point at a field without taking over its filtering.
+	setField: (self: Suggest, field: Field) -> Suggest,
 
 	onAccepted: (self: Suggest, handler: (Option) -> ()) -> Suggest,
 	onHighlighted: (self: Suggest, handler: (Option?) -> ()) -> Suggest,

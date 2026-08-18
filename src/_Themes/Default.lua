@@ -113,7 +113,10 @@ return {
 	},
 
 	Transparency = {
-		Panel = 0.5, --// transparency.panel
+		--// Konsole shipped 0.50. A little more opaque reads better over a bright
+		--// world, where half-transparent black lets the scene through enough to
+		--// fight the text
+		Panel = 0.35,
 		Suggestion = 0.42, --// transparency.suggPanel
 		Shadow = 0.8, --// transparency.shadow
 		DimText = 0.18, --// transparency.dimText

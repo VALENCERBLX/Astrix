@@ -240,6 +240,19 @@ function Suggest.setMatcher(
 	return self
 end
 
+--- Points the list at a field WITHOUT taking over its filtering.
+---
+--- `attach` assumes the list drives itself from the field's text. A consumer
+--- with its own grammar — deciding that `@Players.` means players and `--` means
+--- flags — needs the opposite: it feeds the query itself, but still wants
+--- `accept` to write into the field and the ghost hint to appear after the
+--- caret. That is what this is for.
+function Suggest.setField(self: Fields & Types.Suggest, field: Types.Field): Types.Suggest
+	self.field = field
+
+	return self
+end
+
 --- Wires a field to this suggestion list: its text drives the query, its ghost
 --- hint shows the completion, and the arrow keys drive the highlight.
 function Suggest.attach(self: Fields & Types.Suggest, field: Types.Field): Types.Suggest

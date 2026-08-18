@@ -52,6 +52,10 @@ export type Fields = {
 	--// `Shown`, not `Open`: a field of that name would shadow the `Open`
 	--// METHOD, since raw fields win over the metatable
 	Shown: boolean,
+	--// Konsole had exactly two channels. Astrix takes as many as you want, but
+	--// a console that can spawn windows without limit is one runaway loop away
+	--// from covering the screen, so there is a cap
+	MaxWindows: number,
 	OnSubmit: ((id: string, text: string) -> ())?,
 	OnChange: ((id: string, text: string) -> ())?,
 	OnExpand: ((id: string, expanded: boolean) -> ())?,
@@ -108,6 +112,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Order = {},
 		Focus = nil,
 		Shown = false,
+		MaxWindows = 3,
 		OnSubmit = nil,
 		OnChange = nil,
 		OnExpand = nil,
@@ -126,6 +131,12 @@ function Container.Open(self: Container, config: WindowConfig): View
 		existing.Panel:open()
 
 		return existing
+	end
+
+	if #self.Order >= self.MaxWindows then
+		warn(`[Astrix] window limit reached ({self.MaxWindows}); '{config.Id}' was not opened`)
+
+		return self.Windows[self.Order[#self.Order]]
 	end
 
 	local theme = self.Theme
@@ -311,6 +322,16 @@ function Container.Close(self: Container, id: string)
 
 	if #self.Order == 0 then
 		self.Shown = false
+	end
+end
+
+--- Changes how many windows may exist at once. Lowering it below the current
+--- count closes the oldest until it fits.
+function Container.SetMaxWindows(self: Container, count: number)
+	self.MaxWindows = math.max(1, count)
+
+	while #self.Order > self.MaxWindows do
+		Container.Close(self, self.Order[1])
 	end
 end
 

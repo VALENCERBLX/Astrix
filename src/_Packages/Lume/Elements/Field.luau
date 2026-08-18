@@ -121,9 +121,12 @@ function Field.new(app: Types.App): Types.Field
 					ImageTransparency = theme.transparency.arrow,
 					ScaleType = Enum.ScaleType.Fit,
 
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, 0, 0.5, 0),
 					Size = UDim2.fromOffset(12, 12),
+
+					--// the root has a UIListLayout, which positions every child
+					--// and ignores Position entirely. Without a LayoutOrder past
+					--// the input box this lands on the LEFT of the row
+					LayoutOrder = 4,
 
 					Visible = false,
 					Name = "Trailing",

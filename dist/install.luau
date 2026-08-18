@@ -44,6 +44,7 @@ local MODULES = {
 ---\
 --- Part of Valence Libs, by Valence.\
 \
+local ContextActionService = game:GetService(\"ContextActionService\")\
 local Players = game:GetService(\"Players\")\
 local RunService = game:GetService(\"RunService\")\
 \
@@ -145,6 +146,12 @@ local session: any = nil\
 local interface: any = nil\
 local started = false\
 local builtinsRegistered = false\
+local bound = false\
+\
+--// Konsole used activationPriority 10001, above anything a game is likely to\
+--// bind, so the console always wins the key\
+local ACTION = \"AstrixToggle\"\
+local ACTION_PRIORITY = 10001\
 \
 local Astrix = {}\
 \
@@ -346,18 +353,52 @@ function Astrix.Run(text: string): CommandResolve\
 end\
 \
 --- Binds the activation key. Below `InterfaceRank` the console will not open.\
+---\
+--- Bound through ContextActionService at high priority rather than a plain\
+--- InputBegan listener. A listener sees `gameProcessedEvent` go true whenever\
+--- anything else in the place has already claimed the key — another admin\
+--- system, a chat box, a vehicle script — and silently does nothing, which is\
+--- the usual reason an activation key \"doesn't work\". Binding an action takes\
+--- the key first and sinks it, so it neither misses nor leaks through.\
 function Astrix.Bind(key: Enum.KeyCode)\
 	if not interface then\
 		return\
 	end\
 \
-	interface.Container.App:bind(key, function()\
-		if not ranks:AllowsInterface(Players.LocalPlayer) then\
-			return\
-		end\
+	if bound then\
+		ContextActionService:UnbindAction(ACTION)\
+	end\
 \
-		interface:Toggle()\
-	end)\
+	bound = true\
+\
+	ContextActionService:BindActionAtPriority(\
+		ACTION,\
+		function(_, state: Enum.UserInputState)\
+			if state ~= Enum.UserInputState.Begin then\
+				return Enum.ContextActionResult.Pass\
+			end\
+\
+			if not ranks:AllowsInterface(Players.LocalPlayer) then\
+				return Enum.ContextActionResult.Pass\
+			end\
+\
+			interface:Toggle()\
+\
+			return Enum.ContextActionResult.Sink\
+		end,\
+		false,\
+		ACTION_PRIORITY,\
+		key\
+	)\
+end\
+\
+--- Releases the activation key.\
+function Astrix.Unbind()\
+	if bound then\
+		ContextActionService:UnbindAction(ACTION)\
+\
+		bound = false\
+	end\
 end\
 \
 --// windows ----------------------------------------------------------------------\
@@ -376,6 +417,14 @@ Astrix.Windows = {\
 		return if interface then interface.Container:List() else {}\
 	end,\
 }\
+\
+--- How many console windows may exist at once. Three by default; opening past\
+--- it warns rather than stacking without limit.\
+function Astrix.SetMaxWindows(count: number)\
+	if interface then\
+		interface:SetMaxWindows(count)\
+	end\
+end\
 \
 --// theming ----------------------------------------------------------------------\
 --- Switches the console theme. Returns false if no theme by that name exists.\
@@ -449,6 +498,8 @@ function Astrix.Runtime(): any\
 end\
 \
 function Astrix.Destroy()\
+	Astrix.Unbind()\
+\
 	if interface then\
 		interface:Destroy()\
 \
@@ -2729,7 +2780,7 @@ function Interface.new(config: Config): Interface\
 		config.Providers\
 	)\
 \
-	self.Suggestions:Attach(view.Panel)\
+	self.Suggestions:Attach(view.Panel, view.Input.Field)\
 \
 	container.OnChange = function(_, text)\
 		local box = view.Input.Field.refs.input :: TextBox\
@@ -2891,6 +2942,11 @@ function Interface.Expanded(self: Interface): boolean\
 	return self.Container:Expanded(self.Main)\
 end\
 \
+--- How many console windows may exist at once. Three by default.\
+function Interface.SetMaxWindows(self: Interface, count: number)\
+	self.Container:SetMaxWindows(count)\
+end\
+\
 --- Switches theme at runtime. Returns the applied theme, or nil if unknown.\
 function Interface.SetTheme(self: Interface, name: string): any\
 	local resolved = Themes.Resolve(name)\
@@ -3000,6 +3056,10 @@ export type Fields = {\
 	--// `Shown`, not `Open`: a field of that name would shadow the `Open`\
 	--// METHOD, since raw fields win over the metatable\
 	Shown: boolean,\
+	--// Konsole had exactly two channels. Astrix takes as many as you want, but\
+	--// a console that can spawn windows without limit is one runaway loop away\
+	--// from covering the screen, so there is a cap\
+	MaxWindows: number,\
 	OnSubmit: ((id: string, text: string) -> ())?,\
 	OnChange: ((id: string, text: string) -> ())?,\
 	OnExpand: ((id: string, expanded: boolean) -> ())?,\
@@ -3056,6 +3116,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Order = {},\
 		Focus = nil,\
 		Shown = false,\
+		MaxWindows = 3,\
 		OnSubmit = nil,\
 		OnChange = nil,\
 		OnExpand = nil,\
@@ -3074,6 +3135,12 @@ function Container.Open(self: Container, config: WindowConfig): View\
 		existing.Panel:open()\
 \
 		return existing\
+	end\
+\
+	if #self.Order >= self.MaxWindows then\
+		warn(`[Astrix] window limit reached ({self.MaxWindows}); '{config.Id}' was not opened`)\
+\
+		return self.Windows[self.Order[#self.Order]]\
 	end\
 \
 	local theme = self.Theme\
@@ -3259,6 +3326,16 @@ function Container.Close(self: Container, id: string)\
 \
 	if #self.Order == 0 then\
 		self.Shown = false\
+	end\
+end\
+\
+--- Changes how many windows may exist at once. Lowering it below the current\
+--- count closes the oldest until it fits.\
+function Container.SetMaxWindows(self: Container, count: number)\
+	self.MaxWindows = math.max(1, count)\
+\
+	while #self.Order > self.MaxWindows do\
+		Container.Close(self, self.Order[1])\
 	end\
 end\
 \
@@ -3847,15 +3924,16 @@ local function toneOf(entry: HistoryEntry, theme: any): string\
 \
 	if kind == \"Fail\" then\
 		return theme.Rich.Error\
-	elseif kind == \"Ok\" then\
-		return theme.Rich.Success\
 	elseif kind == \"Warn\" then\
 		return theme.Rich.Warn\
 	elseif kind == \"Input\" then\
 		return theme.Rich.Sub\
 	end\
 \
-	return \"#FFFFFF\"\
+	--// Ok AND Output. Anything a command hands back is a result, and a result\
+	--// that did not fail is green — the console reads as green because most of\
+	--// what it prints succeeded\
+	return theme.Rich.Success\
 end\
 \
 --// public api ------------------------------------------------------------------\
@@ -4020,9 +4098,15 @@ local BUILTINS = {\
 }\
 \
 --- Works out what the caret is sitting on.\
-function Suggestions.Context(raw: string, cursor: number, registry: any): Context\
-	local upto = string.sub(raw, 1, math.max(0, cursor - 1))\
-	local segment = LineParser.SegmentAt(raw, cursor)\
+function Suggestions.Context(raw: string, cursor: number?, registry: any): Context\
+	--// `CursorPosition` is -1 on an unfocused TextBox and can arrive nil from a\
+	--// caller that has not got one at all. Either way the sensible reading is\
+	--// \"the caret is at the end\", and doing arithmetic on it first is how the\
+	--// whole change handler used to die\
+	local caret = if type(cursor) == \"number\" and cursor >= 1 then cursor else #raw + 1\
+\
+	local upto = string.sub(raw, 1, math.max(0, caret - 1))\
+	local segment = LineParser.SegmentAt(raw, caret)\
 \
 	local within = string.sub(upto, segment.Start)\
 	local tokens = LineParser.Tokenize(within)\
@@ -4112,7 +4196,17 @@ function Suggestions.new(app: any, theme: any, registry: any, session: any, prov
 end\
 \
 --- Recomputes the source list for the caret's context, then shows or hides.\
-function Suggestions.Update(self: Suggestions, raw: string, cursor: number)\
+function Suggestions.Update(self: Suggestions, raw: string, cursor: number?)\
+	--// nothing typed, nothing to suggest. Without this, submitting a command\
+	--// clears the field, which fires a change with an empty prefix, which\
+	--// matches every command — so the dropdown reappears the instant you hit\
+	--// Enter\
+	if raw == \"\" then\
+		Suggestions.Hide(self)\
+\
+		return\
+	end\
+\
 	local context = Suggestions.Context(raw, cursor, self.Registry)\
 	local options: { string } = {}\
 \
@@ -4175,8 +4269,18 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number)\
 	Suggestions.Show(self)\
 end\
 \
-function Suggestions.Attach(self: Suggestions, anchor: any)\
+--- Anchors the dropdown to a panel and points it at that window's field.\
+---\
+--- `setField` rather than `attach`: attaching would make the list filter itself\
+--- from the raw text, and Kyn needs the caret's context — `@Players.` means\
+--- players, `--` means flags. The field reference is still needed so accepting\
+--- writes into it and the ghost hint lands after the caret.\
+function Suggestions.Attach(self: Suggestions, anchor: any, field: any)\
 	self.Anchor = anchor\
+\
+	if field then\
+		self.Suggest:setField(field)\
+	end\
 end\
 \
 function Suggestions.Show(self: Suggestions)\
@@ -4207,10 +4311,32 @@ function Suggestions.Previous(self: Suggestions)\
 	self.Suggest:previous()\
 end\
 \
+--- Accepts the highlighted match.\
+---\
+--- The Tab that triggered this is still on its way into the TextBox, and\
+--- Roblox will append it after we have written the completion. Deferring a\
+--- cleanup pass strips it, so accepting never leaves a stray tab behind.\
 function Suggestions.Accept(self: Suggestions)\
 	self.Suggest:accept()\
 \
 	Suggestions.Hide(self)\
+\
+	local field = (self.Suggest :: any).field\
+\
+	if not field then\
+		return\
+	end\
+\
+	local accepted = field:value()\
+\
+	task.defer(function()\
+		local current = field:value()\
+\
+		if current ~= accepted then\
+			--// whatever arrived after the completion was the Tab itself\
+			field:setText((string.gsub(current, \"[\\t%s]+$\", \"\")))\
+		end\
+	end)\
 end\
 \
 --- The match currently ghosted after the caret, if any. Tab accepts this even\
@@ -7392,9 +7518,12 @@ function Field.new(app: Types.App): Types.Field\
 					ImageTransparency = theme.transparency.arrow,\
 					ScaleType = Enum.ScaleType.Fit,\
 \
-					AnchorPoint = Vector2.new(1, 0.5),\
-					Position = UDim2.new(1, 0, 0.5, 0),\
 					Size = UDim2.fromOffset(12, 12),\
+\
+					--// the root has a UIListLayout, which positions every child\
+					--// and ignores Position entirely. Without a LayoutOrder past\
+					--// the input box this lands on the LEFT of the row\
+					LayoutOrder = 4,\
 \
 					Visible = false,\
 					Name = \"Trailing\",\
@@ -9177,6 +9306,15 @@ function List.buildRow(self: Fields, index: number): Row\
 	button.Parent = self.refs.canvas\
 \
 	Hover.attach(self.scope, row.button, function(hovering)\
+		--// a list that cannot be selected is output, not a menu. Highlighting a\
+		--// line of console output on hover makes it look clickable when it is\
+		--// not, so rows stay flat\
+		if not self.selectable then\
+			row.button.BackgroundTransparency = 1\
+\
+			return\
+		end\
+\
 		local item = self.items[row.index]\
 		local selected = item ~= nil and item.id == self.selectedId\
 \
@@ -9251,7 +9389,7 @@ function List.render(self: Fields)\
 		row.button.Visible = true\
 		row.button.Position = UDim2.fromOffset(0, Virtual.offset(index, self.rowHeight))\
 		row.button.Size = UDim2.new(1, 0, 0, self.rowHeight)\
-		row.button.BackgroundTransparency = if selected then 0.82 else 1\
+		row.button.BackgroundTransparency = if selected and self.selectable then 0.82 else 1\
 \
 		row.title.Text = if self.renderer then self.renderer(item, index) else Text.escape(item.text or \"\")\
 		row.title.TextColor3 = if selected then theme.color.text else theme.color.text\
@@ -11497,6 +11635,19 @@ function Suggest.setMatcher(\
 	self.matcher = matcher\
 \
 	Suggest.refilter(self)\
+\
+	return self\
+end\
+\
+--- Points the list at a field WITHOUT taking over its filtering.\
+---\
+--- `attach` assumes the list drives itself from the field's text. A consumer\
+--- with its own grammar — deciding that `@Players.` means players and `--` means\
+--- flags — needs the opposite: it feeds the query itself, but still wants\
+--- `accept` to write into the field and the ghost hint to appear after the\
+--- caret. That is what this is for.\
+function Suggest.setField(self: Fields & Types.Suggest, field: Types.Field): Types.Suggest\
+	self.field = field\
 \
 	return self\
 end\
@@ -17344,6 +17495,8 @@ export type Suggest = NodeFields & ElementFields & NodeApi<Suggest> & ElementApi
 	setLimit: (self: Suggest, limit: number) -> Suggest,\
 	setMatcher: (self: Suggest, matcher: (string, string) -> (boolean, number)) -> Suggest,\
 	attach: (self: Suggest, field: Field) -> Suggest,\
+	--- Point at a field without taking over its filtering.\
+	setField: (self: Suggest, field: Field) -> Suggest,\
 \
 	onAccepted: (self: Suggest, handler: (Option) -> ()) -> Suggest,\
 	onHighlighted: (self: Suggest, handler: (Option?) -> ()) -> Suggest,\
@@ -25943,7 +26096,10 @@ return {\
 	},\
 \
 	Transparency = {\
-		Panel = 0.5, --// transparency.panel\
+		--// Konsole shipped 0.50. A little more opaque reads better over a bright\
+		--// world, where half-transparent black lets the scene through enough to\
+		--// fight the text\
+		Panel = 0.35,\
 		Suggestion = 0.42, --// transparency.suggPanel\
 		Shadow = 0.8, --// transparency.shadow\
 		DimText = 0.18, --// transparency.dimText\

@@ -22,6 +22,7 @@
 ---
 --- Part of Valence Libs, by Valence.
 
+local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
@@ -123,6 +124,12 @@ local session: any = nil
 local interface: any = nil
 local started = false
 local builtinsRegistered = false
+local bound = false
+
+--// Konsole used activationPriority 10001, above anything a game is likely to
+--// bind, so the console always wins the key
+local ACTION = "AstrixToggle"
+local ACTION_PRIORITY = 10001
 
 local Astrix = {}
 
@@ -324,18 +331,52 @@ function Astrix.Run(text: string): CommandResolve
 end
 
 --- Binds the activation key. Below `InterfaceRank` the console will not open.
+---
+--- Bound through ContextActionService at high priority rather than a plain
+--- InputBegan listener. A listener sees `gameProcessedEvent` go true whenever
+--- anything else in the place has already claimed the key — another admin
+--- system, a chat box, a vehicle script — and silently does nothing, which is
+--- the usual reason an activation key "doesn't work". Binding an action takes
+--- the key first and sinks it, so it neither misses nor leaks through.
 function Astrix.Bind(key: Enum.KeyCode)
 	if not interface then
 		return
 	end
 
-	interface.Container.App:bind(key, function()
-		if not ranks:AllowsInterface(Players.LocalPlayer) then
-			return
-		end
+	if bound then
+		ContextActionService:UnbindAction(ACTION)
+	end
 
-		interface:Toggle()
-	end)
+	bound = true
+
+	ContextActionService:BindActionAtPriority(
+		ACTION,
+		function(_, state: Enum.UserInputState)
+			if state ~= Enum.UserInputState.Begin then
+				return Enum.ContextActionResult.Pass
+			end
+
+			if not ranks:AllowsInterface(Players.LocalPlayer) then
+				return Enum.ContextActionResult.Pass
+			end
+
+			interface:Toggle()
+
+			return Enum.ContextActionResult.Sink
+		end,
+		false,
+		ACTION_PRIORITY,
+		key
+	)
+end
+
+--- Releases the activation key.
+function Astrix.Unbind()
+	if bound then
+		ContextActionService:UnbindAction(ACTION)
+
+		bound = false
+	end
 end
 
 --// windows ----------------------------------------------------------------------
@@ -354,6 +395,14 @@ Astrix.Windows = {
 		return if interface then interface.Container:List() else {}
 	end,
 }
+
+--- How many console windows may exist at once. Three by default; opening past
+--- it warns rather than stacking without limit.
+function Astrix.SetMaxWindows(count: number)
+	if interface then
+		interface:SetMaxWindows(count)
+	end
+end
 
 --// theming ----------------------------------------------------------------------
 --- Switches the console theme. Returns false if no theme by that name exists.
@@ -427,6 +476,8 @@ function Astrix.Runtime(): any
 end
 
 function Astrix.Destroy()
+	Astrix.Unbind()
+
 	if interface then
 		interface:Destroy()
 
