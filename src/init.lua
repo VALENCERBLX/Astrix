@@ -333,6 +333,11 @@ function Astrix.Start(options: AstrixOptions?)
 	local keybind = (settings.Interface and settings.Interface.Keybind) or Enum.KeyCode.T
 
 	Astrix.Bind(keybind)
+
+	--// the other half of the activation key: ContextActionService covers the
+	--// case where nothing is focused, this covers the case where the console
+	--// itself is, which is the only state cycling ever happens in
+	table.insert(interface.Bindings, interface:BindActivation(keybind))
 end
 
 --- Runs a Kyn line as if it had been typed. Echoes it and prints every resolve.
@@ -389,7 +394,7 @@ function Astrix.Bind(key: Enum.KeyCode)
 				return Enum.ContextActionResult.Pass
 			end
 
-			interface:Toggle()
+			interface:Activate()
 
 			return Enum.ContextActionResult.Sink
 		end,

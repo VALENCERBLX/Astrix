@@ -263,6 +263,9 @@ function Container.Expand(self: Container, id: string)
 	--// input to receive anything
 	view.Panel:setActivatable(false)
 
+	--// exactly one window holds the caret at a time
+	Container.Blur(self, id)
+
 	view.Input:SetVisible(true)
 	view.Lines:SetVisible(#view.Window.History > 0)
 
@@ -437,6 +440,21 @@ function Container.FocusWindow(self: Container, id: string)
 	view.Panel:front()
 
 	Container.Expand(self, id)
+end
+
+--- Drops the caret from every window but one.
+---
+--- Focusing a window never used to release the one before it, so after a few
+--- moves several fields all believed they had focus. Anything that asks "which
+--- window is the player typing in" — the key handler, completion routing, the
+--- activation guard — then picked whichever came first in the list rather than
+--- the real one.
+function Container.Blur(self: Container, except: string?)
+	for id, view in self.Windows do
+		if id ~= except then
+			view.Input:Blur()
+		end
+	end
 end
 
 --- Moves a window to the front of the recency list.

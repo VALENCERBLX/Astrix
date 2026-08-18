@@ -355,6 +355,11 @@ function Astrix.Start(options: AstrixOptions?)\
 	local keybind = (settings.Interface and settings.Interface.Keybind) or Enum.KeyCode.T\
 \
 	Astrix.Bind(keybind)\
+\
+	--// the other half of the activation key: ContextActionService covers the\
+	--// case where nothing is focused, this covers the case where the console\
+	--// itself is, which is the only state cycling ever happens in\
+	table.insert(interface.Bindings, interface:BindActivation(keybind))\
 end\
 \
 --- Runs a Kyn line as if it had been typed. Echoes it and prints every resolve.\
@@ -411,7 +416,7 @@ function Astrix.Bind(key: Enum.KeyCode)\
 				return Enum.ContextActionResult.Pass\
 			end\
 \
-			interface:Toggle()\
+			interface:Activate()\
 \
 			return Enum.ContextActionResult.Sink\
 		end,\
@@ -3821,6 +3826,7 @@ export type Fields = {\
 	Main: string,\
 	Bindings: { () -> () },\
 	LastActivate: number,\
+	ActivationKey: Enum.KeyCode?,\
 	CycleTimeout: number,\
 	Cycling: boolean,\
 	Step: number,\
@@ -3845,6 +3851,7 @@ function Interface.new(config: Config): Interface\
 		Main = MAIN_WINDOW,\
 		Bindings = {},\
 		LastActivate = 0,\
+		ActivationKey = nil,\
 		CycleTimeout = 1.5,\
 		Cycling = false,\
 		Step = 1,\
@@ -4107,6 +4114,70 @@ function Interface.Toggle(self: Interface)\
 	end\
 end\
 \
+--- The activation press, however it arrived.\
+---\
+--- Whatever field had the caret is snapshotted first and put back a frame\
+--- later. The key that triggered this is still on its way into that TextBox —\
+--- Roblox types it regardless of what any binding says — so without this,\
+--- cycling with `;` leaves a trail of semicolons in whatever you were writing.\
+function Interface.Activate(self: Interface)\
+	local view = Interface.FocusedView(self)\
+	local box = view and view.Input.Field.refs.input :: TextBox?\
+\
+	local before = if box then box.Text else nil\
+\
+	Interface.Toggle(self)\
+\
+	if not box or not before then\
+		return\
+	end\
+\
+	task.defer(function()\
+		if box.Parent and box.Text ~= before then\
+			box.Text = before\
+		end\
+	end)\
+end\
+\
+--- Watches for the activation key while a console field has focus.\
+---\
+--- ContextActionService handles it the rest of the time, sinking it so it\
+--- cannot leak into the game. But a CAS action does not fire *at all* while a\
+--- TextBox has focus, which is exactly the state cycling happens in: the first\
+--- press opens the console and captures the caret, and every press after that\
+--- was going straight into the field instead of stepping to the next window.\
+---\
+--- The two paths cannot double-fire, because each only acts in the state the\
+--- other is silent in.\
+function Interface.BindActivation(self: Interface, key: Enum.KeyCode): () -> ()\
+	self.ActivationKey = key\
+\
+	local connection = UserInputService.InputBegan:Connect(function(input)\
+		--// gameProcessed is deliberately ignored: it is always true while\
+		--// typing, which is when this path is needed\
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
+			return\
+		end\
+\
+		if input.KeyCode ~= self.ActivationKey then\
+			return\
+		end\
+\
+		local view = Interface.FocusedView(self)\
+\
+		if not view or not view.Input:Focused() then\
+			--// nothing focused, so ContextActionService is handling it\
+			return\
+		end\
+\
+		Interface.Activate(self)\
+	end)\
+\
+	return function()\
+		connection:Disconnect()\
+	end\
+end\
+\
 --- How long a run of activation presses counts as one cycle. 1.5s by default.\
 function Interface.SetCycleTimeout(self: Interface, seconds: number)\
 	self.CycleTimeout = math.max(0, seconds)\
@@ -4130,8 +4201,15 @@ function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)
 	if transient then\
 		self.Container.Focus = id\
 \
+		self.Container:Blur(id)\
+\
 		view.Panel:front()\
 		self.Container:Expand(id)\
+\
+		--// Expand is a no-op on an already-expanded window, so the caret is\
+		--// moved explicitly; cycling between two open terminals otherwise\
+		--// leaves it wherever it was\
+		view.Input:Focus()\
 \
 		return\
 	end\
@@ -4481,6 +4559,9 @@ function Container.Expand(self: Container, id: string)\
 	--// input to receive anything\
 	view.Panel:setActivatable(false)\
 \
+	--// exactly one window holds the caret at a time\
+	Container.Blur(self, id)\
+\
 	view.Input:SetVisible(true)\
 	view.Lines:SetVisible(#view.Window.History > 0)\
 \
@@ -4655,6 +4736,21 @@ function Container.FocusWindow(self: Container, id: string)\
 	view.Panel:front()\
 \
 	Container.Expand(self, id)\
+end\
+\
+--- Drops the caret from every window but one.\
+---\
+--- Focusing a window never used to release the one before it, so after a few\
+--- moves several fields all believed they had focus. Anything that asks \"which\
+--- window is the player typing in\" — the key handler, completion routing, the\
+--- activation guard — then picked whichever came first in the list rather than\
+--- the real one.\
+function Container.Blur(self: Container, except: string?)\
+	for id, view in self.Windows do\
+		if id ~= except then\
+			view.Input:Blur()\
+		end\
+	end\
 end\
 \
 --- Moves a window to the front of the recency list.\

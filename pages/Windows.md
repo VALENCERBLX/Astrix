@@ -65,6 +65,12 @@ Astrix.SetCycleTimeout(0.8)   -- or later
 
 Set it to zero to switch cycling off entirely.
 
+**Pick a key you do not need to type.** The activation key is watched even
+while a console field has focus — it has to be, since that is the only state
+cycling ever happens in — so it acts as the activation key rather than as a
+character. Whatever it types is taken back out of the field a frame later.
+`;` and `T` are fine for this; a key you use inside commands is not.
+
 **This needs more than one window.** With only the default `Main` open there is
 nothing to cycle to and every press just toggles, which looks like the feature
 is broken. Open a second first:
