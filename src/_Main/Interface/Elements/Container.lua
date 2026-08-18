@@ -440,6 +440,22 @@ function Container.FocusWindow(self: Container, id: string)
 	view.Panel:front()
 
 	Container.Expand(self, id)
+	Container.Mark(self, id)
+end
+
+--- Flashes a window's surface so it is obvious which one just took focus.
+---
+--- With three consoles stacked on top of each other, "the caret moved" is
+--- otherwise a one-pixel cue. The panel lifts quickly and settles slowly, the
+--- same asymmetry every other transition here uses.
+function Container.Mark(self: Container, id: string)
+	local view = self.Windows[id]
+
+	if not view then
+		return
+	end
+
+	view.Panel:flash(self.Theme.Transparency.Panel * 0.6, "press", "item")
 end
 
 --- Drops the caret from every window but one.

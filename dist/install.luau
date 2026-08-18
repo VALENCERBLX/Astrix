@@ -4128,40 +4128,68 @@ function Interface.Toggle(self: Interface, forceCycle: boolean?)\
 	end\
 end\
 \
+--- Puts a field back if the next thing to touch it was the activation key.\
+---\
+--- A single deferred restore is a race: `task.defer` runs at the end of the\
+--- current resumption, and Roblox may not have inserted the character yet.\
+--- Watching the Text signal instead catches it whenever it lands, reverts once,\
+--- and lets go — so the very next keystroke the player makes is left alone.\
+local function guardText(box: TextBox, before: string, scope: any)\
+	local connection: RBXScriptConnection? = nil\
+	local done = false\
+\
+	local function release()\
+		if done then\
+			return\
+		end\
+\
+		done = true\
+\
+		if connection then\
+			connection:Disconnect()\
+		end\
+	end\
+\
+	connection = box:GetPropertyChangedSignal(\"Text\"):Connect(function()\
+		if done then\
+			return\
+		end\
+\
+		--// only an insertion of one character is the activation key; anything\
+		--// larger is the console itself rewriting the field, which must stand\
+		if #box.Text == #before + 1 then\
+			box.Text = before\
+		end\
+\
+		release()\
+	end)\
+\
+	--// nothing arrived, so stop watching rather than reverting a later edit\
+	task.delay(0.2, release)\
+\
+	if scope then\
+		scope:add(release)\
+	end\
+end\
+\
 --- The activation press, however it arrived.\
 ---\
---- Whatever field had the caret is snapshotted first and put back a frame\
---- later. The key that triggered this is still on its way into that TextBox —\
---- Roblox types it regardless of what any binding says — so without this,\
---- cycling with `;` leaves a trail of semicolons in whatever you were writing.\
+--- Whatever the key manages to type is taken back out. Every field is guarded,\
+--- not only the one that looked focused: focus moves during a cycle, and\
+--- Roblox delivers the character to whichever box holds the caret when it\
+--- processes it — which may be the one just moved to.\
 function Interface.Activate(self: Interface, forceCycle: boolean?)\
-	--// snapshot EVERY field, not only the one that currently looks focused.\
-	--// Focus moves during the cycle, and Roblox delivers the character to\
-	--// whichever box holds the caret when it processes it — which may be the\
-	--// one just moved to rather than the one just left\
-	local snapshot: { [string]: any } = {}\
-\
 	for _, id in self.Container:List() do\
 		local view = self.Container:Get(id)\
 \
 		if view then\
 			local box = view.Input.Field.refs.input :: TextBox\
 \
-			snapshot[id] = { Box = box, Text = box.Text }\
+			guardText(box, box.Text, view.Panel.scope)\
 		end\
 	end\
 \
 	Interface.Toggle(self, forceCycle)\
-\
-	task.defer(function()\
-		for _, entry in snapshot do\
-			local box = entry.Box :: TextBox\
-\
-			if box.Parent and box.Text ~= entry.Text then\
-				box.Text = entry.Text\
-			end\
-		end\
-	end)\
 end\
 \
 --- Watches for the activation key while a console field has focus.\
@@ -4252,6 +4280,10 @@ function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)
 		--// moved explicitly; cycling between two open terminals otherwise\
 		--// leaves it wherever it was\
 		view.Input:Focus()\
+\
+		--// and the surface flashes, so stepping through a stack of consoles\
+		--// shows you where you landed\
+		self.Container:Mark(id)\
 \
 		return\
 	end\
@@ -4778,6 +4810,22 @@ function Container.FocusWindow(self: Container, id: string)\
 	view.Panel:front()\
 \
 	Container.Expand(self, id)\
+	Container.Mark(self, id)\
+end\
+\
+--- Flashes a window's surface so it is obvious which one just took focus.\
+---\
+--- With three consoles stacked on top of each other, \"the caret moved\" is\
+--- otherwise a one-pixel cue. The panel lifts quickly and settles slowly, the\
+--- same asymmetry every other transition here uses.\
+function Container.Mark(self: Container, id: string)\
+	local view = self.Windows[id]\
+\
+	if not view then\
+		return\
+	end\
+\
+	view.Panel:flash(self.Theme.Transparency.Panel * 0.6, \"press\", \"item\")\
 end\
 \
 --- Drops the caret from every window but one.\
@@ -17202,6 +17250,43 @@ function Panel.moveTo(self: Panel, position: UDim2): Panel\
 	return self\
 end\
 \
+--- Briefly lifts the panel's surface, then settles it back.\
+---\
+--- Two specs on purpose: a quick rise and a slower fall. A symmetric flash\
+--- reads as a glitch; asymmetric reads as something being handed to you, which\
+--- is the same shape as every other transition in the library.\
+---\
+--- The rest state is read at call time rather than remembered, so a flash\
+--- landing on a panel whose transparency has since been rethemed settles to\
+--- the new value instead of the old one.\
+function Panel.flash(self: Panel, amount: number?, rise: (Types.MotionSpec | string)?, fall: (Types.MotionSpec | string)?): Panel\
+	local theme = self.app.theme\
+	local rest = self.instance.BackgroundTransparency\
+	local lift = math.clamp(rest - (amount or 0.2), 0, 1)\
+\
+	Motion.stop(self.instance, \"BackgroundTransparency\")\
+\
+	local up = Motion.animate(\
+		self.instance,\
+		{ BackgroundTransparency = lift },\
+		theme:spec(rise or \"press\")\
+	)\
+\
+	up.completed:once(function()\
+		if self.dead then\
+			return\
+		end\
+\
+		Motion.animate(\
+			self.instance,\
+			{ BackgroundTransparency = rest },\
+			theme:spec(fall or \"item\")\
+		)\
+	end)\
+\
+	return self\
+end\
+\
 --- Raises the panel above its siblings on the same layer.\
 function Panel.front(self: Panel): Panel\
 	local parent = self.instance.Parent\
@@ -18879,6 +18964,9 @@ export type PanelApi<T> = {\
 	center: (self: T) -> T,\
 	moveTo: (self: T, position: UDim2) -> T,\
 	front: (self: T) -> T,\
+	--- A brief lift of the surface and a slower settle back — for marking\
+	--- which panel just took focus.\
+	flash: (self: T, amount: number?, rise: (MotionSpec | string)?, fall: (MotionSpec | string)?) -> T,\
 }\
 \
 export type Panel = NodeFields & PanelFields & NodeApi<Panel> & ElementApi<Panel> & PanelApi<Panel>\

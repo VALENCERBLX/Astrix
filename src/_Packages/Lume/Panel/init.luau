@@ -1024,6 +1024,43 @@ function Panel.moveTo(self: Panel, position: UDim2): Panel
 	return self
 end
 
+--- Briefly lifts the panel's surface, then settles it back.
+---
+--- Two specs on purpose: a quick rise and a slower fall. A symmetric flash
+--- reads as a glitch; asymmetric reads as something being handed to you, which
+--- is the same shape as every other transition in the library.
+---
+--- The rest state is read at call time rather than remembered, so a flash
+--- landing on a panel whose transparency has since been rethemed settles to
+--- the new value instead of the old one.
+function Panel.flash(self: Panel, amount: number?, rise: (Types.MotionSpec | string)?, fall: (Types.MotionSpec | string)?): Panel
+	local theme = self.app.theme
+	local rest = self.instance.BackgroundTransparency
+	local lift = math.clamp(rest - (amount or 0.2), 0, 1)
+
+	Motion.stop(self.instance, "BackgroundTransparency")
+
+	local up = Motion.animate(
+		self.instance,
+		{ BackgroundTransparency = lift },
+		theme:spec(rise or "press")
+	)
+
+	up.completed:once(function()
+		if self.dead then
+			return
+		end
+
+		Motion.animate(
+			self.instance,
+			{ BackgroundTransparency = rest },
+			theme:spec(fall or "item")
+		)
+	end)
+
+	return self
+end
+
 --- Raises the panel above its siblings on the same layer.
 function Panel.front(self: Panel): Panel
 	local parent = self.instance.Parent

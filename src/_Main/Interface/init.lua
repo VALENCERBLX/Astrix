@@ -340,40 +340,68 @@ function Interface.Toggle(self: Interface, forceCycle: boolean?)
 	end
 end
 
+--- Puts a field back if the next thing to touch it was the activation key.
+---
+--- A single deferred restore is a race: `task.defer` runs at the end of the
+--- current resumption, and Roblox may not have inserted the character yet.
+--- Watching the Text signal instead catches it whenever it lands, reverts once,
+--- and lets go — so the very next keystroke the player makes is left alone.
+local function guardText(box: TextBox, before: string, scope: any)
+	local connection: RBXScriptConnection? = nil
+	local done = false
+
+	local function release()
+		if done then
+			return
+		end
+
+		done = true
+
+		if connection then
+			connection:Disconnect()
+		end
+	end
+
+	connection = box:GetPropertyChangedSignal("Text"):Connect(function()
+		if done then
+			return
+		end
+
+		--// only an insertion of one character is the activation key; anything
+		--// larger is the console itself rewriting the field, which must stand
+		if #box.Text == #before + 1 then
+			box.Text = before
+		end
+
+		release()
+	end)
+
+	--// nothing arrived, so stop watching rather than reverting a later edit
+	task.delay(0.2, release)
+
+	if scope then
+		scope:add(release)
+	end
+end
+
 --- The activation press, however it arrived.
 ---
---- Whatever field had the caret is snapshotted first and put back a frame
---- later. The key that triggered this is still on its way into that TextBox —
---- Roblox types it regardless of what any binding says — so without this,
---- cycling with `;` leaves a trail of semicolons in whatever you were writing.
+--- Whatever the key manages to type is taken back out. Every field is guarded,
+--- not only the one that looked focused: focus moves during a cycle, and
+--- Roblox delivers the character to whichever box holds the caret when it
+--- processes it — which may be the one just moved to.
 function Interface.Activate(self: Interface, forceCycle: boolean?)
-	--// snapshot EVERY field, not only the one that currently looks focused.
-	--// Focus moves during the cycle, and Roblox delivers the character to
-	--// whichever box holds the caret when it processes it — which may be the
-	--// one just moved to rather than the one just left
-	local snapshot: { [string]: any } = {}
-
 	for _, id in self.Container:List() do
 		local view = self.Container:Get(id)
 
 		if view then
 			local box = view.Input.Field.refs.input :: TextBox
 
-			snapshot[id] = { Box = box, Text = box.Text }
+			guardText(box, box.Text, view.Panel.scope)
 		end
 	end
 
 	Interface.Toggle(self, forceCycle)
-
-	task.defer(function()
-		for _, entry in snapshot do
-			local box = entry.Box :: TextBox
-
-			if box.Parent and box.Text ~= entry.Text then
-				box.Text = entry.Text
-			end
-		end
-	end)
 end
 
 --- Watches for the activation key while a console field has focus.
@@ -464,6 +492,10 @@ function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)
 		--// moved explicitly; cycling between two open terminals otherwise
 		--// leaves it wherever it was
 		view.Input:Focus()
+
+		--// and the surface flashes, so stepping through a stack of consoles
+		--// shows you where you landed
+		self.Container:Mark(id)
 
 		return
 	end

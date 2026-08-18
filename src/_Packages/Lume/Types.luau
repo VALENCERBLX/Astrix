@@ -416,6 +416,9 @@ export type PanelApi<T> = {
 	center: (self: T) -> T,
 	moveTo: (self: T, position: UDim2) -> T,
 	front: (self: T) -> T,
+	--- A brief lift of the surface and a slower settle back — for marking
+	--- which panel just took focus.
+	flash: (self: T, amount: number?, rise: (MotionSpec | string)?, fall: (MotionSpec | string)?) -> T,
 }
 
 export type Panel = NodeFields & PanelFields & NodeApi<Panel> & ElementApi<Panel> & PanelApi<Panel>

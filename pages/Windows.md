@@ -83,9 +83,21 @@ So the rule is:
 Each cycle re-captures focus, so a run of quick presses keeps working; pause,
 and the key goes back to being a character.
 
-Whatever the key does manage to type is taken back out of the field a frame
-later, so cycling never leaves a trail of semicolons in what you were
-writing.
+Whatever the key does manage to type is taken back out. The field is watched
+rather than restored on a timer — Roblox may not have inserted the character
+yet when the handler finishes, so a fixed delay is a race — and the watch lets
+go after the first change or a fifth of a second, whichever comes first. Your
+next real keystroke is never touched.
+
+### Knowing where you landed
+
+The window that takes focus flashes: its surface lifts quickly toward opaque
+and settles back more slowly. With three consoles stacked, "the caret moved" is
+otherwise a one-pixel cue.
+
+The asymmetry is deliberate and shared with every other transition here — a
+symmetric flash reads as a glitch, while a fast rise and slow fall reads as
+something being handed to you.
 
 **This needs more than one window.** With only the default `Main` open there is
 nothing to cycle to and every press just toggles, which looks like the feature
