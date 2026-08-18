@@ -136,9 +136,20 @@ function Stack.reflow(self: Fields & Types.Stack, spec: (MotionSpec | string)?):
 		panel.settled = position
 		panel:moveTo(position)
 
-		local size = panel.instance.AbsoluteSize
+		--// step by the panel's *target* size, not its current one. AbsoluteSize
+		--// is zero on the frame a panel is added — Roblox has not laid it out
+		--// yet — and mid-animation while it grows into place, so stepping by it
+		--// stacks members on top of each other in both cases. `desired` is the
+		--// settled layout size, so positions are final immediately and the
+		--// panels animate into them.
+		local target = panel.desired
+		local absolute = panel.instance.AbsoluteSize
 
-		cursor += (if vertical then size.Y else size.X) + self.gap
+		if target.X <= 0 and target.Y <= 0 then
+			target = absolute
+		end
+
+		cursor += (if vertical then target.Y else target.X) + self.gap
 	end
 
 	return self

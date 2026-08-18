@@ -175,6 +175,7 @@ function Panel.new(app: Types.App, preset: Types.Preset?): Panel
 		stack = nil,
 		drag = nil,
 		shadow = nil,
+		shadowOn = false,
 	}
 
 	local panel = setmetatable(fields, Panel) :: any
@@ -185,7 +186,7 @@ function Panel.new(app: Types.App, preset: Types.Preset?): Panel
 	--// through every frame of an animation rather than only at the ends
 	if panel.shadow then
 		local function track()
-			Chrome.track(panel.shadow, root, theme.shadow.spread, theme.shadow.offset)
+			Chrome.track(panel.shadow, root, theme.shadow.spread, theme.shadow.offset, panel.shadowOn)
 		end
 
 		scope:add(root:GetPropertyChangedSignal("Size"):Connect(track))
@@ -390,8 +391,10 @@ function Panel.setBorder(self: Panel, enabled: boolean): Panel
 end
 
 function Panel.setShadow(self: Panel, enabled: boolean): Panel
+	self.shadowOn = enabled ~= false
+
 	if self.shadow then
-		self.shadow.Visible = enabled ~= false and self.instance.Visible
+		self.shadow.Visible = self.shadowOn and self.instance.Visible
 	end
 
 	return self
@@ -937,7 +940,7 @@ function Panel.refreshNow(self: Panel): Panel
 		Panel.reposition(self)
 	end
 
-	Chrome.track(self.shadow, self.instance, theme.shadow.spread, theme.shadow.offset)
+	Chrome.track(self.shadow, self.instance, theme.shadow.spread, theme.shadow.offset, self.shadowOn)
 
 	if self.stack then
 		self.stack:reflow()

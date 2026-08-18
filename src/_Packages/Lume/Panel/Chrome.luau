@@ -256,7 +256,13 @@ function Chrome.shadow(app: Types.App, scope: Types.Scope): ImageLabel?
 end
 
 --- Glues a shadow to its panel. Called whenever the panel's geometry changes.
-function Chrome.track(shadow: ImageLabel?, target: GuiObject, spread: number, offset: Vector2)
+function Chrome.track(
+	shadow: ImageLabel?,
+	target: GuiObject,
+	spread: number,
+	offset: Vector2,
+	enabled: boolean?
+)
 	if not shadow then
 		return
 	end
@@ -265,7 +271,11 @@ function Chrome.track(shadow: ImageLabel?, target: GuiObject, spread: number, of
 	local anchor = target.AnchorPoint
 
 	shadow.AnchorPoint = anchor
-	shadow.Visible = target.Visible
+
+	--// `enabled` is the caller's `setShadow`, and it has to be honoured here:
+	--// track runs on every layout pass, so without it a shadow turned off
+	--// would switch itself back on the next time the panel resized
+	shadow.Visible = target.Visible and enabled ~= false
 
 	shadow.Size = UDim2.new(
 		target.Size.X.Scale,

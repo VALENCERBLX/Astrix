@@ -15777,9 +15777,20 @@ function Stack.reflow(self: Fields & Types.Stack, spec: (MotionSpec | string)?):
 		panel.settled = position\
 		panel:moveTo(position)\
 \
-		local size = panel.instance.AbsoluteSize\
+		--// step by the panel's *target* size, not its current one. AbsoluteSize\
+		--// is zero on the frame a panel is added — Roblox has not laid it out\
+		--// yet — and mid-animation while it grows into place, so stepping by it\
+		--// stacks members on top of each other in both cases. `desired` is the\
+		--// settled layout size, so positions are final immediately and the\
+		--// panels animate into them.\
+		local target = panel.desired\
+		local absolute = panel.instance.AbsoluteSize\
 \
-		cursor += (if vertical then size.Y else size.X) + self.gap\
+		if target.X <= 0 and target.Y <= 0 then\
+			target = absolute\
+		end\
+\
+		cursor += (if vertical then target.Y else target.X) + self.gap\
 	end\
 \
 	return self\
@@ -16868,6 +16879,7 @@ function Panel.new(app: Types.App, preset: Types.Preset?): Panel\
 		stack = nil,\
 		drag = nil,\
 		shadow = nil,\
+		shadowOn = false,\
 	}\
 \
 	local panel = setmetatable(fields, Panel) :: any\
@@ -16878,7 +16890,7 @@ function Panel.new(app: Types.App, preset: Types.Preset?): Panel\
 	--// through every frame of an animation rather than only at the ends\
 	if panel.shadow then\
 		local function track()\
-			Chrome.track(panel.shadow, root, theme.shadow.spread, theme.shadow.offset)\
+			Chrome.track(panel.shadow, root, theme.shadow.spread, theme.shadow.offset, panel.shadowOn)\
 		end\
 \
 		scope:add(root:GetPropertyChangedSignal(\"Size\"):Connect(track))\
@@ -17083,8 +17095,10 @@ function Panel.setBorder(self: Panel, enabled: boolean): Panel\
 end\
 \
 function Panel.setShadow(self: Panel, enabled: boolean): Panel\
+	self.shadowOn = enabled ~= false\
+\
 	if self.shadow then\
-		self.shadow.Visible = enabled ~= false and self.instance.Visible\
+		self.shadow.Visible = self.shadowOn and self.instance.Visible\
 	end\
 \
 	return self\
@@ -17630,7 +17644,7 @@ function Panel.refreshNow(self: Panel): Panel\
 		Panel.reposition(self)\
 	end\
 \
-	Chrome.track(self.shadow, self.instance, theme.shadow.spread, theme.shadow.offset)\
+	Chrome.track(self.shadow, self.instance, theme.shadow.spread, theme.shadow.offset, self.shadowOn)\
 \
 	if self.stack then\
 		self.stack:reflow()\
@@ -18273,7 +18287,13 @@ function Chrome.shadow(app: Types.App, scope: Types.Scope): ImageLabel?\
 end\
 \
 --- Glues a shadow to its panel. Called whenever the panel's geometry changes.\
-function Chrome.track(shadow: ImageLabel?, target: GuiObject, spread: number, offset: Vector2)\
+function Chrome.track(\
+	shadow: ImageLabel?,\
+	target: GuiObject,\
+	spread: number,\
+	offset: Vector2,\
+	enabled: boolean?\
+)\
 	if not shadow then\
 		return\
 	end\
@@ -18282,7 +18302,11 @@ function Chrome.track(shadow: ImageLabel?, target: GuiObject, spread: number, of
 	local anchor = target.AnchorPoint\
 \
 	shadow.AnchorPoint = anchor\
-	shadow.Visible = target.Visible\
+\
+	--// `enabled` is the caller's `setShadow`, and it has to be honoured here:\
+	--// track runs on every layout pass, so without it a shadow turned off\
+	--// would switch itself back on the next time the panel resized\
+	shadow.Visible = target.Visible and enabled ~= false\
 \
 	shadow.Size = UDim2.new(\
 		target.Size.X.Scale,\
@@ -19346,6 +19370,9 @@ export type PanelFields = {\
 	stack: Stack?,\
 	drag: DragHandle?,\
 	shadow: ImageLabel?,\
+	--- What `setShadow` was last told. The shadow tracker reads it, so a\
+	--- shadow turned off stays off across layout passes.\
+	shadowOn: boolean,\
 }\
 \
 export type PanelApi<T> = {\

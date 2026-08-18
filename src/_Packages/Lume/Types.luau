@@ -331,6 +331,9 @@ export type PanelFields = {
 	stack: Stack?,
 	drag: DragHandle?,
 	shadow: ImageLabel?,
+	--- What `setShadow` was last told. The shadow tracker reads it, so a
+	--- shadow turned off stays off across layout passes.
+	shadowOn: boolean,
 }
 
 export type PanelApi<T> = {
