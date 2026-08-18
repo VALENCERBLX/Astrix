@@ -420,6 +420,39 @@ ban</code></pre></div>
 <h3>Three kinds</h3>
 <p>| <code>Type</code> | Runs | Notes | |---|---|---| | <code>Local</code> | the client that typed it | needs <code>Tasks.Local</code> | | <code>Server</code> | the server | needs <code>Tasks.Server</code> | | <code>Service</code> | both | needs both |</p>
 <p><code>Service</code> runs the server first, so its result is authoritative, then hands it to the client task as <code>PriorResult</code>. <code>:LocalFirst(true)</code> reverses that for instant feedback.</p>
+<h3>Where to define a Service command</h3>
+<p><strong>Both sides.</strong> This is the one thing about <code>Service</code> that catches people out.</p>
+<p>Functions do not survive a trip across the network, so the client never receives a command's tasks — only its <em>schema</em>: name, aliases, arguments, flags, rank and cooldown. That is deliberate, and it is what makes autocomplete and argument hints work for server-only commands without shipping your server logic to every player.</p>
+<p>The consequence: a <code>Service</code> command defined in a <code>Script</code> is a server-only command whose client half does not exist on any client. Running it fails with</p>
+<p>&gt; Failed to run Command \[Admit]: this is a Service command replicated from the &gt; server, so its Local task does not exist on this client.</p>
+<p>Put the definition in a ModuleScript in <code>ReplicatedStorage</code> and require it from both startup scripts:</p>
+<div class="code"><div class="cap">example</div><pre><code><span class="cm">-- ReplicatedStorage/SharedCommands (a ModuleScript)</span>
+<span class="kw">return</span> <span class="kw">function</span>(Astrix)
+    Astrix.Define(<span class="st">"Admit"</span>)
+        :Type(<span class="st">"Service"</span>)
+        :Rank(Astrix.Enums.Rank.Admin.Min)
+        :Parsed({ { Name = <span class="st">"Message"</span>, Type = <span class="st">"String"</span>, Required = <span class="kw">true</span> } })
+        :Tasks({
+            Server = <span class="kw">function</span>(context)
+                announce:FireAllClients(context.Executor.DisplayName, context.Parsed.Message)
+
+                <span class="kw">return</span> Astrix.Resolve.Ok(<span class="st">"announced"</span>)
+            <span class="kw">end</span>,
+            Local = <span class="kw">function</span>(context, prior)
+                Flare.Toast(<span class="st">"Announcement sent"</span>):Ok():Show()
+
+                <span class="kw">return</span> Astrix.Resolve.Ok(<span class="st">"announced"</span>)
+            <span class="kw">end</span>,
+        })
+        :Register()
+<span class="kw">end</span></code></pre></div>
+<div class="code"><div class="cap">example</div><pre><code><span class="cm">-- both startup scripts</span>
+require(ReplicatedStorage.SharedCommands)(Astrix)</code></pre></div>
+<p><code>examples/SharedCommands.lua</code> is that file, filled in and runnable.</p>
+<h3>The client half only runs on the caller</h3>
+<p>A <code>Service</code> command's <code>Local</code> task runs on the machine that <em>typed</em> it, once — not on everybody's. To reach every player, fire a <code>RemoteEvent</code> from the server half and let each client react to it. The client half is for acknowledging to the person who ran the command, not for broadcasting.</p>
+<h3>"command 'X' was overwritten"</h3>
+<p>A warning, not an error: you defined a command with the same name as one that already exists, and yours replaced it. Astrix ships <code>Kick</code>, <code>Ping</code>, <code>Heal</code> and about twenty others, so defining your own <code>Kick</code> is a legitimate thing to do — the warning is only there so an accidental collision is not silent. Rename yours if it was an accident, or ignore it if it was not.</p>
 <h3>Results</h3>
 <div class="code"><div class="cap">example</div><pre><code>Astrix.Resolve.Ok(message, result)     <span class="cm">-- Resolved = true</span>
 Astrix.Resolve.Fail(message)           <span class="cm">-- Resolved = false</span>
