@@ -202,22 +202,86 @@ export type WindowConfig = {
 	Id: string,
 	Title: string?,
 	Docked: boolean?,
+	Anchor: Anchor?,
 	Position: UDim2?,
 	Width: number?,
 	Theme: any?,
 }
 
 --// options --------------------------------------------------------------------
+--- Everything `Astrix.Start` accepts. All of it optional; the defaults are the
+--- console's own numbers.
 export type AstrixOptions = {
 	Interface: {
+		--- A registered theme name. `Default` or `Tokyonight` ship.
 		Theme: string?,
+		--- The activation key. Pick one you do not need to type — it is watched
+		--- while the console has focus so it can cycle windows.
 		Keybind: Enum.KeyCode?,
+		--- Below this rank the console will not open at all, whatever the
+		--- individual command ranks say.
 		InterfaceRank: number?,
-		--// how long a run of activation presses counts as one cycle
+		--- How long a run of activation presses counts as one cycle. Zero
+		--- switches cycling off.
 		CycleTimeout: number?,
+		--- How many console windows may exist at once.
+		MaxWindows: number?,
+		--- The greyed text in an empty input.
+		Placeholder: string?,
+		--- The glyph before the caret.
+		Prompt: string?,
+		--- Where the console sits. `bottom` by default.
+		Anchor: Anchor?,
+		--- ScreenGui DisplayOrder, if something of yours has to sit above it.
+		DisplayOrder: number?,
+		--- Scrollback per window, in lines.
+		HistoryLimit: number?,
+		--- How many submitted lines the up-arrow remembers.
+		RecallLimit: number?,
+		--- Whether the console starts visible.
+		StartOpen: boolean?,
 	}?,
+
+	Suggestions: {
+		--- Turn completion off entirely.
+		Enabled: boolean?,
+		--- How many matches the dropdown shows.
+		Limit: number?,
+	}?,
+
+	Toast: {
+		--- Turn notices off entirely.
+		Enabled: boolean?,
+		--- Which corner they stack in.
+		Anchor: Anchor?,
+		--- Seconds before one fades, unless a caller overrides it.
+		Duration: number?,
+		--- How many are on screen before the oldest is pushed off.
+		Max: number?,
+		Gap: number?,
+		Width: number?,
+	}?,
+
+	Kyn: {
+		--- How many results `::Kout` remembers.
+		StackLimit: number?,
+		--- How deep `@Function` recursion may go before it fails.
+		MaxDepth: number?,
+	}?,
+
 	Rank: {
+		--- Answer from wherever you keep ranks. Return nil to fall through.
 		Resolver: ((Entity: any) -> number?)?,
+		--- What an unknown player gets.
+		Default: number?,
+		--- Whether the place creator is Owner automatically. On by default so a
+		--- solo developer is not locked out of their own console.
+		OwnerIsCreator: boolean?,
+	}?,
+
+	Commands: {
+		--- Register the built-in command set. On by default.
+		Builtins: boolean?,
 	}?,
 }
 

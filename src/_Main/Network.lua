@@ -29,6 +29,7 @@ local FOLDER = "AstrixNetwork"
 local INVOKE = "Invoke"
 local PUBLISH = "Publish"
 local RANK = "Rank"
+local NOTIFY = "Notify"
 
 --- The transport folder. Nil on a client whose server has not hosted yet —
 --- which is a normal state, not an error, so every caller handles it.
@@ -121,6 +122,7 @@ function Network.Host(handler: (player: Player, name: string, args: { any }, fla
 
 	remote("RemoteEvent", PUBLISH)
 	remote("RemoteEvent", RANK)
+	remote("RemoteEvent", NOTIFY)
 end
 
 --- Sends the schema-only definitions to one player, or everybody.
@@ -156,6 +158,31 @@ function Network.PublishRank(player: Player, rank: number)
 	if channel then
 		channel:FireClient(player, rank)
 	end
+end
+
+--- Sends a notice to one player, or to everybody.
+---
+--- Deliberately unfiltered by rank: an announcement is for the people being
+--- announced to, most of whom will never be able to run the command that made
+--- it.
+function Network.Notify(text: string, tone: string?, duration: number?, player: Player?)
+	assert(RunService:IsServer(), "Network.Notify is server-only")
+
+	local channel = remote("RemoteEvent", NOTIFY) :: RemoteEvent?
+
+	if not channel then
+		return
+	end
+
+	local payload = { Text = text, Tone = tone, Duration = duration }
+
+	if player then
+		channel:FireClient(player, payload)
+
+		return
+	end
+
+	channel:FireAllClients(payload)
 end
 
 --// client ---------------------------------------------------------------------
@@ -198,6 +225,17 @@ end
 --- Listens for this client's rank.
 function Network.OnRank(handler: (rank: number) -> ()): RBXScriptConnection?
 	local channel = remote("RemoteEvent", RANK) :: RemoteEvent?
+
+	if not channel then
+		return nil
+	end
+
+	return channel.OnClientEvent:Connect(handler)
+end
+
+--- Listens for notices.
+function Network.OnNotify(handler: (payload: any) -> ()): RBXScriptConnection?
+	local channel = remote("RemoteEvent", NOTIFY) :: RemoteEvent?
 
 	if not channel then
 		return nil

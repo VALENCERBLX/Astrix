@@ -256,17 +256,30 @@ end\
 function Astrix.Start(options: AstrixOptions?)\
 	local settings = options or {}\
 \
-	registerBuiltins()\
+	local face = settings.Interface or {}\
+	local rank = settings.Rank or {}\
+	local kyn = settings.Kyn or {}\
+	local commands = settings.Commands or {}\
 \
-	if settings.Rank and settings.Rank.Resolver then\
-		ranks:Bind(settings.Rank.Resolver)\
+	if commands.Builtins ~= false then\
+		registerBuiltins()\
 	end\
 \
-	if settings.Interface and settings.Interface.InterfaceRank then\
-		ranks.InterfaceRank = settings.Interface.InterfaceRank\
+	if rank.Resolver then\
+		ranks:Bind(rank.Resolver)\
 	end\
 \
-	local cycleTimeout = settings.Interface and settings.Interface.CycleTimeout\
+	if rank.Default then\
+		ranks.Default = rank.Default\
+	end\
+\
+	if rank.OwnerIsCreator ~= nil then\
+		ranks.OwnerIsCreator = rank.OwnerIsCreator\
+	end\
+\
+	if face.InterfaceRank then\
+		ranks.InterfaceRank = face.InterfaceRank\
+	end\
 \
 	if RunService:IsServer() then\
 		Server.Start({\
@@ -322,17 +335,37 @@ function Astrix.Start(options: AstrixOptions?)\
 		Natives = natives,\
 		Namespaces = namespaces(),\
 		Constructors = constructors(),\
+		StackLimit = kyn.StackLimit,\
+		MaxDepth = kyn.MaxDepth,\
 	})\
 \
 	interface = Interface.new({\
-		Theme = settings.Interface and settings.Interface.Theme,\
+		Theme = face.Theme,\
 		Registry = registry,\
 		Session = session,\
 		Providers = Providers,\
+		Toast = settings.Toast,\
+		Suggestions = settings.Suggestions,\
+		Console = face,\
 		OnSubmit = function(text)\
 			Astrix.Run(text)\
 		end,\
 	})\
+\
+	--// notices arrive whether or not this player could have caused them\
+	if not settings.Toast or settings.Toast.Enabled ~= false then\
+		task.spawn(function()\
+			Network.OnNotify(function(payload)\
+				if type(payload) ~= \"table\" or type(payload.Text) ~= \"string\" then\
+					return\
+				end\
+\
+				if interface then\
+					interface:Notify(payload.Text, payload.Tone, payload.Duration)\
+				end\
+			end)\
+		end)\
+	end\
 \
 	session.Dispatch = Client.MakeDispatch({\
 		Registry = registry,\
@@ -348,11 +381,19 @@ function Astrix.Start(options: AstrixOptions?)\
 		end,\
 	})\
 \
-	if cycleTimeout then\
-		interface:SetCycleTimeout(cycleTimeout)\
+	if face.CycleTimeout then\
+		interface:SetCycleTimeout(face.CycleTimeout)\
 	end\
 \
-	local keybind = (settings.Interface and settings.Interface.Keybind) or Enum.KeyCode.T\
+	if face.MaxWindows then\
+		interface:SetMaxWindows(face.MaxWindows)\
+	end\
+\
+	if face.StartOpen == false then\
+		interface:Hide()\
+	end\
+\
+	local keybind = face.Keybind or Enum.KeyCode.T\
 \
 	Astrix.Bind(keybind)\
 \
@@ -483,6 +524,26 @@ end\
 function Astrix.SetMaxWindows(count: number)\
 	if interface then\
 		interface:SetMaxWindows(count)\
+	end\
+end\
+\
+--// notices ----------------------------------------------------------------------\
+--- Shows a transient notice.\
+---\
+--- On the **server** this broadcasts to every player, or to one if given.\
+--- Recipients are not rank-checked: an announcement exists for the people being\
+--- announced to, most of whom could never run the command that made it.\
+---\
+--- On the **client** it shows locally and goes nowhere.\
+function Astrix.Notify(text: string, tone: string?, duration: number?, player: Player?)\
+	if RunService:IsServer() then\
+		Network.Notify(text, tone, duration, player)\
+\
+		return\
+	end\
+\
+	if interface then\
+		interface:Notify(text, tone, duration)\
 	end\
 end\
 \
@@ -778,22 +839,86 @@ export type WindowConfig = {\
 	Id: string,\
 	Title: string?,\
 	Docked: boolean?,\
+	Anchor: Anchor?,\
 	Position: UDim2?,\
 	Width: number?,\
 	Theme: any?,\
 }\
 \
 --// options --------------------------------------------------------------------\
+--- Everything `Astrix.Start` accepts. All of it optional; the defaults are the\
+--- console's own numbers.\
 export type AstrixOptions = {\
 	Interface: {\
+		--- A registered theme name. `Default` or `Tokyonight` ship.\
 		Theme: string?,\
+		--- The activation key. Pick one you do not need to type — it is watched\
+		--- while the console has focus so it can cycle windows.\
 		Keybind: Enum.KeyCode?,\
+		--- Below this rank the console will not open at all, whatever the\
+		--- individual command ranks say.\
 		InterfaceRank: number?,\
-		--// how long a run of activation presses counts as one cycle\
+		--- How long a run of activation presses counts as one cycle. Zero\
+		--- switches cycling off.\
 		CycleTimeout: number?,\
+		--- How many console windows may exist at once.\
+		MaxWindows: number?,\
+		--- The greyed text in an empty input.\
+		Placeholder: string?,\
+		--- The glyph before the caret.\
+		Prompt: string?,\
+		--- Where the console sits. `bottom` by default.\
+		Anchor: Anchor?,\
+		--- ScreenGui DisplayOrder, if something of yours has to sit above it.\
+		DisplayOrder: number?,\
+		--- Scrollback per window, in lines.\
+		HistoryLimit: number?,\
+		--- How many submitted lines the up-arrow remembers.\
+		RecallLimit: number?,\
+		--- Whether the console starts visible.\
+		StartOpen: boolean?,\
 	}?,\
+\
+	Suggestions: {\
+		--- Turn completion off entirely.\
+		Enabled: boolean?,\
+		--- How many matches the dropdown shows.\
+		Limit: number?,\
+	}?,\
+\
+	Toast: {\
+		--- Turn notices off entirely.\
+		Enabled: boolean?,\
+		--- Which corner they stack in.\
+		Anchor: Anchor?,\
+		--- Seconds before one fades, unless a caller overrides it.\
+		Duration: number?,\
+		--- How many are on screen before the oldest is pushed off.\
+		Max: number?,\
+		Gap: number?,\
+		Width: number?,\
+	}?,\
+\
+	Kyn: {\
+		--- How many results `::Kout` remembers.\
+		StackLimit: number?,\
+		--- How deep `@Function` recursion may go before it fails.\
+		MaxDepth: number?,\
+	}?,\
+\
 	Rank: {\
+		--- Answer from wherever you keep ranks. Return nil to fall through.\
 		Resolver: ((Entity: any) -> number?)?,\
+		--- What an unknown player gets.\
+		Default: number?,\
+		--- Whether the place creator is Owner automatically. On by default so a\
+		--- solo developer is not locked out of their own console.\
+		OwnerIsCreator: boolean?,\
+	}?,\
+\
+	Commands: {\
+		--- Register the built-in command set. On by default.\
+		Builtins: boolean?,\
 	}?,\
 }\
 \
@@ -2963,6 +3088,7 @@ return {\
 	require(script.Goto),\
 	require(script.Kick),\
 	require(script.Announce),\
+	require(script.Notify),\
 	require(script.Time),\
 	require(script.Gravity),\
 	require(script.Rank),\
@@ -2970,7 +3096,14 @@ return {\
 "},
 {"Astrix/_Commands/_Server/Announce","ModuleScript","--!strict\
 \
---- `announce <message>` — a system message to everybody in the server.\
+--- `announce <message>` — a notice on every player's screen.\
+---\
+--- Shown to **everyone**, not just people who could have run it. That is what\
+--- separates an announcement from a command result: the audience is the whole\
+--- server, and almost none of them will have the rank to produce one.\
+---\
+--- It also goes to the chat channel, so it survives in scrollback after the\
+--- toast has faded.\
 --- @section Commands\
 \
 return function(Astrix: any)\
@@ -2979,24 +3112,42 @@ return function(Astrix: any)\
 	Astrix.Define(\"Announce\")\
 		:Type(\"Server\")\
 		:Rank(Astrix.Enums.Rank.Admin.Min)\
-		:Describe(\"Sends a message to everyone\")\
-		:Aliases({ \"Say\", \"Broadcast\" })\
+		:Describe(\"Shows a notice to everyone in the server\")\
+		:Aliases({ \"Say\", \"Broadcast\", \"A\" })\
 		:Parsed({\
 			{ Name = \"Message\", Type = \"String\", Required = true },\
+		})\
+		:Flags({\
+			{ Name = \"Duration\", Extended = \"IsValue\", Type = \"Number\", Default = 6 },\
+			{ Name = \"Tone\", Extended = \"IsValue\", Type = \"String\", Default = \"Announce\" },\
+			{ Name = \"Quiet\", Extended = \"IsBool\", Description = \"skip the chat copy\" },\
 		})\
 		:Cooldown(3)\
 		:Tasks({\
 			Server = function(context)\
 				local message = context.Parsed.Message\
 \
-				local channels = TextChatService:FindFirstChild(\"TextChannels\")\
-				local general = channels and channels:FindFirstChild(\"RBXGeneral\")\
-\
-				if general and general:IsA(\"TextChannel\") then\
-					general:DisplaySystemMessage(message)\
+				if message == \"\" then\
+					return Astrix.Resolve.Fail(\"nothing to announce\")\
 				end\
 \
-				return Astrix.Resolve.Ok(`announced: {message}`, message)\
+				--// the toast: everybody, no rank check\
+				Astrix.Notify(message, context.Flags.Tone, context.Flags.Duration)\
+\
+				--// and a chat copy, so it is still there once the toast has\
+				--// gone. Wrapped because a place can remove the default channel\
+				if not context.Flags.Quiet then\
+					pcall(function()\
+						local channels = TextChatService:FindFirstChild(\"TextChannels\")\
+						local general = channels and channels:FindFirstChild(\"RBXGeneral\")\
+\
+						if general and general:IsA(\"TextChannel\") then\
+							general:DisplaySystemMessage(`[Announce] {message}`)\
+						end\
+					end)\
+				end\
+\
+				return Astrix.Resolve.Ok(`announced to {#game:GetService(\"Players\"):GetPlayers()}`, message)\
 			end,\
 		})\
 		:Register()\
@@ -3289,6 +3440,40 @@ return function(Astrix: any)\
 				humanoid.Health = 0\
 \
 				return Astrix.Resolve.Ok(`killed {target.Name}`, target.Name)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Notify","ModuleScript","--!strict\
+\
+--- `notify <player> <message>` — a notice to one person.\
+---\
+--- The single-target twin of `announce`. Useful for warning somebody before\
+--- kicking them, which is politer than the alternative.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Notify\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Shows a notice to one player\")\
+		:Aliases({ \"Tell\", \"PM\" })\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"Message\", Type = \"String\", Required = true },\
+		})\
+		:Flags({\
+			{ Name = \"Duration\", Extended = \"IsValue\", Type = \"Number\", Default = 6 },\
+			{ Name = \"Tone\", Extended = \"IsValue\", Type = \"String\", Default = \"Info\" },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+\
+				Astrix.Notify(context.Parsed.Message, context.Flags.Tone, context.Flags.Duration, target)\
+\
+				return Astrix.Resolve.Ok(`notified {target.Name}`, target.Name)\
 			end,\
 		})\
 		:Register()\
@@ -3803,24 +3988,30 @@ local Themes = require(script.Parent.Parent._Themes)\
 \
 local Container = require(script.Elements.Container)\
 local Suggestions = require(script.Elements.Suggestions)\
+local Toast = require(script.Elements.Toast)\
 \
 local Interface = {}\
 Interface.__index = Interface\
 \
 export type Config = {\
 	Theme: string?,\
+	Toast: any?,\
 	Registry: any,\
 	Session: any,\
 	Providers: { [string]: any },\
 	OnSubmit: ((text: string) -> ())?,\
 	Keybind: Enum.KeyCode?,\
 	App: any?,\
+	Suggestions: any?,\
+	Console: any?,\
 }\
 \
 export type Fields = {\
 	Theme: any,\
 	Container: any,\
 	Suggestions: any,\
+	Toasts: any,\
+	Completion: boolean,\
 	Session: any,\
 	Registry: any,\
 	Main: string,\
@@ -3843,12 +4034,20 @@ local MAIN_WINDOW = \"Main\"\
 --// public api ------------------------------------------------------------------\
 function Interface.new(config: Config): Interface\
 	local theme = Themes.Resolve(config.Theme)\
-	local container = Container.new(theme, { App = config.App })\
+	local console = config.Console or {}\
+\
+	local container = Container.new(theme, {\
+		App = config.App,\
+		DisplayOrder = console.DisplayOrder,\
+		Console = console,\
+	})\
 \
 	local self: Fields = {\
 		Theme = theme,\
 		Container = container,\
 		Suggestions = nil :: any,\
+		Toasts = nil :: any,\
+		Completion = true,\
 		Session = config.Session,\
 		Registry = config.Registry,\
 		Main = MAIN_WINDOW,\
@@ -3866,6 +4065,12 @@ function Interface.new(config: Config): Interface\
 \
 	local view = container:Open({ Id = MAIN_WINDOW, Title = \"Astrix\", Docked = true })\
 \
+	if console.HistoryLimit then\
+		view.Window.Limit = console.HistoryLimit\
+	end\
+\
+	local completion = config.Suggestions or {}\
+\
 	self.Suggestions = Suggestions.new(\
 		container.App,\
 		theme,\
@@ -3874,15 +4079,27 @@ function Interface.new(config: Config): Interface\
 		config.Providers\
 	)\
 \
+	if completion.Limit then\
+		self.Suggestions.Suggest:setLimit(completion.Limit)\
+	end\
+\
+	self.Completion = completion.Enabled ~= false\
+\
+	self.Toasts = Toast.new(container.App, theme, config.Toast)\
+\
 	self.Suggestions:Attach(view.Panel, view.Input.Field)\
 \
-	--// keyed on the window that fired it, not the one that happened to exist\
+		--// keyed on the window that fired it, not the one that happened to exist\
 	--// when the interface was built. Capturing `view` here is why completion\
 	--// did nothing in any window but the first\
 	container.OnChange = function(id, text)\
 		local source = self.Container:Get(id)\
 \
 		if not source then\
+			return\
+		end\
+\
+		if not self.Completion then\
 			return\
 		end\
 \
@@ -4314,12 +4531,18 @@ function Interface.SetTheme(self: Interface, name: string): any\
 	self.Theme = resolved\
 \
 	self.Container:Restyle(resolved)\
+	self.Toasts:Restyle(resolved)\
 \
 	return resolved\
 end\
 \
 function Interface.ThemeName(self: Interface): string\
 	return self.Theme.Name\
+end\
+\
+--- Shows a transient notice.\
+function Interface.Notify(self: Interface, text: string, tone: string?, duration: number?)\
+	return self.Toasts:Show(text, tone :: any, duration)\
 end\
 \
 --- `Astrix.Windows` — commands reach this as `ctx.Windows`.\
@@ -4362,6 +4585,7 @@ function Interface.Destroy(self: Interface)\
 	table.clear(self.Bindings)\
 \
 	self.Suggestions:Destroy()\
+	self.Toasts:Destroy()\
 	self.Container:Destroy()\
 end\
 \
@@ -4441,7 +4665,7 @@ export type Container = typeof(setmetatable({} :: Fields, Container))\
 --// locals ---------------------------------------------------------------------\
 --- Applies the console's metrics onto a Lume panel.\
 local function shape(panel: any, theme: any, config: WindowConfig)\
-	panel:setAnchor(if config.Docked == false then \"center\" else \"bottom\")\
+	panel:setAnchor(if config.Docked == false then \"center\" else (config.Anchor or \"bottom\"))\
 	panel:setInset(theme.Spacing.ViewportInset)\
 	panel:setPadding(theme.Spacing.PaddingX, theme.Spacing.PaddingY)\
 	panel:setGap(theme.Spacing.PaddingY)\
@@ -4470,7 +4694,7 @@ local function shape(panel: any, theme: any, config: WindowConfig)\
 end\
 \
 --// public api ------------------------------------------------------------------\
-function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }?): Container\
+function Container.new(theme: any, options: { App: any?, DisplayOrder: number?, Console: any? }?): Container\
 	local settings = options or {}\
 \
 	local app = settings.App\
@@ -4493,6 +4717,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Focus = nil,\
 		Shown = false,\
 		MaxWindows = 3,\
+		Console = settings.Console or {},\
 		OnSubmit = nil,\
 		OnChange = nil,\
 		OnExpand = nil,\
@@ -4529,7 +4754,11 @@ function Container.Open(self: Container, config: WindowConfig): View\
 	--// output above input: the panel stacks children down its axis and grows\
 	--// upward, so this is the console's reading order\
 	local lines = Lines.new(panel, data, theme)\
-	local input = ConsoleInput.new(panel, theme)\
+	local input = ConsoleInput.new(panel, theme, self.Console)\
+\
+	if self.Console.HistoryLimit then\
+		data.Limit = self.Console.HistoryLimit\
+	end\
 \
 	local view: View = {\
 		Window = data,\
@@ -4971,6 +5200,8 @@ export type Fields = {\
 	--// set while a recalled line is being written, so the change it causes is\
 	--// not treated as typing\
 	Recalling: boolean,\
+	--// how many submitted lines the up-arrow remembers\
+	Limit: number,\
 	OnSubmit: ((string) -> ())?,\
 	OnChange: ((string) -> ())?,\
 }\
@@ -4980,10 +5211,12 @@ export type Console = typeof(setmetatable({} :: Fields, Input))\
 local HISTORY_LIMIT = 100\
 \
 --// public api ------------------------------------------------------------------\
-function Input.new(panel: any, theme: any): Console\
-	local field = panel:field(\"type a command...\")\
+function Input.new(panel: any, theme: any, options: any?): Console\
+	local console = options or {}\
 \
-	field:setPrefix(\">\")\
+	local field = panel:field(console.Placeholder or \"type a command...\")\
+\
+	field:setPrefix(console.Prompt or \">\")\
 	field:setFont(theme.Font.Mono)\
 	field:setTextSize(theme.TextSize.Input)\
 	field:setClearOnSubmit(true)\
@@ -5013,6 +5246,7 @@ function Input.new(panel: any, theme: any): Console\
 		Draft = \"\",\
 		Multiline = false,\
 		Recalling = false,\
+		Limit = console.RecallLimit or HISTORY_LIMIT,\
 		OnSubmit = nil,\
 		OnChange = nil,\
 	}\
@@ -5173,7 +5407,7 @@ function Input.Remember(self: Console, text: string)\
 		table.insert(self.History, text)\
 	end\
 \
-	while #self.History > HISTORY_LIMIT do\
+	while #self.History > (self.Limit or HISTORY_LIMIT) do\
 		table.remove(self.History, 1)\
 	end\
 \
@@ -5917,6 +6151,201 @@ end\
 \
 return Suggestions\
 "},
+{"Astrix/_Main/Interface/Elements/Toast","ModuleScript","--!strict\
+\
+--- Transient notices, stacked in a corner.\
+---\
+--- The same surface as the console — the palette, the radius, the motion — so\
+--- an announcement reads as coming from the same place the console does. What\
+--- differs is one accent bar down the left edge, coloured by tone, because a\
+--- toast has to be legible at a glance rather than read.\
+---\
+--- Toasts are shown to **everyone**, including players who could never run the\
+--- command that produced them. That is the point of an announcement.\
+--- @section Console\
+\
+local Types = require(script.Parent.Parent.Parent.Parent.Types)\
+local Lume = require(script.Parent.Parent.Parent.Parent._Packages.Lume)\
+\
+local Toast = {}\
+Toast.__index = Toast\
+\
+export type Tone = \"Info\" | \"Ok\" | \"Warn\" | \"Error\" | \"Announce\"\
+\
+export type Config = {\
+	Anchor: Types.Anchor?,\
+	Duration: number?,\
+	Max: number?,\
+	Gap: number?,\
+	Width: number?,\
+}\
+\
+export type Live = {\
+	Panel: any,\
+	Expires: number,\
+}\
+\
+export type Fields = {\
+	App: any,\
+	Theme: any,\
+	Stack: any,\
+	Live: { Live },\
+\
+	Anchor: Types.Anchor,\
+	Duration: number,\
+	Max: number,\
+	Width: number,\
+}\
+\
+export type Toast = typeof(setmetatable({} :: Fields, Toast))\
+\
+--// locals ---------------------------------------------------------------------\
+local function toneColour(theme: any, tone: Tone): Color3\
+	if tone == \"Error\" then\
+		return theme.Color.Error\
+	elseif tone == \"Warn\" then\
+		return theme.Color.Warn\
+	elseif tone == \"Ok\" then\
+		return theme.Color.Success\
+	elseif tone == \"Announce\" then\
+		return theme.Accent.Primary\
+	end\
+\
+	return theme.Color.TextMuted\
+end\
+\
+--// public api ------------------------------------------------------------------\
+function Toast.new(app: any, theme: any, config: Config?): Toast\
+	local settings = config or {}\
+	local anchor: Types.Anchor = settings.Anchor or \"bottomRight\"\
+\
+	local self: Fields = {\
+		App = app,\
+		Theme = theme,\
+		Stack = app:stack(anchor),\
+		Live = {},\
+\
+		Anchor = anchor,\
+		Duration = settings.Duration or 5,\
+		Max = settings.Max or 4,\
+		Width = settings.Width or 320,\
+	}\
+\
+	self.Stack:setGap(settings.Gap or theme.Spacing.StackGap)\
+\
+	return setmetatable(self, Toast)\
+end\
+\
+--- Shows a notice. Returns the panel, so a caller can hold on to it.\
+function Toast.Show(self: Toast, text: string, tone: Tone?, duration: number?): any\
+	local theme = self.Theme\
+	local resolved: Tone = tone or \"Info\"\
+\
+	local panel = self.App:panel(\"toast\")\
+\
+	panel:setAnchor(self.Anchor)\
+	panel:setInset(theme.Spacing.ViewportInset)\
+	panel:setPadding(theme.Spacing.PaddingX, theme.Spacing.PaddingY + 3)\
+	panel:setGap(theme.Spacing.ItemGap)\
+	panel:setRadius(theme.Radius.Suggestion)\
+	panel:setColor(theme.Color.Background)\
+	panel:setTransparency(theme.Transparency.Panel)\
+	panel:setBorder(false)\
+	panel:setShadow(false)\
+	panel:setMaxSize(self.Width, 400)\
+	panel:setDraggable(false)\
+\
+	--// a row: the accent bar, then the message\
+	local row = panel:group(\"horizontal\")\
+\
+	row:setFill(true)\
+	row:setGap(theme.Spacing.ItemGap + 2)\
+\
+	local bar = row:icon(\"\")\
+\
+	bar:setIconSize(3)\
+	bar:setProps({\
+		BackgroundColor3 = toneColour(theme, resolved),\
+		BackgroundTransparency = 0,\
+		Size = UDim2.fromOffset(3, 16),\
+	})\
+\
+	local label = row:label(text)\
+\
+	label:setWrapped(true)\
+	label:setTextSize(theme.TextSize.Suggestion)\
+	label:setColor(theme.Color.TextPrimary)\
+	label:setMaxLines(4)\
+\
+	panel:open()\
+\
+	self.Stack:add(panel)\
+\
+	local entry: Live = { Panel = panel, Expires = os.clock() + (duration or self.Duration) }\
+\
+	table.insert(self.Live, entry)\
+\
+	--// oldest first, so a burst of announcements does not bury the screen\
+	while #self.Live > self.Max do\
+		local oldest = table.remove(self.Live, 1)\
+\
+		if oldest then\
+			Toast.Dismiss(self, oldest.Panel)\
+		end\
+	end\
+\
+	task.delay(duration or self.Duration, function()\
+		Toast.Dismiss(self, panel)\
+	end)\
+\
+	return panel\
+end\
+\
+--- Fades a toast out and takes it off the stack.\
+function Toast.Dismiss(self: Toast, panel: any)\
+	for index, entry in self.Live do\
+		if entry.Panel == panel then\
+			table.remove(self.Live, index)\
+\
+			break\
+		end\
+	end\
+\
+	if not panel:alive() then\
+		return\
+	end\
+\
+	panel:close()\
+\
+	self.Stack:remove(panel)\
+\
+	--// destroyed only after the exit animation, or it vanishes rather than\
+	--// fading\
+	task.delay(self.Theme.Motion.Collapse, function()\
+		if panel:alive() then\
+			panel:destroy()\
+		end\
+	end)\
+end\
+\
+function Toast.Clear(self: Toast)\
+	for index = #self.Live, 1, -1 do\
+		Toast.Dismiss(self, self.Live[index].Panel)\
+	end\
+end\
+\
+function Toast.Restyle(self: Toast, theme: any)\
+	self.Theme = theme\
+end\
+\
+function Toast.Destroy(self: Toast)\
+	Toast.Clear(self)\
+\
+	self.Stack:destroy()\
+end\
+\
+return Toast\
+"},
 {"Astrix/_Main/Network","ModuleScript","--!strict\
 \
 --- Transport between client and server.\
@@ -5948,6 +6377,7 @@ local FOLDER = \"AstrixNetwork\"\
 local INVOKE = \"Invoke\"\
 local PUBLISH = \"Publish\"\
 local RANK = \"Rank\"\
+local NOTIFY = \"Notify\"\
 \
 --- The transport folder. Nil on a client whose server has not hosted yet —\
 --- which is a normal state, not an error, so every caller handles it.\
@@ -6040,6 +6470,7 @@ function Network.Host(handler: (player: Player, name: string, args: { any }, fla
 \
 	remote(\"RemoteEvent\", PUBLISH)\
 	remote(\"RemoteEvent\", RANK)\
+	remote(\"RemoteEvent\", NOTIFY)\
 end\
 \
 --- Sends the schema-only definitions to one player, or everybody.\
@@ -6075,6 +6506,31 @@ function Network.PublishRank(player: Player, rank: number)\
 	if channel then\
 		channel:FireClient(player, rank)\
 	end\
+end\
+\
+--- Sends a notice to one player, or to everybody.\
+---\
+--- Deliberately unfiltered by rank: an announcement is for the people being\
+--- announced to, most of whom will never be able to run the command that made\
+--- it.\
+function Network.Notify(text: string, tone: string?, duration: number?, player: Player?)\
+	assert(RunService:IsServer(), \"Network.Notify is server-only\")\
+\
+	local channel = remote(\"RemoteEvent\", NOTIFY) :: RemoteEvent?\
+\
+	if not channel then\
+		return\
+	end\
+\
+	local payload = { Text = text, Tone = tone, Duration = duration }\
+\
+	if player then\
+		channel:FireClient(player, payload)\
+\
+		return\
+	end\
+\
+	channel:FireAllClients(payload)\
 end\
 \
 --// client ---------------------------------------------------------------------\
@@ -6117,6 +6573,17 @@ end\
 --- Listens for this client's rank.\
 function Network.OnRank(handler: (rank: number) -> ()): RBXScriptConnection?\
 	local channel = remote(\"RemoteEvent\", RANK) :: RemoteEvent?\
+\
+	if not channel then\
+		return nil\
+	end\
+\
+	return channel.OnClientEvent:Connect(handler)\
+end\
+\
+--- Listens for notices.\
+function Network.OnNotify(handler: (payload: any) -> ()): RBXScriptConnection?\
+	local channel = remote(\"RemoteEvent\", NOTIFY) :: RemoteEvent?\
 \
 	if not channel then\
 		return nil\

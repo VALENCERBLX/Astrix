@@ -15,24 +15,30 @@ local Themes = require(script.Parent.Parent._Themes)
 
 local Container = require(script.Elements.Container)
 local Suggestions = require(script.Elements.Suggestions)
+local Toast = require(script.Elements.Toast)
 
 local Interface = {}
 Interface.__index = Interface
 
 export type Config = {
 	Theme: string?,
+	Toast: any?,
 	Registry: any,
 	Session: any,
 	Providers: { [string]: any },
 	OnSubmit: ((text: string) -> ())?,
 	Keybind: Enum.KeyCode?,
 	App: any?,
+	Suggestions: any?,
+	Console: any?,
 }
 
 export type Fields = {
 	Theme: any,
 	Container: any,
 	Suggestions: any,
+	Toasts: any,
+	Completion: boolean,
 	Session: any,
 	Registry: any,
 	Main: string,
@@ -55,12 +61,20 @@ local MAIN_WINDOW = "Main"
 --// public api ------------------------------------------------------------------
 function Interface.new(config: Config): Interface
 	local theme = Themes.Resolve(config.Theme)
-	local container = Container.new(theme, { App = config.App })
+	local console = config.Console or {}
+
+	local container = Container.new(theme, {
+		App = config.App,
+		DisplayOrder = console.DisplayOrder,
+		Console = console,
+	})
 
 	local self: Fields = {
 		Theme = theme,
 		Container = container,
 		Suggestions = nil :: any,
+		Toasts = nil :: any,
+		Completion = true,
 		Session = config.Session,
 		Registry = config.Registry,
 		Main = MAIN_WINDOW,
@@ -78,6 +92,12 @@ function Interface.new(config: Config): Interface
 
 	local view = container:Open({ Id = MAIN_WINDOW, Title = "Astrix", Docked = true })
 
+	if console.HistoryLimit then
+		view.Window.Limit = console.HistoryLimit
+	end
+
+	local completion = config.Suggestions or {}
+
 	self.Suggestions = Suggestions.new(
 		container.App,
 		theme,
@@ -86,15 +106,27 @@ function Interface.new(config: Config): Interface
 		config.Providers
 	)
 
+	if completion.Limit then
+		self.Suggestions.Suggest:setLimit(completion.Limit)
+	end
+
+	self.Completion = completion.Enabled ~= false
+
+	self.Toasts = Toast.new(container.App, theme, config.Toast)
+
 	self.Suggestions:Attach(view.Panel, view.Input.Field)
 
-	--// keyed on the window that fired it, not the one that happened to exist
+		--// keyed on the window that fired it, not the one that happened to exist
 	--// when the interface was built. Capturing `view` here is why completion
 	--// did nothing in any window but the first
 	container.OnChange = function(id, text)
 		local source = self.Container:Get(id)
 
 		if not source then
+			return
+		end
+
+		if not self.Completion then
 			return
 		end
 
@@ -526,12 +558,18 @@ function Interface.SetTheme(self: Interface, name: string): any
 	self.Theme = resolved
 
 	self.Container:Restyle(resolved)
+	self.Toasts:Restyle(resolved)
 
 	return resolved
 end
 
 function Interface.ThemeName(self: Interface): string
 	return self.Theme.Name
+end
+
+--- Shows a transient notice.
+function Interface.Notify(self: Interface, text: string, tone: string?, duration: number?)
+	return self.Toasts:Show(text, tone :: any, duration)
 end
 
 --- `Astrix.Windows` — commands reach this as `ctx.Windows`.
@@ -574,6 +612,7 @@ function Interface.Destroy(self: Interface)
 	table.clear(self.Bindings)
 
 	self.Suggestions:Destroy()
+	self.Toasts:Destroy()
 	self.Container:Destroy()
 end
 

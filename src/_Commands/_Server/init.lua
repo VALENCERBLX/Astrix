@@ -15,6 +15,7 @@ return {
 	require(script.Goto),
 	require(script.Kick),
 	require(script.Announce),
+	require(script.Notify),
 	require(script.Time),
 	require(script.Gravity),
 	require(script.Rank),

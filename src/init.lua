@@ -234,17 +234,30 @@ end
 function Astrix.Start(options: AstrixOptions?)
 	local settings = options or {}
 
-	registerBuiltins()
+	local face = settings.Interface or {}
+	local rank = settings.Rank or {}
+	local kyn = settings.Kyn or {}
+	local commands = settings.Commands or {}
 
-	if settings.Rank and settings.Rank.Resolver then
-		ranks:Bind(settings.Rank.Resolver)
+	if commands.Builtins ~= false then
+		registerBuiltins()
 	end
 
-	if settings.Interface and settings.Interface.InterfaceRank then
-		ranks.InterfaceRank = settings.Interface.InterfaceRank
+	if rank.Resolver then
+		ranks:Bind(rank.Resolver)
 	end
 
-	local cycleTimeout = settings.Interface and settings.Interface.CycleTimeout
+	if rank.Default then
+		ranks.Default = rank.Default
+	end
+
+	if rank.OwnerIsCreator ~= nil then
+		ranks.OwnerIsCreator = rank.OwnerIsCreator
+	end
+
+	if face.InterfaceRank then
+		ranks.InterfaceRank = face.InterfaceRank
+	end
 
 	if RunService:IsServer() then
 		Server.Start({
@@ -300,17 +313,37 @@ function Astrix.Start(options: AstrixOptions?)
 		Natives = natives,
 		Namespaces = namespaces(),
 		Constructors = constructors(),
+		StackLimit = kyn.StackLimit,
+		MaxDepth = kyn.MaxDepth,
 	})
 
 	interface = Interface.new({
-		Theme = settings.Interface and settings.Interface.Theme,
+		Theme = face.Theme,
 		Registry = registry,
 		Session = session,
 		Providers = Providers,
+		Toast = settings.Toast,
+		Suggestions = settings.Suggestions,
+		Console = face,
 		OnSubmit = function(text)
 			Astrix.Run(text)
 		end,
 	})
+
+	--// notices arrive whether or not this player could have caused them
+	if not settings.Toast or settings.Toast.Enabled ~= false then
+		task.spawn(function()
+			Network.OnNotify(function(payload)
+				if type(payload) ~= "table" or type(payload.Text) ~= "string" then
+					return
+				end
+
+				if interface then
+					interface:Notify(payload.Text, payload.Tone, payload.Duration)
+				end
+			end)
+		end)
+	end
 
 	session.Dispatch = Client.MakeDispatch({
 		Registry = registry,
@@ -326,11 +359,19 @@ function Astrix.Start(options: AstrixOptions?)
 		end,
 	})
 
-	if cycleTimeout then
-		interface:SetCycleTimeout(cycleTimeout)
+	if face.CycleTimeout then
+		interface:SetCycleTimeout(face.CycleTimeout)
 	end
 
-	local keybind = (settings.Interface and settings.Interface.Keybind) or Enum.KeyCode.T
+	if face.MaxWindows then
+		interface:SetMaxWindows(face.MaxWindows)
+	end
+
+	if face.StartOpen == false then
+		interface:Hide()
+	end
+
+	local keybind = face.Keybind or Enum.KeyCode.T
 
 	Astrix.Bind(keybind)
 
@@ -461,6 +502,26 @@ end
 function Astrix.SetMaxWindows(count: number)
 	if interface then
 		interface:SetMaxWindows(count)
+	end
+end
+
+--// notices ----------------------------------------------------------------------
+--- Shows a transient notice.
+---
+--- On the **server** this broadcasts to every player, or to one if given.
+--- Recipients are not rank-checked: an announcement exists for the people being
+--- announced to, most of whom could never run the command that made it.
+---
+--- On the **client** it shows locally and goes nowhere.
+function Astrix.Notify(text: string, tone: string?, duration: number?, player: Player?)
+	if RunService:IsServer() then
+		Network.Notify(text, tone, duration, player)
+
+		return
+	end
+
+	if interface then
+		interface:Notify(text, tone, duration)
 	end
 end
 

@@ -29,6 +29,8 @@ export type Fields = {
 	--// set while a recalled line is being written, so the change it causes is
 	--// not treated as typing
 	Recalling: boolean,
+	--// how many submitted lines the up-arrow remembers
+	Limit: number,
 	OnSubmit: ((string) -> ())?,
 	OnChange: ((string) -> ())?,
 }
@@ -38,10 +40,12 @@ export type Console = typeof(setmetatable({} :: Fields, Input))
 local HISTORY_LIMIT = 100
 
 --// public api ------------------------------------------------------------------
-function Input.new(panel: any, theme: any): Console
-	local field = panel:field("type a command...")
+function Input.new(panel: any, theme: any, options: any?): Console
+	local console = options or {}
 
-	field:setPrefix(">")
+	local field = panel:field(console.Placeholder or "type a command...")
+
+	field:setPrefix(console.Prompt or ">")
 	field:setFont(theme.Font.Mono)
 	field:setTextSize(theme.TextSize.Input)
 	field:setClearOnSubmit(true)
@@ -71,6 +75,7 @@ function Input.new(panel: any, theme: any): Console
 		Draft = "",
 		Multiline = false,
 		Recalling = false,
+		Limit = console.RecallLimit or HISTORY_LIMIT,
 		OnSubmit = nil,
 		OnChange = nil,
 	}
@@ -231,7 +236,7 @@ function Input.Remember(self: Console, text: string)
 		table.insert(self.History, text)
 	end
 
-	while #self.History > HISTORY_LIMIT do
+	while #self.History > (self.Limit or HISTORY_LIMIT) do
 		table.remove(self.History, 1)
 	end
 

@@ -71,7 +71,7 @@ export type Container = typeof(setmetatable({} :: Fields, Container))
 --// locals ---------------------------------------------------------------------
 --- Applies the console's metrics onto a Lume panel.
 local function shape(panel: any, theme: any, config: WindowConfig)
-	panel:setAnchor(if config.Docked == false then "center" else "bottom")
+	panel:setAnchor(if config.Docked == false then "center" else (config.Anchor or "bottom"))
 	panel:setInset(theme.Spacing.ViewportInset)
 	panel:setPadding(theme.Spacing.PaddingX, theme.Spacing.PaddingY)
 	panel:setGap(theme.Spacing.PaddingY)
@@ -100,7 +100,7 @@ local function shape(panel: any, theme: any, config: WindowConfig)
 end
 
 --// public api ------------------------------------------------------------------
-function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }?): Container
+function Container.new(theme: any, options: { App: any?, DisplayOrder: number?, Console: any? }?): Container
 	local settings = options or {}
 
 	local app = settings.App
@@ -123,6 +123,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Focus = nil,
 		Shown = false,
 		MaxWindows = 3,
+		Console = settings.Console or {},
 		OnSubmit = nil,
 		OnChange = nil,
 		OnExpand = nil,
@@ -159,7 +160,11 @@ function Container.Open(self: Container, config: WindowConfig): View
 	--// output above input: the panel stacks children down its axis and grows
 	--// upward, so this is the console's reading order
 	local lines = Lines.new(panel, data, theme)
-	local input = ConsoleInput.new(panel, theme)
+	local input = ConsoleInput.new(panel, theme, self.Console)
+
+	if self.Console.HistoryLimit then
+		data.Limit = self.Console.HistoryLimit
+	end
 
 	local view: View = {
 		Window = data,
