@@ -2,9 +2,20 @@
 
 --- Server commands: the client sends resolved values, the server does the work
 --- and returns a resolve.
----
---- Empty — no server-type examples were written (open item #12). `Ban` and
---- `Kick` are the obvious first two.
 --- @section Commands
 
-return {}
+return {
+	require(script.Kill),
+	require(script.Heal),
+	require(script.Respawn),
+	require(script.God),
+	require(script.Speed),
+	require(script.Jump),
+	require(script.Bring),
+	require(script.Goto),
+	require(script.Kick),
+	require(script.Announce),
+	require(script.Time),
+	require(script.Gravity),
+	require(script.Rank),
+}

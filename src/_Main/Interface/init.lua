@@ -8,7 +8,6 @@
 --- prompt looks like — not how to draw or animate it.
 --- @section Console
 
-local ContextActionService = game:GetService("ContextActionService")
 local UserInputService = game:GetService("UserInputService")
 
 local Types = require(script.Parent.Parent.Types)
@@ -97,27 +96,32 @@ function Interface.new(config: Config): Interface
 	return interface
 end
 
-local CONSOLE_ACTION = "AstrixConsoleKeys"
-local CONSOLE_PRIORITY = 10002
-
 --- Binds Tab, the arrows and Escape while the console has the keyboard.
 ---
---- Bound through ContextActionService and **sunk**, not observed. An
---- InputBegan listener runs alongside the TextBox rather than instead of it,
---- so pressing Tab both accepted the completion *and* let Roblox insert a
---- literal tab into the field. Stripping it afterwards is a race the tab
---- sometimes wins; sinking the key means the field never sees it at all.
+--- Back on `InputBegan`, deliberately.
 ---
---- Bound only while the console owns the keyboard, so Tab and the arrows
---- behave normally everywhere else in the game.
+--- ContextActionService looked like the right tool — bind high, return Sink,
+--- the field never sees the key. It is not: while a TextBox has focus Roblox
+--- routes text input below where an action binding reaches, so a CAS action
+--- bound to Tab neither sinks it *nor fires at all*. Moving these here made Tab
+--- stop doing anything whatsoever.
+---
+--- An InputBegan listener does fire. It cannot stop the tab being typed, so
+--- `Suggestions.Accept` handles that end: focus is dropped before the
+--- completion is written and the text re-applied a frame later with tabs
+--- stripped.
+---
+--- The activation key is a different case and stays on CAS — nothing has focus
+--- when the console is closed, so sinking works there and keeps the key from
+--- leaking into the rest of the game.
 function Interface.BindKeys(self: Interface, view: any): () -> ()
-	local function handle(_: string, state: Enum.UserInputState, input: InputObject): Enum.ContextActionResult
-		if state ~= Enum.UserInputState.Begin then
-			return Enum.ContextActionResult.Pass
+	local connection = UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then
+			return
 		end
 
 		if not self.Container.Shown or not view.Input:Focused() then
-			return Enum.ContextActionResult.Pass
+			return
 		end
 
 		local code = input.KeyCode
@@ -129,59 +133,31 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 			if visible or self.Suggestions:Highlighted() then
 				self.Suggestions:Accept()
 			end
-
-			--// sunk either way, so a stray tab never reaches the field
-			return Enum.ContextActionResult.Sink
-		end
-
-		if code == Enum.KeyCode.Up then
+		elseif code == Enum.KeyCode.Up then
 			if visible then
 				self.Suggestions:Previous()
 			else
 				view.Input:Recall(-1)
 			end
-
-			return Enum.ContextActionResult.Sink
-		end
-
-		if code == Enum.KeyCode.Down then
+		elseif code == Enum.KeyCode.Down then
 			if visible then
 				self.Suggestions:Next()
 			else
 				view.Input:Recall(1)
 			end
-
-			return Enum.ContextActionResult.Sink
-		end
-
-		if code == Enum.KeyCode.Escape then
+		elseif code == Enum.KeyCode.Escape then
 			if visible then
 				self.Suggestions:Hide()
-			elseif self.Container:Expanded(self.Main) then
-				self.Container:Collapse(self.Main)
+			elseif self.Container:Expanded(Interface.Target(self)) then
+				self.Container:Collapse(Interface.Target(self))
 			else
 				self.Container:Hide()
 			end
-
-			return Enum.ContextActionResult.Sink
 		end
-
-		return Enum.ContextActionResult.Pass
-	end
-
-	ContextActionService:BindActionAtPriority(
-		CONSOLE_ACTION,
-		handle,
-		false,
-		CONSOLE_PRIORITY,
-		Enum.KeyCode.Tab,
-		Enum.KeyCode.Up,
-		Enum.KeyCode.Down,
-		Enum.KeyCode.Escape
-	)
+	end)
 
 	return function()
-		ContextActionService:UnbindAction(CONSOLE_ACTION)
+		connection:Disconnect()
 	end
 end
 

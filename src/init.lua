@@ -193,6 +193,7 @@ local function constructors(): { [string]: (...any) -> any }
 end
 
 --// public api ------------------------------------------------------------------
+Astrix.Version = "0.1.0"
 Astrix.Enums = Enums
 Astrix.Registry = registry
 Astrix.Resolve = Resolve

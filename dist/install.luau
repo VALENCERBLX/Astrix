@@ -215,6 +215,7 @@ local function constructors(): { [string]: (...any) -> any }\
 end\
 \
 --// public api ------------------------------------------------------------------\
+Astrix.Version = \"0.1.0\"\
 Astrix.Enums = Enums\
 Astrix.Registry = registry\
 Astrix.Resolve = Resolve\
@@ -2290,10 +2291,156 @@ return Window\
 \
 return {\
 	require(script.Help),\
+	require(script.Clear),\
+	require(script.Echo),\
+	require(script.Vars),\
+	require(script.Version),\
+	require(script.Fov),\
+	require(script.Fullbright),\
+	require(script.Ping),\
 	require(script.Teleport),\
 	require(script.Theme),\
 	require(script.Window),\
 }\
+"},
+{"Astrix/_Commands/_Local/Clear","ModuleScript","--!strict\
+\
+--- `clear` — empties the console's history.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Clear\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Clears the console output\")\
+		:Aliases({ \"Cls\" })\
+		:Tasks({\
+			Local = function()\
+				Astrix.Clear()\
+\
+				return Astrix.Resolve.Ok()\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Local/Echo","ModuleScript","--!strict\
+\
+--- `echo <value>` — prints what it is given and returns it.\
+---\
+--- Its real use is in a pipeline: `echo` returns its argument, so it is how you\
+--- look at `::Kout` or feed a literal into the next stage.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Echo\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Prints a value and passes it along\")\
+		:Aliases({ \"Print\" })\
+		:Parsed({\
+			{ Name = \"Value\", Type = \"String\", Required = false, Default = \"\" },\
+		})\
+		:Tasks({\
+			Local = function(context)\
+				local value = context.Parsed.Value\
+\
+				return Astrix.Resolve.Ok(tostring(value), value)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Local/Fov","ModuleScript","--!strict\
+\
+--- `fov [amount]` — the camera's field of view.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Fov\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Sets the camera field of view\")\
+		:Aliases({ \"Zoom\" })\
+		:Parsed({\
+			{ Name = \"Amount\", Type = \"Number\", Required = false, Default = 70 },\
+		})\
+		:Tasks({\
+			Local = function(context)\
+				local camera = workspace.CurrentCamera\
+\
+				if not camera then\
+					return Astrix.Resolve.Fail(\"no camera\")\
+				end\
+\
+				camera.FieldOfView = math.clamp(context.Parsed.Amount, 1, 120)\
+\
+				return Astrix.Resolve.Ok(`fov {camera.FieldOfView}`, camera.FieldOfView)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Local/Fullbright","ModuleScript","--!strict\
+\
+--- `fullbright [on]` — flattens local lighting so nothing is in shadow.\
+---\
+--- Client-only: it changes what you see, not what anybody else does.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	local Lighting = game:GetService(\"Lighting\")\
+\
+	local saved: { [string]: any }? = nil\
+\
+	Astrix.Define(\"Fullbright\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Removes local shadows and ambient darkness\")\
+		:Aliases({ \"FB\" })\
+		:Parsed({\
+			{ Name = \"On\", Type = \"Boolean\", Required = false },\
+		})\
+		:Tasks({\
+			Local = function(context)\
+				local wanted = context.Parsed.On\
+\
+				if wanted == nil then\
+					wanted = saved == nil\
+				end\
+\
+				if wanted then\
+					--// remembered so it can be put back exactly, rather than\
+					--// reset to whatever the defaults happen to be\
+					saved = saved\
+						or {\
+							Ambient = Lighting.Ambient,\
+							OutdoorAmbient = Lighting.OutdoorAmbient,\
+							Brightness = Lighting.Brightness,\
+							GlobalShadows = Lighting.GlobalShadows,\
+							FogEnd = Lighting.FogEnd,\
+						}\
+\
+					Lighting.Ambient = Color3.fromRGB(178, 178, 178)\
+					Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)\
+					Lighting.Brightness = 2\
+					Lighting.GlobalShadows = false\
+					Lighting.FogEnd = 1e6\
+\
+					return Astrix.Resolve.Ok(\"fullbright on\", true)\
+				end\
+\
+				for key, value in saved or {} do\
+					(Lighting :: any)[key] = value\
+				end\
+\
+				saved = nil\
+\
+				return Astrix.Resolve.Ok(\"fullbright off\", false)\
+			end,\
+		})\
+		:Register()\
+end\
 "},
 {"Astrix/_Commands/_Local/Help","ModuleScript","--!strict\
 \
@@ -2361,6 +2508,40 @@ return function(Astrix: any)\
 				context.Output.Reply(elements.Table({ \"Command\", \"Rank\", \"Description\" }, rows))\
 \
 				return Astrix.Resolve.Ok(nil, #rows)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Local/Ping","ModuleScript","--!strict\
+\
+--- `ping` — your network round trip, in milliseconds.\
+---\
+--- Reads `Player:GetNetworkPing()` rather than timing a remote by hand. An\
+--- earlier version tried to measure the round trip itself, which does not\
+--- work through the dispatcher: the client task runs, the server task runs,\
+--- and only the server's resolve comes back — there is no second client step\
+--- to stop the clock in.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	local Players = game:GetService(\"Players\")\
+\
+	Astrix.Define(\"Ping\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Shows your network round trip\")\
+		:Tasks({\
+			Local = function()\
+				local player = Players.LocalPlayer\
+\
+				if not player then\
+					return Astrix.Resolve.Fail(\"no local player\")\
+				end\
+\
+				local milliseconds = math.round(player:GetNetworkPing() * 2000)\
+\
+				return Astrix.Resolve.Ok(`{milliseconds}ms`, milliseconds)\
 			end,\
 		})\
 		:Register()\
@@ -2461,6 +2642,83 @@ return function(Astrix: any)\
 		:Register()\
 end\
 "},
+{"Astrix/_Commands/_Local/Vars","ModuleScript","--!strict\
+\
+--- `vars` — what the Kyn session is currently holding.\
+---\
+--- Variables from `@Set`, functions from `@Function`, and the `::Kout` stack,\
+--- which is otherwise invisible.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Vars\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Lists Kyn variables, functions and the result stack\")\
+		:Aliases({ \"Session\" })\
+		:Tasks({\
+			Local = function(context)\
+				local session = Astrix.Session()\
+				local elements = context.Output.Elements\
+\
+				if not session then\
+					return Astrix.Resolve.Fail(\"no session\")\
+				end\
+\
+				local rows = {}\
+\
+				for _, name in session:VariableNames() do\
+					rows[#rows + 1] = { \"variable\", name, tostring(session.Variables[name]) }\
+				end\
+\
+				for _, name in session:FunctionNames() do\
+					rows[#rows + 1] = { \"function\", name, \"\" }\
+				end\
+\
+				for index = 1, math.min(#session.Stack, 5) do\
+					rows[#rows + 1] = { \"::Kout\", `({index - 1})`, tostring(session.Stack[index]) }\
+				end\
+\
+				if #rows == 0 then\
+					return Astrix.Resolve.Ok(\"the session is empty\", 0)\
+				end\
+\
+				context.Output.Reply(elements.Table({ \"Kind\", \"Name\", \"Value\" }, rows))\
+\
+				return Astrix.Resolve.Ok(nil, #rows)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Local/Version","ModuleScript","--!strict\
+\
+--- `version` — what is installed.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Version\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Shows the Astrix version\")\
+		:Aliases({ \"About\" })\
+		:Tasks({\
+			Local = function(context)\
+				local elements = context.Output.Elements\
+\
+				context.Output.Reply(elements.Table({ \"\", \"\" }, {\
+					{ \"Astrix\", Astrix.Version },\
+					{ \"Language\", \"Kyn\" },\
+					{ \"Theme\", Astrix.CurrentTheme() },\
+					{ \"Commands\", tostring(#Astrix.Registry:List()) },\
+				}))\
+\
+				return Astrix.Resolve.Ok(nil, Astrix.Version)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
 {"Astrix/_Commands/_Local/Window","ModuleScript","--!strict\
 \
 --- `window <action> [id]` — opens, closes and lists console windows.\
@@ -2541,12 +2799,546 @@ end\
 \
 --- Server commands: the client sends resolved values, the server does the work\
 --- and returns a resolve.\
----\
---- Empty — no server-type examples were written (open item #12). `Ban` and\
---- `Kick` are the obvious first two.\
 --- @section Commands\
 \
-return {}\
+return {\
+	require(script.Kill),\
+	require(script.Heal),\
+	require(script.Respawn),\
+	require(script.God),\
+	require(script.Speed),\
+	require(script.Jump),\
+	require(script.Bring),\
+	require(script.Goto),\
+	require(script.Kick),\
+	require(script.Announce),\
+	require(script.Time),\
+	require(script.Gravity),\
+	require(script.Rank),\
+}\
+"},
+{"Astrix/_Commands/_Server/Announce","ModuleScript","--!strict\
+\
+--- `announce <message>` — a system message to everybody in the server.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	local TextChatService = game:GetService(\"TextChatService\")\
+\
+	Astrix.Define(\"Announce\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Sends a message to everyone\")\
+		:Aliases({ \"Say\", \"Broadcast\" })\
+		:Parsed({\
+			{ Name = \"Message\", Type = \"String\", Required = true },\
+		})\
+		:Cooldown(3)\
+		:Tasks({\
+			Server = function(context)\
+				local message = context.Parsed.Message\
+\
+				local channels = TextChatService:FindFirstChild(\"TextChannels\")\
+				local general = channels and channels:FindFirstChild(\"RBXGeneral\")\
+\
+				if general and general:IsA(\"TextChannel\") then\
+					general:DisplaySystemMessage(message)\
+				end\
+\
+				return Astrix.Resolve.Ok(`announced: {message}`, message)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Bring","ModuleScript","--!strict\
+\
+--- `bring <player>` — teleports a player to whoever ran it.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Bring\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Teleports a player to you\")\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+		})\
+		:Cooldown(1)\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+\
+				local targetRoot, targetProblem = Shared.Root(target)\
+				local ownRoot, ownProblem = Shared.Root(context.Executor)\
+\
+				if not targetRoot then\
+					return Astrix.Resolve.Fail(targetProblem)\
+				end\
+\
+				if not ownRoot then\
+					return Astrix.Resolve.Fail(ownProblem)\
+				end\
+\
+				--// a few studs in front, so the two do not end up inside\
+				--// each other\
+				targetRoot.CFrame = ownRoot.CFrame * CFrame.new(0, 0, -4)\
+\
+				return Astrix.Resolve.Ok(`brought {target.Name}`, target.Name)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/God","ModuleScript","--!strict\
+\
+--- `god <player> [on]` — makes a player unkillable, or mortal again.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"God\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Toggles invincibility\")\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"On\", Type = \"Boolean\", Required = false },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+				local humanoid, problem = Shared.Humanoid(target)\
+\
+				if not humanoid then\
+					return Astrix.Resolve.Fail(problem)\
+				end\
+\
+				local wanted = context.Parsed.On\
+\
+				if wanted == nil then\
+					wanted = humanoid.MaxHealth < math.huge\
+				end\
+\
+				if wanted then\
+					humanoid.MaxHealth = math.huge\
+					humanoid.Health = math.huge\
+				else\
+					humanoid.MaxHealth = 100\
+					humanoid.Health = 100\
+				end\
+\
+				return Astrix.Resolve.Ok(`{target.Name} god {if wanted then \"on\" else \"off\"}`, wanted)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Goto","ModuleScript","--!strict\
+\
+--- `goto <player>` — teleports whoever ran it to a player.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Goto\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Teleports you to a player\")\
+		:Aliases({ \"To\" })\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+		})\
+		:Cooldown(1)\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+\
+				local targetRoot, targetProblem = Shared.Root(target)\
+				local ownRoot, ownProblem = Shared.Root(context.Executor)\
+\
+				if not targetRoot then\
+					return Astrix.Resolve.Fail(targetProblem)\
+				end\
+\
+				if not ownRoot then\
+					return Astrix.Resolve.Fail(ownProblem)\
+				end\
+\
+				ownRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, -4)\
+\
+				return Astrix.Resolve.Ok(`went to {target.Name}`, target.Name)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Gravity","ModuleScript","--!strict\
+\
+--- `gravity [amount]` — workspace gravity, 196.2 by default.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Gravity\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Sets workspace gravity\")\
+		:Aliases({ \"Grav\" })\
+		:Parsed({\
+			{ Name = \"Amount\", Type = \"Number\", Required = false, Default = 196.2 },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				workspace.Gravity = math.clamp(context.Parsed.Amount, 0, 10000)\
+\
+				return Astrix.Resolve.Ok(`gravity {workspace.Gravity}`, workspace.Gravity)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Heal","ModuleScript","--!strict\
+\
+--- `heal <player> [amount]` — restores health, to full by default.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Heal\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Restores a player's health\")\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"Amount\", Type = \"Number\", Required = false },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+				local humanoid, problem = Shared.Humanoid(target)\
+\
+				if not humanoid then\
+					return Astrix.Resolve.Fail(problem)\
+				end\
+\
+				local amount = context.Parsed.Amount\
+\
+				humanoid.Health = if amount\
+					then math.clamp(amount, 0, humanoid.MaxHealth)\
+					else humanoid.MaxHealth\
+\
+				return Astrix.Resolve.Ok(`healed {target.Name} to {math.floor(humanoid.Health)}`, humanoid.Health)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Jump","ModuleScript","--!strict\
+\
+--- `jump <player> [amount]` — jump power, 50 by default.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Jump\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Sets a player's jump power\")\
+		:Aliases({ \"JumpPower\", \"JP\" })\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"Amount\", Type = \"Number\", Required = false, Default = 50 },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+				local humanoid, problem = Shared.Humanoid(target)\
+\
+				if not humanoid then\
+					return Astrix.Resolve.Fail(problem)\
+				end\
+\
+				--// UseJumpPower is off by default on newer rigs, and setting\
+				--// JumpPower silently does nothing while it is\
+				humanoid.UseJumpPower = true\
+				humanoid.JumpPower = math.clamp(context.Parsed.Amount, 0, 1000)\
+\
+				return Astrix.Resolve.Ok(`{target.Name} jump {humanoid.JumpPower}`, humanoid.JumpPower)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Kick","ModuleScript","--!strict\
+\
+--- `kick <player> [reason]` — removes a player from the server.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Kick\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Removes a player from the server\")\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"Reason\", Type = \"String\", Required = false, Default = \"No reason given\" },\
+		})\
+		:Cooldown(3)\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+\
+				--// refuse to kick somebody who outranks you, or an admin can\
+				--// remove the owner\
+				if Astrix.GetRank(target) >= Astrix.GetRank(context.Executor) and target ~= context.Executor then\
+					return Astrix.Resolve.Fail(`{target.Name} outranks you`)\
+				end\
+\
+				local name = target.Name\
+\
+				target:Kick(context.Parsed.Reason)\
+\
+				return Astrix.Resolve.Ok(`kicked {name}`, name)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Kill","ModuleScript","--!strict\
+\
+--- `kill <player>` — sets a player's health to zero.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Kill\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Kills a player\")\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+		})\
+		:Cooldown(1)\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+				local humanoid, problem = Shared.Humanoid(target)\
+\
+				if not humanoid then\
+					return Astrix.Resolve.Fail(problem)\
+				end\
+\
+				humanoid.Health = 0\
+\
+				return Astrix.Resolve.Ok(`killed {target.Name}`, target.Name)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Rank","ModuleScript","--!strict\
+\
+--- `rank <player> [level]` — reads or sets a player's rank.\
+---\
+--- Owner only, and it will not hand out a rank at or above your own. A console\
+--- that can promote is a console that can be used to promote whoever borrowed\
+--- it.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Rank\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Owner.Min)\
+		:Describe(\"Reads or sets a player's rank\")\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"Level\", Type = \"String\", Required = false, Description = \"a number or a rank name\" },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+				local level = context.Parsed.Level\
+\
+				if not level then\
+					local rank = Astrix.GetRank(target)\
+\
+					return Astrix.Resolve.Ok(`{target.Name} is {rank}`, rank)\
+				end\
+\
+				local numeric = tonumber(level)\
+				local mine = Astrix.GetRank(context.Executor)\
+\
+				if numeric and numeric >= mine then\
+					return Astrix.Resolve.Fail(\"you cannot grant a rank at or above your own\")\
+				end\
+\
+				local ok, applied = pcall(function()\
+					return Astrix.SetRank(target, numeric or level)\
+				end)\
+\
+				if not ok then\
+					return Astrix.Resolve.Fail(`unknown rank \"{level}\"`)\
+				end\
+\
+				if applied >= mine then\
+					--// a named rank could still land too high, so it is checked\
+					--// again after resolving rather than only before\
+					Astrix.SetRank(target, 0)\
+\
+					return Astrix.Resolve.Fail(\"you cannot grant a rank at or above your own\")\
+				end\
+\
+				return Astrix.Resolve.Ok(`{target.Name} is now {applied}`, applied)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Respawn","ModuleScript","--!strict\
+\
+--- `respawn <player>` — reloads a player's character.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Respawn\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Respawns a player\")\
+		:Aliases({ \"Re\" })\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+		})\
+		:Cooldown(2)\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+\
+				target:LoadCharacter()\
+\
+				return Astrix.Resolve.Ok(`respawned {target.Name}`, target.Name)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Speed","ModuleScript","--!strict\
+\
+--- `speed <player> [amount]` — walk speed, 16 by default.\
+--- @section Commands\
+\
+local Shared = require(script.Parent._Shared)\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Speed\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Sets a player's walk speed\")\
+		:Aliases({ \"WalkSpeed\", \"WS\" })\
+		:Parsed({\
+			{ Name = \"Target\", Type = \"Player\", Required = true },\
+			{ Name = \"Amount\", Type = \"Number\", Required = false, Default = 16 },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local target = context.Parsed.Target :: Player\
+				local humanoid, problem = Shared.Humanoid(target)\
+\
+				if not humanoid then\
+					return Astrix.Resolve.Fail(problem)\
+				end\
+\
+				humanoid.WalkSpeed = math.clamp(context.Parsed.Amount, 0, 500)\
+\
+				return Astrix.Resolve.Ok(`{target.Name} speed {humanoid.WalkSpeed}`, humanoid.WalkSpeed)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/Time","ModuleScript","--!strict\
+\
+--- `time [hour]` — the clock time of day, for everybody.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	local Lighting = game:GetService(\"Lighting\")\
+\
+	Astrix.Define(\"Time\")\
+		:Type(\"Server\")\
+		:Rank(Astrix.Enums.Rank.Admin.Min)\
+		:Describe(\"Sets the time of day\")\
+		:Parsed({\
+			{ Name = \"Hour\", Type = \"Number\", Required = false },\
+		})\
+		:Tasks({\
+			Server = function(context)\
+				local hour = context.Parsed.Hour\
+\
+				if not hour then\
+					return Astrix.Resolve.Ok(Lighting.TimeOfDay, Lighting.ClockTime)\
+				end\
+\
+				Lighting.ClockTime = math.clamp(hour, 0, 24) % 24\
+\
+				return Astrix.Resolve.Ok(`time {Lighting.TimeOfDay}`, Lighting.ClockTime)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
+{"Astrix/_Commands/_Server/_Shared","ModuleScript","--!strict\
+\
+--- Helpers the server commands share.\
+---\
+--- Character lookups are the fiddly part of every one of these: a player may be\
+--- dead, loading, or between respawns, and reaching straight for\
+--- `Character.Humanoid` is how admin commands throw instead of reporting.\
+--- @section Commands\
+\
+local Shared = {}\
+\
+--- The player's humanoid, or nil with a reason.\
+function Shared.Humanoid(player: Player): (Humanoid?, string?)\
+	local character = player.Character\
+\
+	if not character then\
+		return nil, `{player.Name} has no character`\
+	end\
+\
+	local humanoid = character:FindFirstChildOfClass(\"Humanoid\")\
+\
+	if not humanoid then\
+		return nil, `{player.Name} has no humanoid`\
+	end\
+\
+	return humanoid, nil\
+end\
+\
+--- The player's root part, or nil with a reason.\
+function Shared.Root(player: Player): (BasePart?, string?)\
+	local character = player.Character\
+\
+	if not character then\
+		return nil, `{player.Name} has no character`\
+	end\
+\
+	local root = character:FindFirstChild(\"HumanoidRootPart\")\
+\
+	if not root or not root:IsA(\"BasePart\") then\
+		return nil, `{player.Name} has no root part`\
+	end\
+\
+	return root, nil\
+end\
+\
+return Shared\
 "},
 {"Astrix/_Commands/_Service","ModuleScript","--!strict\
 \
@@ -2824,7 +3616,6 @@ return Client\
 --- prompt looks like — not how to draw or animate it.\
 --- @section Console\
 \
-local ContextActionService = game:GetService(\"ContextActionService\")\
 local UserInputService = game:GetService(\"UserInputService\")\
 \
 local Types = require(script.Parent.Parent.Types)\
@@ -2913,27 +3704,32 @@ function Interface.new(config: Config): Interface\
 	return interface\
 end\
 \
-local CONSOLE_ACTION = \"AstrixConsoleKeys\"\
-local CONSOLE_PRIORITY = 10002\
-\
 --- Binds Tab, the arrows and Escape while the console has the keyboard.\
 ---\
---- Bound through ContextActionService and **sunk**, not observed. An\
---- InputBegan listener runs alongside the TextBox rather than instead of it,\
---- so pressing Tab both accepted the completion *and* let Roblox insert a\
---- literal tab into the field. Stripping it afterwards is a race the tab\
---- sometimes wins; sinking the key means the field never sees it at all.\
+--- Back on `InputBegan`, deliberately.\
 ---\
---- Bound only while the console owns the keyboard, so Tab and the arrows\
---- behave normally everywhere else in the game.\
+--- ContextActionService looked like the right tool — bind high, return Sink,\
+--- the field never sees the key. It is not: while a TextBox has focus Roblox\
+--- routes text input below where an action binding reaches, so a CAS action\
+--- bound to Tab neither sinks it *nor fires at all*. Moving these here made Tab\
+--- stop doing anything whatsoever.\
+---\
+--- An InputBegan listener does fire. It cannot stop the tab being typed, so\
+--- `Suggestions.Accept` handles that end: focus is dropped before the\
+--- completion is written and the text re-applied a frame later with tabs\
+--- stripped.\
+---\
+--- The activation key is a different case and stays on CAS — nothing has focus\
+--- when the console is closed, so sinking works there and keeps the key from\
+--- leaking into the rest of the game.\
 function Interface.BindKeys(self: Interface, view: any): () -> ()\
-	local function handle(_: string, state: Enum.UserInputState, input: InputObject): Enum.ContextActionResult\
-		if state ~= Enum.UserInputState.Begin then\
-			return Enum.ContextActionResult.Pass\
+	local connection = UserInputService.InputBegan:Connect(function(input)\
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
+			return\
 		end\
 \
 		if not self.Container.Shown or not view.Input:Focused() then\
-			return Enum.ContextActionResult.Pass\
+			return\
 		end\
 \
 		local code = input.KeyCode\
@@ -2945,59 +3741,31 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 			if visible or self.Suggestions:Highlighted() then\
 				self.Suggestions:Accept()\
 			end\
-\
-			--// sunk either way, so a stray tab never reaches the field\
-			return Enum.ContextActionResult.Sink\
-		end\
-\
-		if code == Enum.KeyCode.Up then\
+		elseif code == Enum.KeyCode.Up then\
 			if visible then\
 				self.Suggestions:Previous()\
 			else\
 				view.Input:Recall(-1)\
 			end\
-\
-			return Enum.ContextActionResult.Sink\
-		end\
-\
-		if code == Enum.KeyCode.Down then\
+		elseif code == Enum.KeyCode.Down then\
 			if visible then\
 				self.Suggestions:Next()\
 			else\
 				view.Input:Recall(1)\
 			end\
-\
-			return Enum.ContextActionResult.Sink\
-		end\
-\
-		if code == Enum.KeyCode.Escape then\
+		elseif code == Enum.KeyCode.Escape then\
 			if visible then\
 				self.Suggestions:Hide()\
-			elseif self.Container:Expanded(self.Main) then\
-				self.Container:Collapse(self.Main)\
+			elseif self.Container:Expanded(Interface.Target(self)) then\
+				self.Container:Collapse(Interface.Target(self))\
 			else\
 				self.Container:Hide()\
 			end\
-\
-			return Enum.ContextActionResult.Sink\
 		end\
-\
-		return Enum.ContextActionResult.Pass\
-	end\
-\
-	ContextActionService:BindActionAtPriority(\
-		CONSOLE_ACTION,\
-		handle,\
-		false,\
-		CONSOLE_PRIORITY,\
-		Enum.KeyCode.Tab,\
-		Enum.KeyCode.Up,\
-		Enum.KeyCode.Down,\
-		Enum.KeyCode.Escape\
-	)\
+	end)\
 \
 	return function()\
-		ContextActionService:UnbindAction(CONSOLE_ACTION)\
+		connection:Disconnect()\
 	end\
 end\
 \

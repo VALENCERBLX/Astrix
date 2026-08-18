@@ -116,8 +116,28 @@ to the server.
 
 ## Built in
 
-`Help`, `Theme`, `Window`, `Teleport`. Type `Help` to see everything you can
-run at your rank.
+Twenty-four commands ship with Astrix. `Help` lists whatever you can run at
+your rank — it filters, so it never advertises something you would immediately
+be refused.
+
+**Player rank** — `Help` · `Clear` · `Echo` · `Vars` · `Version` · `Ping` ·
+`Fov` · `Fullbright` · `Theme` · `Window`
+
+**Admin** — `Kill` · `Heal` · `Respawn` · `God` · `Speed` · `Jump` · `Bring` ·
+`Goto` · `Teleport` · `Kick` · `Announce` · `Time` · `Gravity`
+
+**Owner** — `Rank`
+
+Two are worth knowing about:
+
+- `Echo` returns its argument, so it is how you look at `::Kout` or feed a
+  literal into the next stage of a pipe.
+- `Vars` shows what the Kyn session is holding — variables, functions, and the
+  result stack, which is otherwise invisible.
+
+`Kick` refuses anyone who outranks you, and `Rank` will not grant a level at or
+above your own. A console that can promote is a console that can be used to
+promote whoever borrowed it.
 
 ## Next
 
