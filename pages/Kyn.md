@@ -100,5 +100,8 @@ where the caret is:
 - a positional slot → that argument's type
 
 Up and Down walk the list when it is showing, and your command history when it
-is not. `Ctrl+Left` / `Ctrl+Right` jump by word; `Ctrl+Up` / `Ctrl+Down` jump
+is not — oldest as you keep pressing Up, and back to whatever you had
+half-typed when you come past the newest end. Recalling a line does not reopen
+the dropdown, so the arrows keep walking history rather than getting stuck on
+the first line that happened to match a command. `Ctrl+Left` / `Ctrl+Right` jump by word; `Ctrl+Up` / `Ctrl+Down` jump
 to the ends of the chain segment the caret is in.

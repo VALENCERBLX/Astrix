@@ -416,7 +416,7 @@ function Astrix.Bind(key: Enum.KeyCode)\
 				return Enum.ContextActionResult.Pass\
 			end\
 \
-			interface:Activate()\
+			interface:Activate(false)\
 \
 			return Enum.ContextActionResult.Sink\
 		end,\
@@ -3827,6 +3827,9 @@ export type Fields = {\
 	Bindings: { () -> () },\
 	LastActivate: number,\
 	ActivationKey: Enum.KeyCode?,\
+	--// when the caret was last captured. The cycling window is measured from\
+	--// here, not from the last press\
+	FocusedAt: number,\
 	CycleTimeout: number,\
 	Cycling: boolean,\
 	Step: number,\
@@ -3852,6 +3855,7 @@ function Interface.new(config: Config): Interface\
 		Bindings = {},\
 		LastActivate = 0,\
 		ActivationKey = nil,\
+		FocusedAt = 0,\
 		CycleTimeout = 1.5,\
 		Cycling = false,\
 		Step = 1,\
@@ -3879,6 +3883,14 @@ function Interface.new(config: Config): Interface\
 		local source = self.Container:Get(id)\
 \
 		if not source then\
+			return\
+		end\
+\
+		--// a recalled history line is not something the player is typing, so\
+		--// it neither opens the dropdown nor moves its highlight\
+		if source.Input.Recalling then\
+			self.Suggestions:Hide()\
+\
 			return\
 		end\
 \
@@ -4072,11 +4084,13 @@ end\
 --- only rewritten when a cycle *settles*, because updating it on every step\
 --- would reorder the list underneath you and the second press would take you\
 --- straight back where you started.\
-function Interface.Toggle(self: Interface)\
-	local now = os.clock()\
-	local rapid = (now - self.LastActivate) <= self.CycleTimeout\
+function Interface.Toggle(self: Interface, forceCycle: boolean?)\
+	--// measured from when the caret was captured, not from the last press.\
+	--// A run of presses each re-captures focus, so a chain keeps working;\
+	--// stop for the timeout and the key goes back to being a character\
+	local rapid = forceCycle == true or (os.clock() - self.FocusedAt) <= self.CycleTimeout\
 \
-	self.LastActivate = now\
+	self.LastActivate = os.clock()\
 \
 	if not self.Container.Shown then\
 		self.Cycling = false\
@@ -4120,21 +4134,32 @@ end\
 --- later. The key that triggered this is still on its way into that TextBox —\
 --- Roblox types it regardless of what any binding says — so without this,\
 --- cycling with `;` leaves a trail of semicolons in whatever you were writing.\
-function Interface.Activate(self: Interface)\
-	local view = Interface.FocusedView(self)\
-	local box = view and view.Input.Field.refs.input :: TextBox?\
+function Interface.Activate(self: Interface, forceCycle: boolean?)\
+	--// snapshot EVERY field, not only the one that currently looks focused.\
+	--// Focus moves during the cycle, and Roblox delivers the character to\
+	--// whichever box holds the caret when it processes it — which may be the\
+	--// one just moved to rather than the one just left\
+	local snapshot: { [string]: any } = {}\
 \
-	local before = if box then box.Text else nil\
+	for _, id in self.Container:List() do\
+		local view = self.Container:Get(id)\
 \
-	Interface.Toggle(self)\
+		if view then\
+			local box = view.Input.Field.refs.input :: TextBox\
 \
-	if not box or not before then\
-		return\
+			snapshot[id] = { Box = box, Text = box.Text }\
+		end\
 	end\
 \
+	Interface.Toggle(self, forceCycle)\
+\
 	task.defer(function()\
-		if box.Parent and box.Text ~= before then\
-			box.Text = before\
+		for _, entry in snapshot do\
+			local box = entry.Box :: TextBox\
+\
+			if box.Parent and box.Text ~= entry.Text then\
+				box.Text = entry.Text\
+			end\
 		end\
 	end)\
 end\
@@ -4170,7 +4195,22 @@ function Interface.BindActivation(self: Interface, key: Enum.KeyCode): () -> ()\
 			return\
 		end\
 \
-		Interface.Activate(self)\
+		local held = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)\
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)\
+\
+		--// Ctrl always cycles, whenever you ask for it.\
+		--\
+		--// The bare key only cycles inside the window that opened when the\
+		--// caret was captured. After that it is a character again — which\
+		--// matters because `:` and `;` are the same KeyCode, so a console\
+		--// bound to `;` would otherwise jump windows every time somebody typed\
+		--// `::Kout`\
+		if not held and (os.clock() - self.FocusedAt) > self.CycleTimeout then\
+			return\
+		end\
+\
+		--// Ctrl means \"cycle now\" regardless of how long ago focus landed\
+		Interface.Activate(self, held)\
 	end)\
 \
 	return function()\
@@ -4197,6 +4237,8 @@ function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)
 \
 	self.Suggestions:Hide()\
 	self.Suggestions:Attach(view.Panel, view.Input.Field)\
+\
+	self.FocusedAt = os.clock()\
 \
 	if transient then\
 		self.Container.Focus = id\
@@ -4878,6 +4920,9 @@ export type Fields = {\
 	Cursor: number,\
 	Draft: string,\
 	Multiline: boolean,\
+	--// set while a recalled line is being written, so the change it causes is\
+	--// not treated as typing\
+	Recalling: boolean,\
 	OnSubmit: ((string) -> ())?,\
 	OnChange: ((string) -> ())?,\
 }\
@@ -4919,6 +4964,7 @@ function Input.new(panel: any, theme: any): Console\
 		Cursor = 0,\
 		Draft = \"\",\
 		Multiline = false,\
+		Recalling = false,\
 		OnSubmit = nil,\
 		OnChange = nil,\
 	}\
@@ -5106,13 +5152,19 @@ function Input.Recall(self: Console, direction: number)\
 \
 	self.Cursor = next\
 \
+	--// writing a recalled line is not typing, so it must not open the\
+	--// completion dropdown. It used to: the recalled text matched a command,\
+	--// the list appeared, and the next arrow drove the list instead of the\
+	--// history — so recall got stuck on whichever line came back first\
+	self.Recalling = true\
+\
 	if next == 0 then\
 		Input.SetText(self, self.Draft)\
-\
-		return\
+	else\
+		Input.SetText(self, self.History[count - next + 1])\
 	end\
 \
-	Input.SetText(self, self.History[count - next + 1])\
+	self.Recalling = false\
 end\
 \
 --// leaping -----------------------------------------------------------------------\
@@ -27580,10 +27632,10 @@ end\
 \
 Themes.Default = Default\
 \
---// `Konsole` ships alongside `Default`: the same console with the brand\
---// layer taken off. Registered here rather than in `init.lua` so the registry\
---// is populated the moment anything requires this module\
-Themes.Konsole = Themes.Register(\"Konsole\", require(script.Konsole), \"Default\")\
+--// `Tokyonight` ships alongside `Default`. Registered here rather than in\
+--// `init.lua` so the registry is populated the moment anything requires this\
+--// module\
+Themes.Tokyonight = Themes.Register(\"Tokyonight\", require(script.Tokyonight), \"Default\")\
 \
 return Themes\
 "},
@@ -27735,42 +27787,75 @@ return {\
 	},\
 }\
 "},
-{"Astrix/_Themes/Konsole","ModuleScript","--!strict\
+{"Astrix/_Themes/Tokyonight","ModuleScript","--!strict\
 \
---- The console with no brand colour at all — Konsole exactly as it was.\
+--- Tokyo Night.\
 ---\
---- Astrix's `Default` is this palette plus one purple layer on the mark, the\
---- prompt glyph, the focus ring and the active suggestion. This theme takes\
---- that layer back off: `Accent` becomes the same white the suggestion\
---- highlight already used, so nothing on screen is Valence-branded.\
+--- `Default` already is Konsole — pure black, white text, no brand colour — so\
+--- a second theme that only removed the purple was not worth having. This is a\
+--- real alternative instead: a deep blue-grey surface with the Tokyo Night\
+--- palette, which is what most of these editors are themed in anyway.\
 ---\
 --- Registered as an override on `Default`, so it inherits every metric and\
---- only restates what differs.\
+--- restates only what differs. The console's geometry, motion and spacing are\
+--- not a matter of taste.\
 --- @section Themes\
 \
 local rgb = Color3.fromRGB\
 \
 return {\
 	Accent = {\
-		Primary = rgb(255, 255, 255),\
-		Soft = rgb(207, 207, 207), --// suggSub\
-		Contrast = rgb(0, 0, 0),\
+		Primary = rgb(122, 162, 247), --// #7AA2F7 blue\
+		Soft = rgb(187, 154, 247), --// #BB9AF7 magenta\
+		Contrast = rgb(26, 27, 38),\
+	},\
+\
+	Color = {\
+		--// #1A1B26. The surface is no longer black, so the transparency below\
+		--// is pulled in to stop the world washing the colour out\
+		Background = rgb(26, 27, 38),\
+		Surface = rgb(36, 40, 59), --// #24283B\
+		Border = rgb(41, 46, 66),\
+\
+		TextPrimary = rgb(192, 202, 245), --// #C0CAF5\
+		TextMuted = rgb(154, 165, 206), --// #9AA5CE\
+		TextGhost = rgb(86, 95, 137), --// #565F89\
+		TextPrompt = rgb(125, 207, 255), --// #7DCFFF cyan\
+		TextSuggestion = rgb(192, 202, 245),\
+\
+		Success = rgb(158, 206, 106), --// #9ECE6A\
+		Error = rgb(247, 118, 142), --// #F7768E\
+		Warn = rgb(224, 175, 104), --// #E0AF68\
+\
+		Shadow = rgb(0, 0, 0),\
 	},\
 \
 	Rich = {\
-		Accent = \"#FFFFFF\",\
+		Success = \"#9ECE6A\",\
+		Error = \"#F7768E\",\
+		Warn = \"#E0AF68\",\
+		Muted = \"#9AA5CE\",\
+		Sub = \"#565F89\",\
+		Match = \"#C0CAF5\",\
+		Accent = \"#BB9AF7\",\
 	},\
 \
-	--// Kyn still needs highlighting, but in greys rather than a palette\
 	Syntax = {\
-		Ref = \"#EEEEEE\",\
-		Stack = \"#CFCFCF\",\
-		Flag = \"#FFD36A\",\
-		String = \"#89FF7E\",\
-		Number = \"#CFCFCF\",\
-		Operator = \"#9F9F9F\",\
-		Comment = \"#6E6E6E\",\
-		Command = \"#FFFFFF\",\
+		Ref = \"#BB9AF7\", --// magenta\
+		Stack = \"#7DCFFF\", --// cyan\
+		Flag = \"#E0AF68\", --// yellow\
+		String = \"#9ECE6A\", --// green\
+		Number = \"#FF9E64\", --// orange\
+		Operator = \"#89DDFF\",\
+		Comment = \"#565F89\",\
+		Command = \"#7AA2F7\", --// blue\
+	},\
+\
+	Transparency = {\
+		--// a coloured surface needs to be more opaque than a black one, or the\
+		--// world behind it turns the blue to mud\
+		Panel = 0.2,\
+		Suggestion = 0.15,\
 	},\
 }\
 "},

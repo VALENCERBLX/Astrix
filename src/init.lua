@@ -394,7 +394,7 @@ function Astrix.Bind(key: Enum.KeyCode)
 				return Enum.ContextActionResult.Pass
 			end
 
-			interface:Activate()
+			interface:Activate(false)
 
 			return Enum.ContextActionResult.Sink
 		end,

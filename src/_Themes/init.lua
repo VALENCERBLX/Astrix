@@ -85,9 +85,9 @@ end
 
 Themes.Default = Default
 
---// `Konsole` ships alongside `Default`: the same console with the brand
---// layer taken off. Registered here rather than in `init.lua` so the registry
---// is populated the moment anything requires this module
-Themes.Konsole = Themes.Register("Konsole", require(script.Konsole), "Default")
+--// `Tokyonight` ships alongside `Default`. Registered here rather than in
+--// `init.lua` so the registry is populated the moment anything requires this
+--// module
+Themes.Tokyonight = Themes.Register("Tokyonight", require(script.Tokyonight), "Default")
 
 return Themes

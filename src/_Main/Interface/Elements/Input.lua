@@ -26,6 +26,9 @@ export type Fields = {
 	Cursor: number,
 	Draft: string,
 	Multiline: boolean,
+	--// set while a recalled line is being written, so the change it causes is
+	--// not treated as typing
+	Recalling: boolean,
 	OnSubmit: ((string) -> ())?,
 	OnChange: ((string) -> ())?,
 }
@@ -67,6 +70,7 @@ function Input.new(panel: any, theme: any): Console
 		Cursor = 0,
 		Draft = "",
 		Multiline = false,
+		Recalling = false,
 		OnSubmit = nil,
 		OnChange = nil,
 	}
@@ -254,13 +258,19 @@ function Input.Recall(self: Console, direction: number)
 
 	self.Cursor = next
 
+	--// writing a recalled line is not typing, so it must not open the
+	--// completion dropdown. It used to: the recalled text matched a command,
+	--// the list appeared, and the next arrow drove the list instead of the
+	--// history — so recall got stuck on whichever line came back first
+	self.Recalling = true
+
 	if next == 0 then
 		Input.SetText(self, self.Draft)
-
-		return
+	else
+		Input.SetText(self, self.History[count - next + 1])
 	end
 
-	Input.SetText(self, self.History[count - next + 1])
+	self.Recalling = false
 end
 
 --// leaping -----------------------------------------------------------------------

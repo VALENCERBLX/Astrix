@@ -39,6 +39,9 @@ export type Fields = {
 	Bindings: { () -> () },
 	LastActivate: number,
 	ActivationKey: Enum.KeyCode?,
+	--// when the caret was last captured. The cycling window is measured from
+	--// here, not from the last press
+	FocusedAt: number,
 	CycleTimeout: number,
 	Cycling: boolean,
 	Step: number,
@@ -64,6 +67,7 @@ function Interface.new(config: Config): Interface
 		Bindings = {},
 		LastActivate = 0,
 		ActivationKey = nil,
+		FocusedAt = 0,
 		CycleTimeout = 1.5,
 		Cycling = false,
 		Step = 1,
@@ -91,6 +95,14 @@ function Interface.new(config: Config): Interface
 		local source = self.Container:Get(id)
 
 		if not source then
+			return
+		end
+
+		--// a recalled history line is not something the player is typing, so
+		--// it neither opens the dropdown nor moves its highlight
+		if source.Input.Recalling then
+			self.Suggestions:Hide()
+
 			return
 		end
 
@@ -284,11 +296,13 @@ end
 --- only rewritten when a cycle *settles*, because updating it on every step
 --- would reorder the list underneath you and the second press would take you
 --- straight back where you started.
-function Interface.Toggle(self: Interface)
-	local now = os.clock()
-	local rapid = (now - self.LastActivate) <= self.CycleTimeout
+function Interface.Toggle(self: Interface, forceCycle: boolean?)
+	--// measured from when the caret was captured, not from the last press.
+	--// A run of presses each re-captures focus, so a chain keeps working;
+	--// stop for the timeout and the key goes back to being a character
+	local rapid = forceCycle == true or (os.clock() - self.FocusedAt) <= self.CycleTimeout
 
-	self.LastActivate = now
+	self.LastActivate = os.clock()
 
 	if not self.Container.Shown then
 		self.Cycling = false
@@ -332,21 +346,32 @@ end
 --- later. The key that triggered this is still on its way into that TextBox —
 --- Roblox types it regardless of what any binding says — so without this,
 --- cycling with `;` leaves a trail of semicolons in whatever you were writing.
-function Interface.Activate(self: Interface)
-	local view = Interface.FocusedView(self)
-	local box = view and view.Input.Field.refs.input :: TextBox?
+function Interface.Activate(self: Interface, forceCycle: boolean?)
+	--// snapshot EVERY field, not only the one that currently looks focused.
+	--// Focus moves during the cycle, and Roblox delivers the character to
+	--// whichever box holds the caret when it processes it — which may be the
+	--// one just moved to rather than the one just left
+	local snapshot: { [string]: any } = {}
 
-	local before = if box then box.Text else nil
+	for _, id in self.Container:List() do
+		local view = self.Container:Get(id)
 
-	Interface.Toggle(self)
+		if view then
+			local box = view.Input.Field.refs.input :: TextBox
 
-	if not box or not before then
-		return
+			snapshot[id] = { Box = box, Text = box.Text }
+		end
 	end
 
+	Interface.Toggle(self, forceCycle)
+
 	task.defer(function()
-		if box.Parent and box.Text ~= before then
-			box.Text = before
+		for _, entry in snapshot do
+			local box = entry.Box :: TextBox
+
+			if box.Parent and box.Text ~= entry.Text then
+				box.Text = entry.Text
+			end
 		end
 	end)
 end
@@ -382,7 +407,22 @@ function Interface.BindActivation(self: Interface, key: Enum.KeyCode): () -> ()
 			return
 		end
 
-		Interface.Activate(self)
+		local held = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl)
+			or UserInputService:IsKeyDown(Enum.KeyCode.RightControl)
+
+		--// Ctrl always cycles, whenever you ask for it.
+		--
+		--// The bare key only cycles inside the window that opened when the
+		--// caret was captured. After that it is a character again — which
+		--// matters because `:` and `;` are the same KeyCode, so a console
+		--// bound to `;` would otherwise jump windows every time somebody typed
+		--// `::Kout`
+		if not held and (os.clock() - self.FocusedAt) > self.CycleTimeout then
+			return
+		end
+
+		--// Ctrl means "cycle now" regardless of how long ago focus landed
+		Interface.Activate(self, held)
 	end)
 
 	return function()
@@ -409,6 +449,8 @@ function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)
 
 	self.Suggestions:Hide()
 	self.Suggestions:Attach(view.Panel, view.Input.Field)
+
+	self.FocusedAt = os.clock()
 
 	if transient then
 		self.Container.Focus = id

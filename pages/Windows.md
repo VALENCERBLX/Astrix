@@ -65,11 +65,27 @@ Astrix.SetCycleTimeout(0.8)   -- or later
 
 Set it to zero to switch cycling off entirely.
 
-**Pick a key you do not need to type.** The activation key is watched even
-while a console field has focus — it has to be, since that is the only state
-cycling ever happens in — so it acts as the activation key rather than as a
-character. Whatever it types is taken back out of the field a frame later.
-`;` and `T` are fine for this; a key you use inside commands is not.
+### When the key cycles, and when it types
+
+The activation key is watched even while a console field has focus — it has to
+be, since that is the only state cycling ever happens in. But it cannot swallow
+the key forever, or a console bound to `;` could never type `::Kout`: `:` and
+`;` are the same `KeyCode`.
+
+So the rule is:
+
+- **Inside the timeout, measured from when the caret was captured**, a bare
+  press cycles. That covers opening the console and immediately tapping through
+  to the window you wanted.
+- **After that**, a bare press is just a character. Type freely.
+- **`Ctrl` + the key cycles whenever you ask**, however long ago focus landed.
+
+Each cycle re-captures focus, so a run of quick presses keeps working; pause,
+and the key goes back to being a character.
+
+Whatever the key does manage to type is taken back out of the field a frame
+later, so cycling never leaves a trail of semicolons in what you were
+writing.
 
 **This needs more than one window.** With only the default `Main` open there is
 nothing to cycle to and every press just toggles, which looks like the feature
