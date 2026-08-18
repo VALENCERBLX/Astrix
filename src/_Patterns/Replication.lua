@@ -19,7 +19,19 @@ local Replication = {}
 
 --- Schema only — everything but `Tasks`.
 function Replication.Strip(definition: CommandDefinition): ReplicatedDefinition
+	local subs: { [string]: any }? = nil
+
+	if definition.Subs then
+		subs = {}
+
+		for key, sub in definition.Subs do
+			(subs :: any)[key] = Replication.Strip(sub)
+		end
+	end
+
 	return {
+		Subs = subs,
+		SubOrder = definition.SubOrder,
 		Name = definition.Name,
 		Aliases = definition.Aliases,
 		Type = definition.Type,
@@ -47,7 +59,19 @@ end
 --- `Tasks.Server` becomes a marker that returns nothing: the client never runs
 --- it, but its presence keeps `Type` checks honest downstream.
 function Replication.Hydrate(schema: ReplicatedDefinition): CommandDefinition
+	local subs: { [string]: any }? = nil
+
+	if schema.Subs then
+		subs = {}
+
+		for key, sub in schema.Subs do
+			(subs :: any)[key] = Replication.Hydrate(sub)
+		end
+	end
+
 	return {
+		Subs = subs,
+		SubOrder = schema.SubOrder,
 		Name = schema.Name,
 		Aliases = schema.Aliases,
 		Type = schema.Type,

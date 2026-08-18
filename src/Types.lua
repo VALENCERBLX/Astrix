@@ -106,6 +106,11 @@ export type CommandDefinition = {
 	LocalFirst: boolean?,
 	Cooldown: number?,
 	Tasks: CommandTasks,
+
+	--// sub-commands, keyed by lowercase name and alias. A definition with
+	--// these dispatches on its first positional word before binding anything
+	Subs: { [string]: CommandDefinition }?,
+	SubOrder: { string }?,
 }
 
 --- What actually crosses the network: a definition with its Tasks stripped.
@@ -119,6 +124,8 @@ export type ReplicatedDefinition = {
 	Flags: { Flag }?,
 	LocalFirst: boolean?,
 	Cooldown: number?,
+	Subs: { [string]: ReplicatedDefinition }?,
+	SubOrder: { string }?,
 }
 
 --// the Kyn abstract syntax tree -------------------------------------------------
@@ -206,6 +213,8 @@ export type AstrixOptions = {
 		Theme: string?,
 		Keybind: Enum.KeyCode?,
 		InterfaceRank: number?,
+		--// how long a run of activation presses counts as one cycle
+		CycleTimeout: number?,
 	}?,
 	Rank: {
 		Resolver: ((Entity: any) -> number?)?,

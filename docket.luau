@@ -20,6 +20,7 @@ return {
 	Pages = {
 		{ file = "pages/GettingStarted.md", section = "Guides" },
 		{ file = "pages/Kyn.md", section = "Guides" },
+		{ file = "pages/Commands.md", section = "Guides" },
 		{ file = "pages/Windows.md", section = "Guides" },
 	},
 	Repo = "https://github.com/VALENCERBLX/Astrix",

@@ -38,7 +38,7 @@ export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))
 
 --// context -----------------------------------------------------------------------
 export type Context = {
-	Kind: "Command" | "Player" | "Reference" | "Argument" | "Flag" | "Stack" | "None",
+	Kind: "Command" | "Sub" | "Player" | "Reference" | "Argument" | "Flag" | "Stack" | "None",
 	Prefix: string,
 	Argument: any?,
 	Command: any?,
@@ -123,8 +123,25 @@ function Suggestions.Context(raw: string, cursor: number?, registry: any): Conte
 	local head = tokens[1] and tokens[1].Text
 	local definition = head and registry and registry:Resolve(head)
 
+	--// the word straight after a command that HAS subs is a sub name
+	if definition and definition.Subs and position == 2 then
+		return { Kind = "Sub", Prefix = current, Command = definition, Caret = caret }
+	end
+
+	--// past that, arguments belong to the sub rather than the parent
+	local offset = 1
+
+	if definition and definition.Subs and tokens[2] then
+		local sub = definition.Subs[string.lower(tokens[2].Text)]
+
+		if sub then
+			definition = sub
+			offset = 2
+		end
+	end
+
 	if definition then
-		local index = position - 1
+		local index = position - offset
 		local argument = definition.Parsed[index]
 
 		if argument then
@@ -182,6 +199,12 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number?)
 
 	if context.Kind == "Command" then
 		options = self.Registry:CommandNames()
+	elseif context.Kind == "Sub" then
+		local definition = context.Command
+
+		for _, name in (definition and definition.SubOrder) or {} do
+			table.insert(options, name)
+		end
 	elseif context.Kind == "Player" then
 		for _, player in Players:GetPlayers() do
 			table.insert(options, player.Name)

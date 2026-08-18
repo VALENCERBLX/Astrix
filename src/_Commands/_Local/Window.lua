@@ -1,9 +1,13 @@
 --!strict
 
---- `window <action> [id]` — opens, closes and lists console windows.
+--- `window <sub> [args]` — opens, closes and lists console windows.
 ---
---- Konsole had exactly two: the main console and a detached chat pill. Astrix
---- takes as many as the cap allows, which is three unless you raise it.
+--- Written with real sub-commands rather than an Enum argument, so each one
+--- declares its own arguments and completes them: `window open <id>` offers
+--- nothing for `id`, while `window close <id>` could offer the open ones.
+---
+--- Konsole had exactly two windows. Astrix takes as many as the cap allows,
+--- which is three unless you raise it.
 --- @section Commands
 
 return function(Astrix: any)
@@ -12,61 +16,80 @@ return function(Astrix: any)
 		:Rank(Astrix.Enums.Rank.Player.Min)
 		:Describe("Opens, closes or lists console windows")
 		:Aliases({ "Win", "W" })
-		:Parsed({
-			{
-				Name = "Action",
-				Type = "Enum",
-				Required = false,
-				Default = "List",
-				Description = "list, open or close",
-				EnumValues = { "List", "Open", "Close" },
-			},
-			{ Name = "Id", Type = "String", Required = false, Description = "which window" },
+		:Subs({
+			Astrix.Sub("Open")
+				:Describe("Opens a window")
+				:Parsed({
+					{ Name = "Id", Type = "String", Required = true, Description = "a name for it" },
+				})
+				:Tasks({
+					Local = function(context)
+						local id = context.Parsed.Id
+
+						context.Windows.Open({ Id = id, Title = id, Docked = true })
+
+						return Astrix.Resolve.Ok(`opened {id}`, id)
+					end,
+				}),
+
+			Astrix.Sub("Close")
+				:Describe("Closes a window")
+				:Parsed({
+					{ Name = "Id", Type = "String", Required = true },
+				})
+				:Tasks({
+					Local = function(context)
+						local id = context.Parsed.Id
+
+						context.Windows.Close(id)
+
+						return Astrix.Resolve.Ok(`closed {id}`, id)
+					end,
+				}),
+
+			Astrix.Sub("Max")
+				:Describe("Sets how many windows may exist at once")
+				:Parsed({
+					{ Name = "Count", Type = "Number", Required = true },
+				})
+				:Tasks({
+					Local = function(context)
+						Astrix.SetMaxWindows(context.Parsed.Count)
+
+						return Astrix.Resolve.Ok(`window cap {context.Parsed.Count}`, context.Parsed.Count)
+					end,
+				}),
+
+			Astrix.Sub("List")
+				:Describe("Lists the open windows")
+				:Tasks({
+					Local = function(context)
+						local elements = context.Output.Elements
+						local focused = context.Windows.Focused()
+						local rows = {}
+
+						for index, name in context.Windows.List() do
+							rows[#rows + 1] = { tostring(index), name, if name == focused then "focused" else "" }
+						end
+
+						context.Output.Reply(elements.Table({ "#", "Window", "" }, rows))
+
+						return Astrix.Resolve.Ok(nil, #rows)
+					end,
+				}),
 		})
-		:Flags({
-			{ Name = "Max", Extended = "IsValue", Type = "Number", Description = "set the window cap" },
-		})
+		--// no sub given: list them, which is the useful default
 		:Tasks({
 			Local = function(context)
 				local elements = context.Output.Elements
-				local windows = context.Windows
-
-				if context.Flags.Max then
-					Astrix.SetMaxWindows(context.Flags.Max)
-
-					return Astrix.Resolve.Ok(`window cap set to {context.Flags.Max}`, context.Flags.Max)
-				end
-
-				local action = string.lower(context.Parsed.Action or "List")
-				local id = context.Parsed.Id
-
-				if action == "open" then
-					if not id then
-						return Astrix.Resolve.Fail("open needs an id")
-					end
-
-					windows.Open({ Id = id, Title = id, Docked = true })
-
-					return Astrix.Resolve.Ok(`opened {id}`, id)
-				end
-
-				if action == "close" then
-					if not id then
-						return Astrix.Resolve.Fail("close needs an id")
-					end
-
-					windows.Close(id)
-
-					return Astrix.Resolve.Ok(`closed {id}`, id)
-				end
-
+				local focused = context.Windows.Focused()
 				local rows = {}
 
-				for index, name in windows.List() do
-					table.insert(rows, { tostring(index), name })
+				for index, name in context.Windows.List() do
+					rows[#rows + 1] = { tostring(index), name, if name == focused then "focused" else "" }
 				end
 
-				context.Output.Reply(elements.Table({ "#", "Window" }, rows))
+				context.Output.Reply(elements.Table({ "#", "Window", "" }, rows))
 
 				return Astrix.Resolve.Ok(nil, #rows)
 			end,

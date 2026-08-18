@@ -211,6 +211,15 @@ function Astrix.Define(name: string)
 	end)
 end
 
+--- Starts a **sub-command** definition.
+---
+--- Identical to `Define` but unregistered: the result is handed to a parent's
+--- `:Subs{…}` rather than registered on its own. Do not call `:Register()` on
+--- one — the parent freezes it.
+function Astrix.Sub(name: string)
+	return Command.Define(name, nil)
+end
+
 --- Registers a Kyn-callable native. The name becomes **absolute** — a player's
 --- `@Function` may not shadow it.
 function Astrix.Native(name: string, callback: (...any) -> any)
@@ -234,6 +243,8 @@ function Astrix.Start(options: AstrixOptions?)
 	if settings.Interface and settings.Interface.InterfaceRank then
 		ranks.InterfaceRank = settings.Interface.InterfaceRank
 	end
+
+	local cycleTimeout = settings.Interface and settings.Interface.CycleTimeout
 
 	if RunService:IsServer() then
 		Server.Start({
@@ -314,6 +325,10 @@ function Astrix.Start(options: AstrixOptions?)
 			interface:Write(kind, message, content)
 		end,
 	})
+
+	if cycleTimeout then
+		interface:SetCycleTimeout(cycleTimeout)
+	end
 
 	local keybind = (settings.Interface and settings.Interface.Keybind) or Enum.KeyCode.T
 
@@ -421,7 +436,20 @@ Astrix.Windows = {
 			interface:FocusWindow(id)
 		end
 	end,
+
+	--- Most-recently-focused first — the order the activation key walks.
+	Recency = function(): { string }
+		return if interface then interface.Container:Recency() else {}
+	end,
 }
+
+--- How long a run of activation-key presses counts as one cycle, in seconds.
+--- 1.5 by default; set it to zero to switch cycling off entirely.
+function Astrix.SetCycleTimeout(seconds: number)
+	if interface then
+		interface:SetCycleTimeout(seconds)
+	end
+end
 
 --- How many console windows may exist at once. Three by default; opening past
 --- it warns rather than stacking without limit.

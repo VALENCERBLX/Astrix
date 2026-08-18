@@ -49,6 +49,10 @@ export type Fields = {
 	Stack: any,
 	Windows: { [string]: View },
 	Order: { string },
+	--// most-recently-focused first. `Order` is creation order and is what the
+	--// stack lays out by; this is what the activation key walks, so cycling
+	--// goes "the one before this" rather than "the next one along"
+	Recent: { string },
 	Focus: string?,
 	--// `Shown`, not `Open`: a field of that name would shadow the `Open`
 	--// METHOD, since raw fields win over the metatable
@@ -115,6 +119,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Stack = app:stack("bottom"),
 		Windows = {},
 		Order = {},
+		Recent = {},
 		Focus = nil,
 		Shown = false,
 		MaxWindows = 3,
@@ -186,6 +191,12 @@ function Container.Open(self: Container, config: WindowConfig): View
 		end)
 	end
 
+	--// each window binds its own cursor navigation, so Ctrl+Arrow works in
+	--// whichever one you are typing in rather than only the first
+	local unbindLeaping = input:BindLeaping()
+
+	panel:on("destroyed", unbindLeaping)
+
 	--// a collapsed bar is a button
 	panel:setActivatable(true)
 	panel:onActivated(function()
@@ -195,6 +206,7 @@ function Container.Open(self: Container, config: WindowConfig): View
 	self.Windows[config.Id] = view
 
 	table.insert(self.Order, config.Id)
+	table.insert(self.Recent, 1, config.Id)
 
 	if config.Docked ~= false then
 		self.Stack:add(panel)
@@ -331,6 +343,12 @@ function Container.Close(self: Container, id: string)
 		table.remove(self.Order, at)
 	end
 
+	local recent = table.find(self.Recent, id)
+
+	if recent then
+		table.remove(self.Recent, recent)
+	end
+
 	if self.Focus == id then
 		self.Focus = self.Order[#self.Order]
 	end
@@ -414,9 +432,46 @@ function Container.FocusWindow(self: Container, id: string)
 
 	self.Focus = id
 
+	Container.Touch(self, id)
+
 	view.Panel:front()
 
 	Container.Expand(self, id)
+end
+
+--- Moves a window to the front of the recency list.
+---
+--- Called when focus *settles*, not on every step of a cycle — otherwise
+--- walking the list rewrites the order underneath you and the second press
+--- takes you back where you started.
+function Container.Touch(self: Container, id: string)
+	local at = table.find(self.Recent, id)
+
+	if at then
+		table.remove(self.Recent, at)
+	end
+
+	table.insert(self.Recent, 1, id)
+end
+
+--- Recency order, most recent first, with any stale ids dropped.
+function Container.Recency(self: Container): { string }
+	local out = {}
+
+	for _, id in self.Recent do
+		if self.Windows[id] then
+			table.insert(out, id)
+		end
+	end
+
+	--// anything never focused still belongs in the list, at the back
+	for _, id in self.Order do
+		if not table.find(out, id) then
+			table.insert(out, id)
+		end
+	end
+
+	return out
 end
 
 --- The stacking order, newest last. Mirrors `RuntimeEntry.Interface.State`.

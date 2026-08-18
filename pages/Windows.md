@@ -9,8 +9,11 @@ Konsole had exactly two consoles: a main one and a detached chat pill, with
 window                 -- list them
 window open Logs       -- open one
 window close Logs      -- close it
-window --max=5         -- raise the cap
+window max 5           -- raise the cap
 ```
+
+Those are real sub-commands, so `window ` completes them and `window open `
+completes that sub's own arguments.
 
 ## From code
 
@@ -42,10 +45,25 @@ body needing to require the whole module:
 
 ## Cycling between them
 
-The activation key does double duty. Pressed on its own it toggles the console.
-Pressed **again within 1.5 seconds** it moves to the next window instead — so
-tapping it three times quickly lands you on the third. Pause, and the next
-press goes back to toggling.
+The activation key does double duty. Pressed on its own it opens the console at
+the window you were last using and puts the caret in it. Pressed **again inside
+the timeout** it steps one further back through the windows you have used — the
+second press lands on the one before, the third on the one before that.
+
+The order walked is **recency, not creation**, so it behaves the way alt-tab
+does: the window you want is usually one press away. Recency is only rewritten
+when a run of presses settles, since updating it on every step would reorder
+the list underneath you and the second press would take you straight back where
+you started.
+
+The timeout is 1.5 seconds and configurable:
+
+```lua
+Astrix.Start({ Interface = { CycleTimeout = 1.5 } })
+Astrix.SetCycleTimeout(0.8)   -- or later
+```
+
+Set it to zero to switch cycling off entirely.
 
 **This needs more than one window.** With only the default `Main` open there is
 nothing to cycle to and every press just toggles, which looks like the feature

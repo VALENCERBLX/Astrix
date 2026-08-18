@@ -233,6 +233,15 @@ function Astrix.Define(name: string)\
 	end)\
 end\
 \
+--- Starts a **sub-command** definition.\
+---\
+--- Identical to `Define` but unregistered: the result is handed to a parent's\
+--- `:Subs{…}` rather than registered on its own. Do not call `:Register()` on\
+--- one — the parent freezes it.\
+function Astrix.Sub(name: string)\
+	return Command.Define(name, nil)\
+end\
+\
 --- Registers a Kyn-callable native. The name becomes **absolute** — a player's\
 --- `@Function` may not shadow it.\
 function Astrix.Native(name: string, callback: (...any) -> any)\
@@ -256,6 +265,8 @@ function Astrix.Start(options: AstrixOptions?)\
 	if settings.Interface and settings.Interface.InterfaceRank then\
 		ranks.InterfaceRank = settings.Interface.InterfaceRank\
 	end\
+\
+	local cycleTimeout = settings.Interface and settings.Interface.CycleTimeout\
 \
 	if RunService:IsServer() then\
 		Server.Start({\
@@ -336,6 +347,10 @@ function Astrix.Start(options: AstrixOptions?)\
 			interface:Write(kind, message, content)\
 		end,\
 	})\
+\
+	if cycleTimeout then\
+		interface:SetCycleTimeout(cycleTimeout)\
+	end\
 \
 	local keybind = (settings.Interface and settings.Interface.Keybind) or Enum.KeyCode.T\
 \
@@ -443,7 +458,20 @@ Astrix.Windows = {\
 			interface:FocusWindow(id)\
 		end\
 	end,\
+\
+	--- Most-recently-focused first — the order the activation key walks.\
+	Recency = function(): { string }\
+		return if interface then interface.Container:Recency() else {}\
+	end,\
 }\
+\
+--- How long a run of activation-key presses counts as one cycle, in seconds.\
+--- 1.5 by default; set it to zero to switch cycling off entirely.\
+function Astrix.SetCycleTimeout(seconds: number)\
+	if interface then\
+		interface:SetCycleTimeout(seconds)\
+	end\
+end\
 \
 --- How many console windows may exist at once. Three by default; opening past\
 --- it warns rather than stacking without limit.\
@@ -649,6 +677,11 @@ export type CommandDefinition = {\
 	LocalFirst: boolean?,\
 	Cooldown: number?,\
 	Tasks: CommandTasks,\
+\
+	--// sub-commands, keyed by lowercase name and alias. A definition with\
+	--// these dispatches on its first positional word before binding anything\
+	Subs: { [string]: CommandDefinition }?,\
+	SubOrder: { string }?,\
 }\
 \
 --- What actually crosses the network: a definition with its Tasks stripped.\
@@ -662,6 +695,8 @@ export type ReplicatedDefinition = {\
 	Flags: { Flag }?,\
 	LocalFirst: boolean?,\
 	Cooldown: number?,\
+	Subs: { [string]: ReplicatedDefinition }?,\
+	SubOrder: { string }?,\
 }\
 \
 --// the Kyn abstract syntax tree -------------------------------------------------\
@@ -749,6 +784,8 @@ export type AstrixOptions = {\
 		Theme: string?,\
 		Keybind: Enum.KeyCode?,\
 		InterfaceRank: number?,\
+		--// how long a run of activation presses counts as one cycle\
+		CycleTimeout: number?,\
 	}?,\
 	Rank: {\
 		Resolver: ((Entity: any) -> number?)?,\
@@ -843,6 +880,8 @@ function Command.Define(name: string, onRegister: ((CommandDefinition) -> ())?):
 			LocalFirst = nil,\
 			Cooldown = nil,\
 			Tasks = nil :: any,\
+			Subs = nil,\
+			SubOrder = nil,\
 		},\
 		OnRegister = onRegister,\
 		Registered = false,\
@@ -938,6 +977,42 @@ function Command.Tasks(self: Builder, tasks: Types.CommandTasks): Builder\
 	return self\
 end\
 \
+--- Attaches sub-commands.\
+---\
+--- A sub-command is a full definition in its own right — its own arguments,\
+--- flags, cooldown and tasks — reached by its name as the first word:\
+--- `window open Logs` runs `Window`'s `open` sub with `Logs` as its argument.\
+---\
+--- Build them with `Astrix.Sub`, which is this same builder without a\
+--- registrar. Anything a sub leaves unset is inherited from its parent, so in\
+--- practice a sub only declares what differs.\
+function Command.Subs(self: Builder, subs: { any }): Builder\
+	local map: { [string]: CommandDefinition } = {}\
+	local order: { string } = {}\
+\
+	for _, entry in subs do\
+		local definition = if type(entry) == \"table\" and entry.Definition\
+			then (entry :: Builder).Definition\
+			else entry :: CommandDefinition\
+\
+		assert(type(definition) == \"table\", \"a sub must be a builder or a definition\")\
+		assert(type(definition.Name) == \"string\", \"a sub needs a name\")\
+\
+		map[string.lower(definition.Name)] = definition\
+\
+		table.insert(order, definition.Name)\
+\
+		for _, alias in definition.Aliases or {} do\
+			map[string.lower(alias)] = definition\
+		end\
+	end\
+\
+	self.Definition.Subs = map\
+	self.Definition.SubOrder = order\
+\
+	return self\
+end\
+\
 --- Validates, freezes, and registers. Terminal — the builder is spent after.\
 function Command.Register(self: Builder): CommandDefinition\
 	assert(not self.Registered, `command '{self.Definition.Name}' was registered twice`)\
@@ -947,6 +1022,37 @@ function Command.Register(self: Builder): CommandDefinition\
 	assert(definition.Type ~= nil, `command '{definition.Name}' has no Type`)\
 	assert(type(definition.Rank) == \"number\", `command '{definition.Name}' has no Rank`)\
 	assert(type(definition.Tasks) == \"table\", `command '{definition.Name}' has no Tasks`)\
+\
+	--// a parent that only routes needs no task of its own; its subs carry\
+	--// them. Anything a sub left unset is filled in from the parent here, so\
+	--// a sub can declare only what differs\
+	for _, name in definition.SubOrder or {} do\
+		local sub = (definition.Subs :: any)[string.lower(name)] :: CommandDefinition\
+\
+		sub.Type = sub.Type or definition.Type\
+		sub.Rank = if sub.Rank ~= nil and sub.Rank > 0 then sub.Rank else definition.Rank\
+		sub.Cooldown = sub.Cooldown or definition.Cooldown\
+		sub.LocalFirst = if sub.LocalFirst ~= nil then sub.LocalFirst else definition.LocalFirst\
+		sub.Tasks = sub.Tasks or definition.Tasks\
+\
+		table.freeze(sub.Parsed)\
+\
+		if sub.Flags then\
+			table.freeze(sub.Flags)\
+		end\
+\
+		table.freeze(sub)\
+	end\
+\
+	if definition.Subs and not definition.Tasks then\
+		--// routing only: give it a task that explains itself rather than\
+		--// failing an assertion the author cannot act on\
+		definition.Tasks = {\
+			Local = function()\
+				return nil\
+			end,\
+		}\
+	end\
 \
 	local tasks = definition.Tasks\
 \
@@ -967,6 +1073,11 @@ function Command.Register(self: Builder): CommandDefinition\
 \
 	if definition.Flags then\
 		table.freeze(definition.Flags)\
+	end\
+\
+	if definition.Subs then\
+		table.freeze(definition.Subs)\
+		table.freeze(definition.SubOrder)\
 	end\
 \
 	table.freeze(definition)\
@@ -2733,10 +2844,14 @@ end\
 "},
 {"Astrix/_Commands/_Local/Window","ModuleScript","--!strict\
 \
---- `window <action> [id]` — opens, closes and lists console windows.\
+--- `window <sub> [args]` — opens, closes and lists console windows.\
 ---\
---- Konsole had exactly two: the main console and a detached chat pill. Astrix\
---- takes as many as the cap allows, which is three unless you raise it.\
+--- Written with real sub-commands rather than an Enum argument, so each one\
+--- declares its own arguments and completes them: `window open <id>` offers\
+--- nothing for `id`, while `window close <id>` could offer the open ones.\
+---\
+--- Konsole had exactly two windows. Astrix takes as many as the cap allows,\
+--- which is three unless you raise it.\
 --- @section Commands\
 \
 return function(Astrix: any)\
@@ -2745,61 +2860,80 @@ return function(Astrix: any)\
 		:Rank(Astrix.Enums.Rank.Player.Min)\
 		:Describe(\"Opens, closes or lists console windows\")\
 		:Aliases({ \"Win\", \"W\" })\
-		:Parsed({\
-			{\
-				Name = \"Action\",\
-				Type = \"Enum\",\
-				Required = false,\
-				Default = \"List\",\
-				Description = \"list, open or close\",\
-				EnumValues = { \"List\", \"Open\", \"Close\" },\
-			},\
-			{ Name = \"Id\", Type = \"String\", Required = false, Description = \"which window\" },\
+		:Subs({\
+			Astrix.Sub(\"Open\")\
+				:Describe(\"Opens a window\")\
+				:Parsed({\
+					{ Name = \"Id\", Type = \"String\", Required = true, Description = \"a name for it\" },\
+				})\
+				:Tasks({\
+					Local = function(context)\
+						local id = context.Parsed.Id\
+\
+						context.Windows.Open({ Id = id, Title = id, Docked = true })\
+\
+						return Astrix.Resolve.Ok(`opened {id}`, id)\
+					end,\
+				}),\
+\
+			Astrix.Sub(\"Close\")\
+				:Describe(\"Closes a window\")\
+				:Parsed({\
+					{ Name = \"Id\", Type = \"String\", Required = true },\
+				})\
+				:Tasks({\
+					Local = function(context)\
+						local id = context.Parsed.Id\
+\
+						context.Windows.Close(id)\
+\
+						return Astrix.Resolve.Ok(`closed {id}`, id)\
+					end,\
+				}),\
+\
+			Astrix.Sub(\"Max\")\
+				:Describe(\"Sets how many windows may exist at once\")\
+				:Parsed({\
+					{ Name = \"Count\", Type = \"Number\", Required = true },\
+				})\
+				:Tasks({\
+					Local = function(context)\
+						Astrix.SetMaxWindows(context.Parsed.Count)\
+\
+						return Astrix.Resolve.Ok(`window cap {context.Parsed.Count}`, context.Parsed.Count)\
+					end,\
+				}),\
+\
+			Astrix.Sub(\"List\")\
+				:Describe(\"Lists the open windows\")\
+				:Tasks({\
+					Local = function(context)\
+						local elements = context.Output.Elements\
+						local focused = context.Windows.Focused()\
+						local rows = {}\
+\
+						for index, name in context.Windows.List() do\
+							rows[#rows + 1] = { tostring(index), name, if name == focused then \"focused\" else \"\" }\
+						end\
+\
+						context.Output.Reply(elements.Table({ \"#\", \"Window\", \"\" }, rows))\
+\
+						return Astrix.Resolve.Ok(nil, #rows)\
+					end,\
+				}),\
 		})\
-		:Flags({\
-			{ Name = \"Max\", Extended = \"IsValue\", Type = \"Number\", Description = \"set the window cap\" },\
-		})\
+		--// no sub given: list them, which is the useful default\
 		:Tasks({\
 			Local = function(context)\
 				local elements = context.Output.Elements\
-				local windows = context.Windows\
-\
-				if context.Flags.Max then\
-					Astrix.SetMaxWindows(context.Flags.Max)\
-\
-					return Astrix.Resolve.Ok(`window cap set to {context.Flags.Max}`, context.Flags.Max)\
-				end\
-\
-				local action = string.lower(context.Parsed.Action or \"List\")\
-				local id = context.Parsed.Id\
-\
-				if action == \"open\" then\
-					if not id then\
-						return Astrix.Resolve.Fail(\"open needs an id\")\
-					end\
-\
-					windows.Open({ Id = id, Title = id, Docked = true })\
-\
-					return Astrix.Resolve.Ok(`opened {id}`, id)\
-				end\
-\
-				if action == \"close\" then\
-					if not id then\
-						return Astrix.Resolve.Fail(\"close needs an id\")\
-					end\
-\
-					windows.Close(id)\
-\
-					return Astrix.Resolve.Ok(`closed {id}`, id)\
-				end\
-\
+				local focused = context.Windows.Focused()\
 				local rows = {}\
 \
-				for index, name in windows.List() do\
-					table.insert(rows, { tostring(index), name })\
+				for index, name in context.Windows.List() do\
+					rows[#rows + 1] = { tostring(index), name, if name == focused then \"focused\" else \"\" }\
 				end\
 \
-				context.Output.Reply(elements.Table({ \"#\", \"Window\" }, rows))\
+				context.Output.Reply(elements.Table({ \"#\", \"Window\", \"\" }, rows))\
 \
 				return Astrix.Resolve.Ok(nil, #rows)\
 			end,\
@@ -3487,6 +3621,23 @@ function Client.MakeDispatch(deps: Dependencies): (string, { any }, { [string]: 
 			return Resolve.CommandNotFound(head)\
 		end\
 \
+		--// route to a sub-command before anything is bound: `window open Logs`\
+		--// is the `open` sub with `Logs` as its first argument, so the parent's\
+		--// own Parsed never sees the word `open`\
+		local routed = definition\
+\
+		if definition.Subs and type(args[1]) == \"string\" then\
+			local sub = (definition.Subs :: any)[string.lower(args[1])]\
+\
+			if sub then\
+				routed = sub\
+\
+				args = table.move(args, 2, #args, 1, {})\
+			end\
+		end\
+\
+		definition = routed\
+\
 		local player = executor()\
 \
 		--// 1. rank\
@@ -3579,6 +3730,18 @@ function Client.MakeServerHandler(deps: Dependencies)\
 			return Resolve.CommandNotFound(name)\
 		end\
 \
+		--// the same routing as the client, or a sub would never reach its\
+		--// server task\
+		if definition.Subs and type(args[1]) == \"string\" then\
+			local sub = (definition.Subs :: any)[string.lower(args[1])]\
+\
+			if sub then\
+				definition = sub\
+\
+				args = table.move(args, 2, #args, 1, {})\
+			end\
+		end\
+\
 		if not deps.Ranks:Allows(deps.Ranks:Get(player), definition.Rank) then\
 			return Resolve.RankDenied(definition.Name)\
 		end\
@@ -3658,6 +3821,9 @@ export type Fields = {\
 	Main: string,\
 	Bindings: { () -> () },\
 	LastActivate: number,\
+	CycleTimeout: number,\
+	Cycling: boolean,\
+	Step: number,\
 	OnSubmit: ((text: string) -> ())?,\
 }\
 \
@@ -3679,6 +3845,9 @@ function Interface.new(config: Config): Interface\
 		Main = MAIN_WINDOW,\
 		Bindings = {},\
 		LastActivate = 0,\
+		CycleTimeout = 1.5,\
+		Cycling = false,\
+		Step = 1,\
 		OnSubmit = config.OnSubmit,\
 	}\
 \
@@ -3696,22 +3865,35 @@ function Interface.new(config: Config): Interface\
 \
 	self.Suggestions:Attach(view.Panel, view.Input.Field)\
 \
-	container.OnChange = function(_, text)\
-		local box = view.Input.Field.refs.input :: TextBox\
+	--// keyed on the window that fired it, not the one that happened to exist\
+	--// when the interface was built. Capturing `view` here is why completion\
+	--// did nothing in any window but the first\
+	container.OnChange = function(id, text)\
+		local source = self.Container:Get(id)\
+\
+		if not source then\
+			return\
+		end\
+\
+		self.Suggestions:Attach(source.Panel, source.Input.Field)\
+\
+		local box = source.Input.Field.refs.input :: TextBox\
 \
 		self.Suggestions:Update(text, box.CursorPosition)\
 	end\
 \
-	container.OnSubmit = function(_, text)\
+	container.OnSubmit = function(id, text)\
 		self.Suggestions:Hide()\
+\
+		--// output belongs to the window the line was typed in\
+		self.Container.Focus = id\
 \
 		if text ~= \"\" and self.OnSubmit then\
 			self.OnSubmit(text)\
 		end\
 	end\
 \
-	table.insert(self.Bindings, view.Input:BindLeaping())\
-	table.insert(self.Bindings, Interface.BindKeys(interface, view))\
+	table.insert(self.Bindings, Interface.BindKeys(interface))\
 \
 	return interface\
 end\
@@ -3734,13 +3916,22 @@ end\
 --- The activation key is a different case and stays on CAS — nothing has focus\
 --- when the console is closed, so sinking works there and keeps the key from\
 --- leaking into the rest of the game.\
-function Interface.BindKeys(self: Interface, view: any): () -> ()\
+function Interface.BindKeys(self: Interface): () -> ()\
 	local connection = UserInputService.InputBegan:Connect(function(input)\
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
 			return\
 		end\
 \
-		if not self.Container.Shown or not view.Input:Focused() then\
+		if not self.Container.Shown then\
+			return\
+		end\
+\
+		--// whichever window has the caret right now. Resolving this per press\
+		--// rather than capturing one view is what makes every window behave\
+		--// the same\
+		local view = Interface.FocusedView(self)\
+\
+		if not view or not view.Input:Focused() then\
 			return\
 		end\
 \
@@ -3779,6 +3970,19 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 	return function()\
 		connection:Disconnect()\
 	end\
+end\
+\
+--- The view that currently has the caret, or the focused one if none does.\
+function Interface.FocusedView(self: Interface): any\
+	for _, id in self.Container:List() do\
+		local view = self.Container:Get(id)\
+\
+		if view and view.Input:Focused() then\
+			return view\
+		end\
+	end\
+\
+	return self.Container:Get(Interface.Target(self))\
 end\
 \
 --- Which window output belongs to: whichever one has focus, falling back to\
@@ -3851,40 +4055,47 @@ end\
 \
 --- The activation key.\
 ---\
---- Pressed on its own it toggles between a collapsed pill and an open terminal,\
---- the way Konsole does — hidden opens, collapsed expands, expanded collapses.\
+--- Pressed on its own it opens the console at the window you were last using\
+--- and puts the caret in it. Pressed **again inside `CycleTimeout`** it steps\
+--- one further back through the windows you have used — the second press lands\
+--- on the one before, the third on the one before that.\
 ---\
---- Pressed **again within `CYCLE_WINDOW`** and with more than one window open,\
---- it moves to the next window instead. Tapping it three times quickly lands on\
---- the third; pausing resets, so the same key is both \"open the console\" and\
---- \"the one after this\", without a second binding to remember.\
-local CYCLE_WINDOW = 1.5\
-\
+--- The order walked is recency, not creation, so this behaves the way\
+--- alt-tab does: the window you want is usually one press away. Recency is\
+--- only rewritten when a cycle *settles*, because updating it on every step\
+--- would reorder the list underneath you and the second press would take you\
+--- straight back where you started.\
 function Interface.Toggle(self: Interface)\
 	local now = os.clock()\
-	local rapid = (now - self.LastActivate) <= CYCLE_WINDOW\
+	local rapid = (now - self.LastActivate) <= self.CycleTimeout\
 \
 	self.LastActivate = now\
 \
 	if not self.Container.Shown then\
+		self.Cycling = false\
+\
 		Interface.Show(self)\
 \
 		return\
 	end\
 \
-	local order = self.Container:List()\
+	local recency = self.Container:Recency()\
 \
-	if rapid and #order > 1 then\
-		--// step from where focus actually IS, not from a counter. A counter\
-		--// drifts the moment anything else moves focus — clicking a window,\
-		--// opening one, closing one — and the first press then jumps somewhere\
-		--// arbitrary instead of to the next window along\
-		local current = table.find(order, Interface.Target(self)) or 0\
+	if rapid and #recency > 1 then\
+		--// a run of presses walks the list; the first of the run starts at the\
+		--// window after the one in use\
+		self.Step = if self.Cycling then self.Step + 1 else 2\
+		self.Cycling = true\
 \
-		Interface.FocusWindow(self, order[(current % #order) + 1])\
+		local index = ((self.Step - 1) % #recency) + 1\
+\
+		Interface.FocusWindow(self, recency[index], true)\
 \
 		return\
 	end\
+\
+	self.Cycling = false\
+	self.Step = 1\
 \
 	local target = Interface.Target(self)\
 \
@@ -3896,9 +4107,17 @@ function Interface.Toggle(self: Interface)\
 	end\
 end\
 \
+--- How long a run of activation presses counts as one cycle. 1.5s by default.\
+function Interface.SetCycleTimeout(self: Interface, seconds: number)\
+	self.CycleTimeout = math.max(0, seconds)\
+end\
+\
 --- Focuses a window and re-points the dropdown at its input, so completion\
 --- happens in the window you are actually typing into.\
-function Interface.FocusWindow(self: Interface, id: string)\
+---\
+--- `transient` marks a step of a cycle rather than a settled choice, so the\
+--- recency list is left alone until the run ends.\
+function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)\
 	local view = self.Container:Get(id)\
 \
 	if not view then\
@@ -3907,6 +4126,15 @@ function Interface.FocusWindow(self: Interface, id: string)\
 \
 	self.Suggestions:Hide()\
 	self.Suggestions:Attach(view.Panel, view.Input.Field)\
+\
+	if transient then\
+		self.Container.Focus = id\
+\
+		view.Panel:front()\
+		self.Container:Expand(id)\
+\
+		return\
+	end\
 \
 	self.Container:FocusWindow(id)\
 end\
@@ -3958,6 +4186,18 @@ function Interface.Windows(self: Interface)\
 		end,\
 		Write = function(id: string, text: string, content: Types.ContentElement?)\
 			container:Write(id, \"Output\", text, content)\
+		end,\
+\
+		--// the same surface as `Astrix.Windows`, so a command body can use\
+		--// either without discovering they differ\
+		Focused = function(): string?\
+			return Interface.Target(self)\
+		end,\
+		Focus = function(id: string)\
+			Interface.FocusWindow(self, id)\
+		end,\
+		Recency = function(): { string }\
+			return container:Recency()\
 		end,\
 	}\
 end\
@@ -4027,6 +4267,10 @@ export type Fields = {\
 	Stack: any,\
 	Windows: { [string]: View },\
 	Order: { string },\
+	--// most-recently-focused first. `Order` is creation order and is what the\
+	--// stack lays out by; this is what the activation key walks, so cycling\
+	--// goes \"the one before this\" rather than \"the next one along\"\
+	Recent: { string },\
 	Focus: string?,\
 	--// `Shown`, not `Open`: a field of that name would shadow the `Open`\
 	--// METHOD, since raw fields win over the metatable\
@@ -4093,6 +4337,7 @@ function Container.new(theme: any, options: { App: any?, DisplayOrder: number? }
 		Stack = app:stack(\"bottom\"),\
 		Windows = {},\
 		Order = {},\
+		Recent = {},\
 		Focus = nil,\
 		Shown = false,\
 		MaxWindows = 3,\
@@ -4164,6 +4409,12 @@ function Container.Open(self: Container, config: WindowConfig): View\
 		end)\
 	end\
 \
+	--// each window binds its own cursor navigation, so Ctrl+Arrow works in\
+	--// whichever one you are typing in rather than only the first\
+	local unbindLeaping = input:BindLeaping()\
+\
+	panel:on(\"destroyed\", unbindLeaping)\
+\
 	--// a collapsed bar is a button\
 	panel:setActivatable(true)\
 	panel:onActivated(function()\
@@ -4173,6 +4424,7 @@ function Container.Open(self: Container, config: WindowConfig): View\
 	self.Windows[config.Id] = view\
 \
 	table.insert(self.Order, config.Id)\
+	table.insert(self.Recent, 1, config.Id)\
 \
 	if config.Docked ~= false then\
 		self.Stack:add(panel)\
@@ -4309,6 +4561,12 @@ function Container.Close(self: Container, id: string)\
 		table.remove(self.Order, at)\
 	end\
 \
+	local recent = table.find(self.Recent, id)\
+\
+	if recent then\
+		table.remove(self.Recent, recent)\
+	end\
+\
 	if self.Focus == id then\
 		self.Focus = self.Order[#self.Order]\
 	end\
@@ -4392,9 +4650,46 @@ function Container.FocusWindow(self: Container, id: string)\
 \
 	self.Focus = id\
 \
+	Container.Touch(self, id)\
+\
 	view.Panel:front()\
 \
 	Container.Expand(self, id)\
+end\
+\
+--- Moves a window to the front of the recency list.\
+---\
+--- Called when focus *settles*, not on every step of a cycle — otherwise\
+--- walking the list rewrites the order underneath you and the second press\
+--- takes you back where you started.\
+function Container.Touch(self: Container, id: string)\
+	local at = table.find(self.Recent, id)\
+\
+	if at then\
+		table.remove(self.Recent, at)\
+	end\
+\
+	table.insert(self.Recent, 1, id)\
+end\
+\
+--- Recency order, most recent first, with any stale ids dropped.\
+function Container.Recency(self: Container): { string }\
+	local out = {}\
+\
+	for _, id in self.Recent do\
+		if self.Windows[id] then\
+			table.insert(out, id)\
+		end\
+	end\
+\
+	--// anything never focused still belongs in the list, at the back\
+	for _, id in self.Order do\
+		if not table.find(out, id) then\
+			table.insert(out, id)\
+		end\
+	end\
+\
+	return out\
 end\
 \
 --- The stacking order, newest last. Mirrors `RuntimeEntry.Interface.State`.\
@@ -5083,7 +5378,7 @@ export type Suggestions = typeof(setmetatable({} :: Fields, Suggestions))\
 \
 --// context -----------------------------------------------------------------------\
 export type Context = {\
-	Kind: \"Command\" | \"Player\" | \"Reference\" | \"Argument\" | \"Flag\" | \"Stack\" | \"None\",\
+	Kind: \"Command\" | \"Sub\" | \"Player\" | \"Reference\" | \"Argument\" | \"Flag\" | \"Stack\" | \"None\",\
 	Prefix: string,\
 	Argument: any?,\
 	Command: any?,\
@@ -5168,8 +5463,25 @@ function Suggestions.Context(raw: string, cursor: number?, registry: any): Conte
 	local head = tokens[1] and tokens[1].Text\
 	local definition = head and registry and registry:Resolve(head)\
 \
+	--// the word straight after a command that HAS subs is a sub name\
+	if definition and definition.Subs and position == 2 then\
+		return { Kind = \"Sub\", Prefix = current, Command = definition, Caret = caret }\
+	end\
+\
+	--// past that, arguments belong to the sub rather than the parent\
+	local offset = 1\
+\
+	if definition and definition.Subs and tokens[2] then\
+		local sub = definition.Subs[string.lower(tokens[2].Text)]\
+\
+		if sub then\
+			definition = sub\
+			offset = 2\
+		end\
+	end\
+\
 	if definition then\
-		local index = position - 1\
+		local index = position - offset\
 		local argument = definition.Parsed[index]\
 \
 		if argument then\
@@ -5227,6 +5539,12 @@ function Suggestions.Update(self: Suggestions, raw: string, cursor: number?)\
 \
 	if context.Kind == \"Command\" then\
 		options = self.Registry:CommandNames()\
+	elseif context.Kind == \"Sub\" then\
+		local definition = context.Command\
+\
+		for _, name in (definition and definition.SubOrder) or {} do\
+			table.insert(options, name)\
+		end\
 	elseif context.Kind == \"Player\" then\
 		for _, player in Players:GetPlayers() do\
 			table.insert(options, player.Name)\
@@ -27007,7 +27325,19 @@ local Replication = {}\
 \
 --- Schema only — everything but `Tasks`.\
 function Replication.Strip(definition: CommandDefinition): ReplicatedDefinition\
+	local subs: { [string]: any }? = nil\
+\
+	if definition.Subs then\
+		subs = {}\
+\
+		for key, sub in definition.Subs do\
+			(subs :: any)[key] = Replication.Strip(sub)\
+		end\
+	end\
+\
 	return {\
+		Subs = subs,\
+		SubOrder = definition.SubOrder,\
 		Name = definition.Name,\
 		Aliases = definition.Aliases,\
 		Type = definition.Type,\
@@ -27035,7 +27365,19 @@ end\
 --- `Tasks.Server` becomes a marker that returns nothing: the client never runs\
 --- it, but its presence keeps `Type` checks honest downstream.\
 function Replication.Hydrate(schema: ReplicatedDefinition): CommandDefinition\
+	local subs: { [string]: any }? = nil\
+\
+	if schema.Subs then\
+		subs = {}\
+\
+		for key, sub in schema.Subs do\
+			(subs :: any)[key] = Replication.Hydrate(sub)\
+		end\
+	end\
+\
 	return {\
+		Subs = subs,\
+		SubOrder = schema.SubOrder,\
 		Name = schema.Name,\
 		Aliases = schema.Aliases,\
 		Type = schema.Type,\

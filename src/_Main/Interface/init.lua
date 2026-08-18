@@ -38,6 +38,9 @@ export type Fields = {
 	Main: string,
 	Bindings: { () -> () },
 	LastActivate: number,
+	CycleTimeout: number,
+	Cycling: boolean,
+	Step: number,
 	OnSubmit: ((text: string) -> ())?,
 }
 
@@ -59,6 +62,9 @@ function Interface.new(config: Config): Interface
 		Main = MAIN_WINDOW,
 		Bindings = {},
 		LastActivate = 0,
+		CycleTimeout = 1.5,
+		Cycling = false,
+		Step = 1,
 		OnSubmit = config.OnSubmit,
 	}
 
@@ -76,22 +82,35 @@ function Interface.new(config: Config): Interface
 
 	self.Suggestions:Attach(view.Panel, view.Input.Field)
 
-	container.OnChange = function(_, text)
-		local box = view.Input.Field.refs.input :: TextBox
+	--// keyed on the window that fired it, not the one that happened to exist
+	--// when the interface was built. Capturing `view` here is why completion
+	--// did nothing in any window but the first
+	container.OnChange = function(id, text)
+		local source = self.Container:Get(id)
+
+		if not source then
+			return
+		end
+
+		self.Suggestions:Attach(source.Panel, source.Input.Field)
+
+		local box = source.Input.Field.refs.input :: TextBox
 
 		self.Suggestions:Update(text, box.CursorPosition)
 	end
 
-	container.OnSubmit = function(_, text)
+	container.OnSubmit = function(id, text)
 		self.Suggestions:Hide()
+
+		--// output belongs to the window the line was typed in
+		self.Container.Focus = id
 
 		if text ~= "" and self.OnSubmit then
 			self.OnSubmit(text)
 		end
 	end
 
-	table.insert(self.Bindings, view.Input:BindLeaping())
-	table.insert(self.Bindings, Interface.BindKeys(interface, view))
+	table.insert(self.Bindings, Interface.BindKeys(interface))
 
 	return interface
 end
@@ -114,13 +133,22 @@ end
 --- The activation key is a different case and stays on CAS — nothing has focus
 --- when the console is closed, so sinking works there and keeps the key from
 --- leaking into the rest of the game.
-function Interface.BindKeys(self: Interface, view: any): () -> ()
+function Interface.BindKeys(self: Interface): () -> ()
 	local connection = UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then
 			return
 		end
 
-		if not self.Container.Shown or not view.Input:Focused() then
+		if not self.Container.Shown then
+			return
+		end
+
+		--// whichever window has the caret right now. Resolving this per press
+		--// rather than capturing one view is what makes every window behave
+		--// the same
+		local view = Interface.FocusedView(self)
+
+		if not view or not view.Input:Focused() then
 			return
 		end
 
@@ -159,6 +187,19 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 	return function()
 		connection:Disconnect()
 	end
+end
+
+--- The view that currently has the caret, or the focused one if none does.
+function Interface.FocusedView(self: Interface): any
+	for _, id in self.Container:List() do
+		local view = self.Container:Get(id)
+
+		if view and view.Input:Focused() then
+			return view
+		end
+	end
+
+	return self.Container:Get(Interface.Target(self))
 end
 
 --- Which window output belongs to: whichever one has focus, falling back to
@@ -231,40 +272,47 @@ end
 
 --- The activation key.
 ---
---- Pressed on its own it toggles between a collapsed pill and an open terminal,
---- the way Konsole does — hidden opens, collapsed expands, expanded collapses.
+--- Pressed on its own it opens the console at the window you were last using
+--- and puts the caret in it. Pressed **again inside `CycleTimeout`** it steps
+--- one further back through the windows you have used — the second press lands
+--- on the one before, the third on the one before that.
 ---
---- Pressed **again within `CYCLE_WINDOW`** and with more than one window open,
---- it moves to the next window instead. Tapping it three times quickly lands on
---- the third; pausing resets, so the same key is both "open the console" and
---- "the one after this", without a second binding to remember.
-local CYCLE_WINDOW = 1.5
-
+--- The order walked is recency, not creation, so this behaves the way
+--- alt-tab does: the window you want is usually one press away. Recency is
+--- only rewritten when a cycle *settles*, because updating it on every step
+--- would reorder the list underneath you and the second press would take you
+--- straight back where you started.
 function Interface.Toggle(self: Interface)
 	local now = os.clock()
-	local rapid = (now - self.LastActivate) <= CYCLE_WINDOW
+	local rapid = (now - self.LastActivate) <= self.CycleTimeout
 
 	self.LastActivate = now
 
 	if not self.Container.Shown then
+		self.Cycling = false
+
 		Interface.Show(self)
 
 		return
 	end
 
-	local order = self.Container:List()
+	local recency = self.Container:Recency()
 
-	if rapid and #order > 1 then
-		--// step from where focus actually IS, not from a counter. A counter
-		--// drifts the moment anything else moves focus — clicking a window,
-		--// opening one, closing one — and the first press then jumps somewhere
-		--// arbitrary instead of to the next window along
-		local current = table.find(order, Interface.Target(self)) or 0
+	if rapid and #recency > 1 then
+		--// a run of presses walks the list; the first of the run starts at the
+		--// window after the one in use
+		self.Step = if self.Cycling then self.Step + 1 else 2
+		self.Cycling = true
 
-		Interface.FocusWindow(self, order[(current % #order) + 1])
+		local index = ((self.Step - 1) % #recency) + 1
+
+		Interface.FocusWindow(self, recency[index], true)
 
 		return
 	end
+
+	self.Cycling = false
+	self.Step = 1
 
 	local target = Interface.Target(self)
 
@@ -276,9 +324,17 @@ function Interface.Toggle(self: Interface)
 	end
 end
 
+--- How long a run of activation presses counts as one cycle. 1.5s by default.
+function Interface.SetCycleTimeout(self: Interface, seconds: number)
+	self.CycleTimeout = math.max(0, seconds)
+end
+
 --- Focuses a window and re-points the dropdown at its input, so completion
 --- happens in the window you are actually typing into.
-function Interface.FocusWindow(self: Interface, id: string)
+---
+--- `transient` marks a step of a cycle rather than a settled choice, so the
+--- recency list is left alone until the run ends.
+function Interface.FocusWindow(self: Interface, id: string, transient: boolean?)
 	local view = self.Container:Get(id)
 
 	if not view then
@@ -287,6 +343,15 @@ function Interface.FocusWindow(self: Interface, id: string)
 
 	self.Suggestions:Hide()
 	self.Suggestions:Attach(view.Panel, view.Input.Field)
+
+	if transient then
+		self.Container.Focus = id
+
+		view.Panel:front()
+		self.Container:Expand(id)
+
+		return
+	end
 
 	self.Container:FocusWindow(id)
 end
@@ -338,6 +403,18 @@ function Interface.Windows(self: Interface)
 		end,
 		Write = function(id: string, text: string, content: Types.ContentElement?)
 			container:Write(id, "Output", text, content)
+		end,
+
+		--// the same surface as `Astrix.Windows`, so a command body can use
+		--// either without discovering they differ
+		Focused = function(): string?
+			return Interface.Target(self)
+		end,
+		Focus = function(id: string)
+			Interface.FocusWindow(self, id)
+		end,
+		Recency = function(): { string }
+			return container:Recency()
 		end,
 	}
 end

@@ -83,6 +83,8 @@ function Command.Define(name: string, onRegister: ((CommandDefinition) -> ())?):
 			LocalFirst = nil,
 			Cooldown = nil,
 			Tasks = nil :: any,
+			Subs = nil,
+			SubOrder = nil,
 		},
 		OnRegister = onRegister,
 		Registered = false,
@@ -178,6 +180,42 @@ function Command.Tasks(self: Builder, tasks: Types.CommandTasks): Builder
 	return self
 end
 
+--- Attaches sub-commands.
+---
+--- A sub-command is a full definition in its own right — its own arguments,
+--- flags, cooldown and tasks — reached by its name as the first word:
+--- `window open Logs` runs `Window`'s `open` sub with `Logs` as its argument.
+---
+--- Build them with `Astrix.Sub`, which is this same builder without a
+--- registrar. Anything a sub leaves unset is inherited from its parent, so in
+--- practice a sub only declares what differs.
+function Command.Subs(self: Builder, subs: { any }): Builder
+	local map: { [string]: CommandDefinition } = {}
+	local order: { string } = {}
+
+	for _, entry in subs do
+		local definition = if type(entry) == "table" and entry.Definition
+			then (entry :: Builder).Definition
+			else entry :: CommandDefinition
+
+		assert(type(definition) == "table", "a sub must be a builder or a definition")
+		assert(type(definition.Name) == "string", "a sub needs a name")
+
+		map[string.lower(definition.Name)] = definition
+
+		table.insert(order, definition.Name)
+
+		for _, alias in definition.Aliases or {} do
+			map[string.lower(alias)] = definition
+		end
+	end
+
+	self.Definition.Subs = map
+	self.Definition.SubOrder = order
+
+	return self
+end
+
 --- Validates, freezes, and registers. Terminal — the builder is spent after.
 function Command.Register(self: Builder): CommandDefinition
 	assert(not self.Registered, `command '{self.Definition.Name}' was registered twice`)
@@ -187,6 +225,37 @@ function Command.Register(self: Builder): CommandDefinition
 	assert(definition.Type ~= nil, `command '{definition.Name}' has no Type`)
 	assert(type(definition.Rank) == "number", `command '{definition.Name}' has no Rank`)
 	assert(type(definition.Tasks) == "table", `command '{definition.Name}' has no Tasks`)
+
+	--// a parent that only routes needs no task of its own; its subs carry
+	--// them. Anything a sub left unset is filled in from the parent here, so
+	--// a sub can declare only what differs
+	for _, name in definition.SubOrder or {} do
+		local sub = (definition.Subs :: any)[string.lower(name)] :: CommandDefinition
+
+		sub.Type = sub.Type or definition.Type
+		sub.Rank = if sub.Rank ~= nil and sub.Rank > 0 then sub.Rank else definition.Rank
+		sub.Cooldown = sub.Cooldown or definition.Cooldown
+		sub.LocalFirst = if sub.LocalFirst ~= nil then sub.LocalFirst else definition.LocalFirst
+		sub.Tasks = sub.Tasks or definition.Tasks
+
+		table.freeze(sub.Parsed)
+
+		if sub.Flags then
+			table.freeze(sub.Flags)
+		end
+
+		table.freeze(sub)
+	end
+
+	if definition.Subs and not definition.Tasks then
+		--// routing only: give it a task that explains itself rather than
+		--// failing an assertion the author cannot act on
+		definition.Tasks = {
+			Local = function()
+				return nil
+			end,
+		}
+	end
 
 	local tasks = definition.Tasks
 
@@ -207,6 +276,11 @@ function Command.Register(self: Builder): CommandDefinition
 
 	if definition.Flags then
 		table.freeze(definition.Flags)
+	end
+
+	if definition.Subs then
+		table.freeze(definition.Subs)
+		table.freeze(definition.SubOrder)
 	end
 
 	table.freeze(definition)

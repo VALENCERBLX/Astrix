@@ -63,6 +63,23 @@ function Client.MakeDispatch(deps: Dependencies): (string, { any }, { [string]: 
 			return Resolve.CommandNotFound(head)
 		end
 
+		--// route to a sub-command before anything is bound: `window open Logs`
+		--// is the `open` sub with `Logs` as its first argument, so the parent's
+		--// own Parsed never sees the word `open`
+		local routed = definition
+
+		if definition.Subs and type(args[1]) == "string" then
+			local sub = (definition.Subs :: any)[string.lower(args[1])]
+
+			if sub then
+				routed = sub
+
+				args = table.move(args, 2, #args, 1, {})
+			end
+		end
+
+		definition = routed
+
 		local player = executor()
 
 		--// 1. rank
@@ -153,6 +170,18 @@ function Client.MakeServerHandler(deps: Dependencies)
 
 		if not definition then
 			return Resolve.CommandNotFound(name)
+		end
+
+		--// the same routing as the client, or a sub would never reach its
+		--// server task
+		if definition.Subs and type(args[1]) == "string" then
+			local sub = (definition.Subs :: any)[string.lower(args[1])]
+
+			if sub then
+				definition = sub
+
+				args = table.move(args, 2, #args, 1, {})
+			end
 		end
 
 		if not deps.Ranks:Allows(deps.Ranks:Get(player), definition.Rank) then
