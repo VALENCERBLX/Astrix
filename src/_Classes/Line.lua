@@ -11,6 +11,7 @@
 --- Tokenising is depth-aware: quotes, parentheses and braces all suppress
 --- splitting, so `@Vector3(1, 2, 3)` stays one token and
 --- `@Function Greet { return "Hi" }` keeps its block intact.
+--- @section Kyn
 
 local Types = require(script.Parent.Parent.Types)
 

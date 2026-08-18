@@ -4,6 +4,7 @@
 ---
 --- Nothing here persists. `_Patterns/Profile` exports the half that is worth
 --- saving; the session deliberately is not part of it.
+--- @section Runtime
 
 local Types = require(script.Parent.Parent.Types)
 local Session = require(script.Parent.Parent._Classes.Input)

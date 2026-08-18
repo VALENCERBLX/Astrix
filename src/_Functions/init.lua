@@ -4,6 +4,7 @@
 ---
 --- Each entry is `{ Name, Run }`. `Astrix.Native(name, fn)` adds more at
 --- runtime; anything here is registered at startup and is reserved from then on.
+--- @section Kyn
 
 local manifest = {
 	require(script.Random),

@@ -8,6 +8,7 @@
 --- unlisted value is a real parse failure and completion has something to
 --- offer. Without it the provider still accepts anything, since an enum with
 --- no members cannot reject.
+--- @section Arguments
 
 local Types = require(script.Parent.Parent.Types)
 

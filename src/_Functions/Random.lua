@@ -4,6 +4,7 @@
 ---
 --- Registered as a native, which makes the name **absolute**: a player writing
 --- `@Function Random { … }` gets a refusal rather than a shadowed builtin.
+--- @section Kyn
 
 return {
 	Name = "Random",

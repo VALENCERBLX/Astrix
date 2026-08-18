@@ -1,6 +1,7 @@
 --!strict
 
 --- `theme [name]` — switches the console's theme, or lists what is registered.
+--- @section Commands
 
 return function(Astrix: any)
 	Astrix.Define("Theme")

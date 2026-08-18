@@ -4,6 +4,7 @@
 ---
 --- The bucket key is `UserId:CommandName`, so one player's cooldown on
 --- `Teleport` says nothing about anybody else's, or about their own `Kill`.
+--- @section Patterns
 
 local Types = require(script.Parent.Parent.Types)
 

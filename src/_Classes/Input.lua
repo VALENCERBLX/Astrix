@@ -10,6 +10,7 @@
 --- command goes through an injected `Dispatch`, the same way `Command.lua`
 --- takes an injected registrar, so the evaluator can be tested without a
 --- registry, a player or a remote.
+--- @section Kyn
 
 local Types = require(script.Parent.Parent.Types)
 local Resolve = require(script.Parent.Resolve)

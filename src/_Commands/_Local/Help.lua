@@ -4,6 +4,7 @@
 ---
 --- The list is filtered by rank, so it never advertises something the caller
 --- would immediately be refused.
+--- @section Commands
 
 return function(Astrix: any)
 	Astrix.Define("Help")

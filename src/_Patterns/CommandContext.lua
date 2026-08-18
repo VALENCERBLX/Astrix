@@ -7,6 +7,7 @@
 --- produced a real Player, `@Vector3(1, 2, 3)` a real Vector3 — so binding
 --- checks that first and only falls back to casting a string through the
 --- matching `_Types/` provider.
+--- @section Patterns
 
 local Types = require(script.Parent.Parent.Types)
 local Resolve = require(script.Parent.Parent._Classes.Resolve)

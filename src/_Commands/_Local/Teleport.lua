@@ -2,6 +2,7 @@
 
 --- `teleport <player> <position>` — the spec's worked example, as a real
 --- command.
+--- @section Commands
 
 return function(Astrix: any)
 	Astrix.Define("Teleport")

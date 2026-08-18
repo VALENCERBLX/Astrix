@@ -20,6 +20,7 @@
 ---
 --- Konsole hardcoded two channels and branched on `channel == 2` throughout.
 --- Here a window is an entry in `Windows`, and nothing asks which one it is.
+--- @section Console
 
 local Types = require(script.Parent.Parent.Parent.Parent.Types)
 local Window = require(script.Parent.Parent.Parent.Parent._Classes.Window)

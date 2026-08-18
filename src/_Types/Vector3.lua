@@ -2,6 +2,7 @@
 
 --- Accepts `1,2,3` or `1 2 3`. The `@Vector3(1, 2, 3)` constructor form is
 --- handled by the Kyn session and arrives here already typed.
+--- @section Arguments
 
 local Types = require(script.Parent.Parent.Types)
 

@@ -8,6 +8,7 @@
 --- `Session` is deliberately excluded: variables, `@Function` definitions and
 --- the `::Kout` stack are ephemeral by design. A saved `@Set("Target", …)`
 --- would restore a reference to a player who left.
+--- @section Patterns
 
 local Types = require(script.Parent.Parent.Types)
 

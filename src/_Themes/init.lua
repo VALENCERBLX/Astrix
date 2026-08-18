@@ -5,6 +5,7 @@
 --- Only `Default` exists so far — `AstrixOptions.Interface.Theme` is accepted
 --- and the registry takes as many as you register, but no second theme has been
 --- designed (open item #10). Registering one is a single call.
+--- @section Themes
 
 local Default = require(script.Default)
 

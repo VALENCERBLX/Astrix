@@ -9,6 +9,7 @@
 ---
 --- Everything crossing the network is already *resolved*: a `Player`, a
 --- `Vector3`, a number. Raw Kyn text never leaves the client.
+--- @section Runtime
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")

@@ -2,6 +2,7 @@
 
 --- Rich output primitives, shared between the console's own line renderer and
 --- any custom window a command opens. One rendering path, not two.
+--- @section Console
 
 local Types = require(script.Parent.Parent.Types)
 

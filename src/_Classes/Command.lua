@@ -6,6 +6,7 @@
 --- `Define(Name, OnRegister)` takes its registrar as an argument rather than
 --- reaching for the Registry itself, so this module is testable without one.
 --- `init.lua` wires `OnRegister` to `Registry:Add`.
+--- @section Commands
 
 local Types = require(script.Parent.Parent.Types)
 

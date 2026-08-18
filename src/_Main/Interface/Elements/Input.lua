@@ -10,6 +10,7 @@
 --- rather than re-implementing a lightweight `:`/`>>`/`->` split here. Two
 --- definitions of where a segment starts would eventually disagree, and the
 --- one the user sees would be the wrong one.
+--- @section Console
 
 local UserInputService = game:GetService("UserInputService")
 

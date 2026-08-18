@@ -6,6 +6,7 @@
 --- Kyn's own `@Players.Rin` is the *reference* form and resolves in the session.
 --- This provider is the **casting** form: it turns a bare word that landed in a
 --- `Player`-typed argument slot into a real Player.
+--- @section Arguments
 
 local Players = game:GetService("Players")
 

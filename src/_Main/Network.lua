@@ -11,6 +11,7 @@
 --- Two directions:
 --- * client → server: invoke a command, block for its resolve
 --- * server → client: publish schema-only definitions on join and on change
+--- @section Runtime
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

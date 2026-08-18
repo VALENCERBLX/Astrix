@@ -6,6 +6,7 @@
 --- never defined it — the client learns the command's *shape* (name, aliases,
 --- arguments, flags, rank, cooldown) so autocomplete and argument hints work,
 --- while the function stays here.
+--- @section Runtime
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")

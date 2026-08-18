@@ -12,6 +12,7 @@
 ---
 --- Everything routes through one `Context` function so the rules live in one
 --- readable place instead of being spread across the dropdown's callbacks.
+--- @section Console
 
 local Players = game:GetService("Players")
 
@@ -268,11 +269,12 @@ function Suggestions.Previous(self: Suggestions)
 	self.Suggest:previous()
 end
 
---- Accepts the highlighted match.
+--- Accepts the highlighted match and puts the caret after it.
 ---
---- The Tab that triggered this is still on its way into the TextBox, and
---- Roblox will append it after we have written the completion. Deferring a
---- cleanup pass strips it, so accepting never leaves a stray tab behind.
+--- No cleanup pass. The Tab that triggered this is sunk by the console's
+--- action binding, so it never reaches the field — an earlier version wrote
+--- the completion and then tried to strip the tab that arrived afterwards,
+--- which is a race the tab sometimes won.
 function Suggestions.Accept(self: Suggestions)
 	self.Suggest:accept()
 
@@ -284,16 +286,11 @@ function Suggestions.Accept(self: Suggestions)
 		return
 	end
 
-	local accepted = field:value()
+	--// leave the caret at the end of what was just completed, so typing
+	--// continues the line rather than landing mid-word
+	local box = (field :: any).refs.input :: TextBox
 
-	task.defer(function()
-		local current = field:value()
-
-		if current ~= accepted then
-			--// whatever arrived after the completion was the Tab itself
-			field:setText((string.gsub(current, "[\t%s]+$", "")))
-		end
-	end)
+	box.CursorPosition = #box.Text + 1
 end
 
 --- The match currently ghosted after the caret, if any. Tab accepts this even

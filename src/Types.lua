@@ -5,6 +5,7 @@
 --- Not to be confused with `_Types/`, which holds pluggable per-argument
 --- providers (validation, casting, completion for a `Player` or a `Vector3`).
 --- Similar-looking name, completely different concept.
+--- @section Overview
 
 --// content and output ---------------------------------------------------------
 export type ContentElement =

@@ -6,15 +6,21 @@ return {
 	Version = "0.1.0",
 	License = "MIT",
 	Sections = {
+		"Guides",
 		"Overview",
 		"Kyn",
 		"Commands",
 		"Console",
 		"Themes",
-		"Core",
-		"Elements",
+		"Arguments",
 		"Patterns",
-		"Support",
+		"Runtime",
+	},
+
+	Pages = {
+		{ file = "pages/GettingStarted.md", section = "Guides" },
+		{ file = "pages/Kyn.md", section = "Guides" },
+		{ file = "pages/Windows.md", section = "Guides" },
 	},
 	Repo = "https://github.com/VALENCERBLX/Astrix",
 

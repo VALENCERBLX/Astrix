@@ -5,6 +5,7 @@
 --- The error strings are exact, because the specification pins them. Anything
 --- that reads console output (a test, a log scraper, a player following a
 --- tutorial) sees the same wording every time.
+--- @section Commands
 
 local Types = require(script.Parent.Parent.Types)
 

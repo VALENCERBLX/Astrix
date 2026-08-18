@@ -2,6 +2,7 @@
 
 --- Anything is a string. Present for symmetry, so `CommandContext` can look up
 --- a provider for every declared type without special-casing.
+--- @section Arguments
 
 local Types = require(script.Parent.Parent.Types)
 

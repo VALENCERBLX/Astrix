@@ -21,6 +21,7 @@
 --- a server command is completable on a client that never defined it.
 ---
 --- Part of Valence Libs, by Valence.
+--- @section Overview
 
 local ContextActionService = game:GetService("ContextActionService")
 local Players = game:GetService("Players")

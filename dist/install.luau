@@ -43,6 +43,7 @@ local MODULES = {
 --- a server command is completable on a client that never defined it.\
 ---\
 --- Part of Valence Libs, by Valence.\
+--- @section Overview\
 \
 local ContextActionService = game:GetService(\"ContextActionService\")\
 local Players = game:GetService(\"Players\")\
@@ -521,6 +522,7 @@ return Astrix\
 --- Not to be confused with `_Types/`, which holds pluggable per-argument\
 --- providers (validation, casting, completion for a `Player` or a `Vector3`).\
 --- Similar-looking name, completely different concept.\
+--- @section Overview\
 \
 --// content and output ---------------------------------------------------------\
 export type ContentElement =\
@@ -738,6 +740,7 @@ return {}\
 --- `Define(Name, OnRegister)` takes its registrar as an argument rather than\
 --- reaching for the Registry itself, so this module is testable without one.\
 --- `init.lua` wires `OnRegister` to `Registry:Add`.\
+--- @section Commands\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -955,6 +958,7 @@ return Command\
 \
 --- Rich output primitives, shared between the console's own line renderer and\
 --- any custom window a command opens. One rendering path, not two.\
+--- @section Console\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -1076,6 +1080,7 @@ return Content\
 --- command goes through an injected `Dispatch`, the same way `Command.lua`\
 --- takes an injected registrar, so the evaluator can be tested without a\
 --- registry, a player or a remote.\
+--- @section Kyn\
 \
 local Types = require(script.Parent.Parent.Types)\
 local Resolve = require(script.Parent.Resolve)\
@@ -1539,6 +1544,7 @@ return Input\
 --- Tokenising is depth-aware: quotes, parentheses and braces all suppress\
 --- splitting, so `@Vector3(1, 2, 3)` stays one token and\
 --- `@Function Greet { return \"Hi\" }` keeps its block intact.\
+--- @section Kyn\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -2048,6 +2054,7 @@ return Line\
 --- The error strings are exact, because the specification pins them. Anything\
 --- that reads console output (a test, a log scraper, a player following a\
 --- tutorial) sees the same wording every time.\
+--- @section Commands\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -2148,6 +2155,7 @@ return Resolve\
 ---\
 --- Which windows exist, which has focus and how they stack are *session*\
 --- concerns and live on `RuntimeEntry.Interface.State`, not here.\
+--- @section Console\
 \
 local Types = require(script.Parent.Parent.Types)\
 local Content = require(script.Parent.Content)\
@@ -2265,11 +2273,13 @@ return Window\
 {"Astrix/_Commands/_Local","ModuleScript","--!strict\
 \
 --- Local commands: everything runs on the client that typed it.\
+--- @section Commands\
 \
 return {\
 	require(script.Help),\
 	require(script.Teleport),\
 	require(script.Theme),\
+	require(script.Window),\
 }\
 "},
 {"Astrix/_Commands/_Local/Help","ModuleScript","--!strict\
@@ -2278,6 +2288,7 @@ return {\
 ---\
 --- The list is filtered by rank, so it never advertises something the caller\
 --- would immediately be refused.\
+--- @section Commands\
 \
 return function(Astrix: any)\
 	Astrix.Define(\"Help\")\
@@ -2346,6 +2357,7 @@ end\
 \
 --- `teleport <player> <position>` — the spec's worked example, as a real\
 --- command.\
+--- @section Commands\
 \
 return function(Astrix: any)\
 	Astrix.Define(\"Teleport\")\
@@ -2389,6 +2401,7 @@ end\
 {"Astrix/_Commands/_Local/Theme","ModuleScript","--!strict\
 \
 --- `theme [name]` — switches the console's theme, or lists what is registered.\
+--- @section Commands\
 \
 return function(Astrix: any)\
 	Astrix.Define(\"Theme\")\
@@ -2435,6 +2448,82 @@ return function(Astrix: any)\
 		:Register()\
 end\
 "},
+{"Astrix/_Commands/_Local/Window","ModuleScript","--!strict\
+\
+--- `window <action> [id]` — opens, closes and lists console windows.\
+---\
+--- Konsole had exactly two: the main console and a detached chat pill. Astrix\
+--- takes as many as the cap allows, which is three unless you raise it.\
+--- @section Commands\
+\
+return function(Astrix: any)\
+	Astrix.Define(\"Window\")\
+		:Type(\"Local\")\
+		:Rank(Astrix.Enums.Rank.Player.Min)\
+		:Describe(\"Opens, closes or lists console windows\")\
+		:Aliases({ \"Win\", \"W\" })\
+		:Parsed({\
+			{\
+				Name = \"Action\",\
+				Type = \"Enum\",\
+				Required = false,\
+				Default = \"List\",\
+				Description = \"list, open or close\",\
+				EnumValues = { \"List\", \"Open\", \"Close\" },\
+			},\
+			{ Name = \"Id\", Type = \"String\", Required = false, Description = \"which window\" },\
+		})\
+		:Flags({\
+			{ Name = \"Max\", Extended = \"IsValue\", Type = \"Number\", Description = \"set the window cap\" },\
+		})\
+		:Tasks({\
+			Local = function(context)\
+				local elements = context.Output.Elements\
+				local windows = context.Windows\
+\
+				if context.Flags.Max then\
+					Astrix.SetMaxWindows(context.Flags.Max)\
+\
+					return Astrix.Resolve.Ok(`window cap set to {context.Flags.Max}`, context.Flags.Max)\
+				end\
+\
+				local action = string.lower(context.Parsed.Action or \"List\")\
+				local id = context.Parsed.Id\
+\
+				if action == \"open\" then\
+					if not id then\
+						return Astrix.Resolve.Fail(\"open needs an id\")\
+					end\
+\
+					windows.Open({ Id = id, Title = id, Docked = true })\
+\
+					return Astrix.Resolve.Ok(`opened {id}`, id)\
+				end\
+\
+				if action == \"close\" then\
+					if not id then\
+						return Astrix.Resolve.Fail(\"close needs an id\")\
+					end\
+\
+					windows.Close(id)\
+\
+					return Astrix.Resolve.Ok(`closed {id}`, id)\
+				end\
+\
+				local rows = {}\
+\
+				for index, name in windows.List() do\
+					table.insert(rows, { tostring(index), name })\
+				end\
+\
+				context.Output.Reply(elements.Table({ \"#\", \"Window\" }, rows))\
+\
+				return Astrix.Resolve.Ok(nil, #rows)\
+			end,\
+		})\
+		:Register()\
+end\
+"},
 {"Astrix/_Commands/_Server","ModuleScript","--!strict\
 \
 --- Server commands: the client sends resolved values, the server does the work\
@@ -2442,6 +2531,7 @@ end\
 ---\
 --- Empty — no server-type examples were written (open item #12). `Ban` and\
 --- `Kick` are the obvious first two.\
+--- @section Commands\
 \
 return {}\
 "},
@@ -2452,6 +2542,7 @@ return {}\
 ---\
 --- Empty — no service-type examples were written (open item #12). `Detonate`\
 --- (server applies damage, client plays the effect) is the motivating case.\
+--- @section Commands\
 \
 return {}\
 "},
@@ -2461,6 +2552,7 @@ return {}\
 ---\
 --- Each entry is `{ Name, Run }`. `Astrix.Native(name, fn)` adds more at\
 --- runtime; anything here is registered at startup and is reserved from then on.\
+--- @section Kyn\
 \
 local manifest = {\
 	require(script.Random),\
@@ -2495,6 +2587,7 @@ return Functions\
 ---\
 --- Registered as a native, which makes the name **absolute**: a player writing\
 --- `@Function Random { … }` gets a refusal rather than a shadowed builtin.\
+--- @section Kyn\
 \
 return {\
 	Name = \"Random\",\
@@ -2523,6 +2616,7 @@ return {\
 ---\
 --- Everything crossing the network is already *resolved*: a `Player`, a\
 --- `Vector3`, a number. Raw Kyn text never leaves the client.\
+--- @section Runtime\
 \
 local Players = game:GetService(\"Players\")\
 local RunService = game:GetService(\"RunService\")\
@@ -2715,7 +2809,9 @@ return Client\
 --- Everything visual is Lume's. This module's job is deciding *what* to show —\
 --- when to update completions, which window a result belongs to, what the\
 --- prompt looks like — not how to draw or animate it.\
+--- @section Console\
 \
+local ContextActionService = game:GetService(\"ContextActionService\")\
 local UserInputService = game:GetService(\"UserInputService\")\
 \
 local Types = require(script.Parent.Parent.Types)\
@@ -2802,56 +2898,64 @@ function Interface.new(config: Config): Interface\
 	return interface\
 end\
 \
---- Tab accepts a completion, the arrows walk the dropdown when it is visible\
---- and the command history when it is not, and Escape backs out one level.\
+local CONSOLE_ACTION = \"AstrixConsoleKeys\"\
+local CONSOLE_PRIORITY = 10002\
+\
+--- Binds Tab, the arrows and Escape while the console has the keyboard.\
 ---\
---- These are raw connections for now; they are the set that moves onto Switch's\
---- `\"AstrixConsole\"` context once it is wired, so they go quiet automatically\
---- when the console is closed.\
+--- Bound through ContextActionService and **sunk**, not observed. An\
+--- InputBegan listener runs alongside the TextBox rather than instead of it,\
+--- so pressing Tab both accepted the completion *and* let Roblox insert a\
+--- literal tab into the field. Stripping it afterwards is a race the tab\
+--- sometimes wins; sinking the key means the field never sees it at all.\
+---\
+--- Bound only while the console owns the keyboard, so Tab and the arrows\
+--- behave normally everywhere else in the game.\
 function Interface.BindKeys(self: Interface, view: any): () -> ()\
-	local connection = UserInputService.InputBegan:Connect(function(input, processed)\
-		if input.UserInputType ~= Enum.UserInputType.Keyboard then\
-			return\
+	local function handle(_: string, state: Enum.UserInputState, input: InputObject): Enum.ContextActionResult\
+		if state ~= Enum.UserInputState.Begin then\
+			return Enum.ContextActionResult.Pass\
 		end\
 \
-		if not self.Container.Shown then\
-			return\
-		end\
-\
-		--// only while the console owns the keyboard. Without this, Tab and the\
-		--// arrows would still be driving the dropdown while the player is\
-		--// typing into some other part of the game\
-		if not view.Input:Focused() then\
-			return\
+		if not self.Container.Shown or not view.Input:Focused() then\
+			return Enum.ContextActionResult.Pass\
 		end\
 \
 		local code = input.KeyCode\
 		local visible = self.Suggestions:Visible()\
 \
-		--// Tab autofill. The dropdown and the ghost hint are the same thing seen\
-		--// two ways — the highlighted match is what is ghosted after the caret —\
-		--// so accepting either is one call\
 		if code == Enum.KeyCode.Tab then\
-			if visible then\
-				self.Suggestions:Accept()\
-			elseif self.Suggestions:Highlighted() then\
+			--// accept whether or not the list is showing: the ghost hint after\
+			--// the caret is the same match, seen a different way\
+			if visible or self.Suggestions:Highlighted() then\
 				self.Suggestions:Accept()\
 			end\
-		elseif code == Enum.KeyCode.Up then\
+\
+			--// sunk either way, so a stray tab never reaches the field\
+			return Enum.ContextActionResult.Sink\
+		end\
+\
+		if code == Enum.KeyCode.Up then\
 			if visible then\
 				self.Suggestions:Previous()\
-			elseif not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then\
+			else\
 				view.Input:Recall(-1)\
 			end\
-		elseif code == Enum.KeyCode.Down then\
+\
+			return Enum.ContextActionResult.Sink\
+		end\
+\
+		if code == Enum.KeyCode.Down then\
 			if visible then\
 				self.Suggestions:Next()\
-			elseif not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then\
+			else\
 				view.Input:Recall(1)\
 			end\
-		--// Escape backs out one level at a time: the dropdown, then the\
-		--// expanded terminal, then the console itself\
-		elseif code == Enum.KeyCode.Escape then\
+\
+			return Enum.ContextActionResult.Sink\
+		end\
+\
+		if code == Enum.KeyCode.Escape then\
 			if visible then\
 				self.Suggestions:Hide()\
 			elseif self.Container:Expanded(self.Main) then\
@@ -2859,11 +2963,26 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()\
 			else\
 				self.Container:Hide()\
 			end\
+\
+			return Enum.ContextActionResult.Sink\
 		end\
-	end)\
+\
+		return Enum.ContextActionResult.Pass\
+	end\
+\
+	ContextActionService:BindActionAtPriority(\
+		CONSOLE_ACTION,\
+		handle,\
+		false,\
+		CONSOLE_PRIORITY,\
+		Enum.KeyCode.Tab,\
+		Enum.KeyCode.Up,\
+		Enum.KeyCode.Down,\
+		Enum.KeyCode.Escape\
+	)\
 \
 	return function()\
-		connection:Disconnect()\
+		ContextActionService:UnbindAction(CONSOLE_ACTION)\
 	end\
 end\
 \
@@ -3024,6 +3143,7 @@ return Interface\
 ---\
 --- Konsole hardcoded two channels and branched on `channel == 2` throughout.\
 --- Here a window is an entry in `Windows`, and nothing asks which one it is.\
+--- @section Console\
 \
 local Types = require(script.Parent.Parent.Parent.Parent.Types)\
 local Window = require(script.Parent.Parent.Parent.Parent._Classes.Window)\
@@ -3482,6 +3602,7 @@ return Container\
 --- rather than re-implementing a lightweight `:`/`>>`/`->` split here. Two\
 --- definitions of where a segment starts would eventually disagree, and the\
 --- one the user sees would be the wrong one.\
+--- @section Console\
 \
 local UserInputService = game:GetService(\"UserInputService\")\
 \
@@ -3833,6 +3954,7 @@ return Input\
 --- Highlighting runs over `Line.Tokenize`, the parser's own tokeniser, rather\
 --- than a second regex pass. A colour that disagrees with the parser is worse\
 --- than no colour: it tells you the line means something it does not.\
+--- @section Console\
 \
 local Types = require(script.Parent.Parent.Parent.Parent.Types)\
 local LineParser = require(script.Parent.Parent.Parent.Parent._Classes.Line)\
@@ -4055,6 +4177,7 @@ return Lines\
 ---\
 --- Everything routes through one `Context` function so the rules live in one\
 --- readable place instead of being spread across the dropdown's callbacks.\
+--- @section Console\
 \
 local Players = game:GetService(\"Players\")\
 \
@@ -4311,11 +4434,12 @@ function Suggestions.Previous(self: Suggestions)\
 	self.Suggest:previous()\
 end\
 \
---- Accepts the highlighted match.\
+--- Accepts the highlighted match and puts the caret after it.\
 ---\
---- The Tab that triggered this is still on its way into the TextBox, and\
---- Roblox will append it after we have written the completion. Deferring a\
---- cleanup pass strips it, so accepting never leaves a stray tab behind.\
+--- No cleanup pass. The Tab that triggered this is sunk by the console's\
+--- action binding, so it never reaches the field — an earlier version wrote\
+--- the completion and then tried to strip the tab that arrived afterwards,\
+--- which is a race the tab sometimes won.\
 function Suggestions.Accept(self: Suggestions)\
 	self.Suggest:accept()\
 \
@@ -4327,16 +4451,11 @@ function Suggestions.Accept(self: Suggestions)\
 		return\
 	end\
 \
-	local accepted = field:value()\
+	--// leave the caret at the end of what was just completed, so typing\
+	--// continues the line rather than landing mid-word\
+	local box = (field :: any).refs.input :: TextBox\
 \
-	task.defer(function()\
-		local current = field:value()\
-\
-		if current ~= accepted then\
-			--// whatever arrived after the completion was the Tab itself\
-			field:setText((string.gsub(current, \"[\\t%s]+$\", \"\")))\
-		end\
-	end)\
+	box.CursorPosition = #box.Text + 1\
 end\
 \
 --- The match currently ghosted after the caret, if any. Tab accepts this even\
@@ -4365,6 +4484,7 @@ return Suggestions\
 --- Two directions:\
 --- * client → server: invoke a command, block for its resolve\
 --- * server → client: publish schema-only definitions on join and on change\
+--- @section Runtime\
 \
 local Players = game:GetService(\"Players\")\
 local ReplicatedStorage = game:GetService(\"ReplicatedStorage\")\
@@ -4547,6 +4667,7 @@ return Network\
 ---\
 --- Nothing here persists. `_Patterns/Profile` exports the half that is worth\
 --- saving; the session deliberately is not part of it.\
+--- @section Runtime\
 \
 local Types = require(script.Parent.Parent.Types)\
 local Session = require(script.Parent.Parent._Classes.Input)\
@@ -4636,6 +4757,7 @@ return Runtime\
 --- never defined it — the client learns the command's *shape* (name, aliases,\
 --- arguments, flags, rank, cooldown) so autocomplete and argument hints work,\
 --- while the function stays here.\
+--- @section Runtime\
 \
 local Players = game:GetService(\"Players\")\
 local RunService = game:GetService(\"RunService\")\
@@ -25110,6 +25232,7 @@ return {}"},
 --- produced a real Player, `@Vector3(1, 2, 3)` a real Vector3 — so binding\
 --- checks that first and only falls back to casting a string through the\
 --- matching `_Types/` provider.\
+--- @section Patterns\
 \
 local Types = require(script.Parent.Parent.Types)\
 local Resolve = require(script.Parent.Parent._Classes.Resolve)\
@@ -25348,6 +25471,7 @@ return CommandContext\
 ---\
 --- The bucket key is `UserId:CommandName`, so one player's cooldown on\
 --- `Teleport` says nothing about anybody else's, or about their own `Kill`.\
+--- @section Patterns\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -25435,6 +25559,7 @@ return Cooldown\
 --- Overwriting warns rather than errors — a game that hot-reloads a command\
 --- module during development should not be brought down by it, which is the\
 --- behaviour Konsole had and worth keeping.\
+--- @section Patterns\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -25587,6 +25712,7 @@ return Lookup\
 --- `Session` is deliberately excluded: variables, `@Function` definitions and\
 --- the `::Kout` stack are ephemeral by design. A saved `@Set(\"Target\", …)`\
 --- would restore a reference to a player who left.\
+--- @section Patterns\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -25665,6 +25791,7 @@ return Profile\
 --- console at all. Above it, every command is still checked against its own\
 --- `Rank`. The two are independent on purpose — \"can open the console\" and\
 --- \"can run this\" are different questions.\
+--- @section Patterns\
 \
 --// The rank bands.\
 --//\
@@ -25830,6 +25957,7 @@ return Rank\
 --- argument hints work, while the function that actually does the thing never\
 --- leaves the server. Sending Tasks would be both useless (functions do not\
 --- serialise) and a disclosure of server logic.\
+--- @section Patterns\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -25895,6 +26023,7 @@ return Replication\
 --- Only `Default` exists so far — `AstrixOptions.Interface.Theme` is accepted\
 --- and the registry takes as many as you register, but no second theme has been\
 --- designed (open item #10). Registering one is a single call.\
+--- @section Themes\
 \
 local Default = require(script.Default)\
 \
@@ -25996,6 +26125,7 @@ return Themes\
 --- wants brand colour pulls from one place.\
 ---\
 --- `Syntax` is new too: Konsole had nothing to highlight, Kyn does.\
+--- @section Themes\
 \
 local rgb = Color3.fromRGB\
 \
@@ -26139,6 +26269,7 @@ return {\
 ---\
 --- Registered as an override on `Default`, so it inherits every metric and\
 --- only restates what differs.\
+--- @section Themes\
 \
 local rgb = Color3.fromRGB\
 \
@@ -26220,6 +26351,7 @@ return Boolean\
 --- unlisted value is a real parse failure and completion has something to\
 --- offer. Without it the provider still accepts anything, since an enum with\
 --- no members cannot reject.\
+--- @section Arguments\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -26325,6 +26457,7 @@ return Number\
 --- Kyn's own `@Players.Rin` is the *reference* form and resolves in the session.\
 --- This provider is the **casting** form: it turns a bare word that landed in a\
 --- `Player`-typed argument slot into a real Player.\
+--- @section Arguments\
 \
 local Players = game:GetService(\"Players\")\
 \
@@ -26388,6 +26521,7 @@ return Player\
 \
 --- Anything is a string. Present for symmetry, so `CommandContext` can look up\
 --- a provider for every declared type without special-casing.\
+--- @section Arguments\
 \
 local Types = require(script.Parent.Parent.Types)\
 \
@@ -26413,6 +26547,7 @@ return String\
 \
 --- Accepts `1,2,3` or `1 2 3`. The `@Vector3(1, 2, 3)` constructor form is\
 --- handled by the Kyn session and arrives here already typed.\
+--- @section Arguments\
 \
 local Types = require(script.Parent.Parent.Types)\
 \

@@ -5,5 +5,6 @@
 ---
 --- Empty — no service-type examples were written (open item #12). `Detonate`
 --- (server applies damage, client plays the effect) is the motivating case.
+--- @section Commands
 
 return {}

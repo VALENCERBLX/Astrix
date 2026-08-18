@@ -5,6 +5,7 @@
 --- Highlighting runs over `Line.Tokenize`, the parser's own tokeniser, rather
 --- than a second regex pass. A colour that disagrees with the parser is worse
 --- than no colour: it tells you the line means something it does not.
+--- @section Console
 
 local Types = require(script.Parent.Parent.Parent.Parent.Types)
 local LineParser = require(script.Parent.Parent.Parent.Parent._Classes.Line)

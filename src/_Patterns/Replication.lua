@@ -8,6 +8,7 @@
 --- argument hints work, while the function that actually does the thing never
 --- leaves the server. Sending Tasks would be both useless (functions do not
 --- serialise) and a disclosure of server logic.
+--- @section Patterns
 
 local Types = require(script.Parent.Parent.Types)
 

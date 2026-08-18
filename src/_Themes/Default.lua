@@ -13,6 +13,7 @@
 --- wants brand colour pulls from one place.
 ---
 --- `Syntax` is new too: Konsole had nothing to highlight, Kyn does.
+--- @section Themes
 
 local rgb = Color3.fromRGB
 

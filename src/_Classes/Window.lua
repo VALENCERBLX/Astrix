@@ -9,6 +9,7 @@
 ---
 --- Which windows exist, which has focus and how they stack are *session*
 --- concerns and live on `RuntimeEntry.Interface.State`, not here.
+--- @section Console
 
 local Types = require(script.Parent.Parent.Types)
 local Content = require(script.Parent.Content)

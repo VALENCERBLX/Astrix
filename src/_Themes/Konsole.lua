@@ -9,6 +9,7 @@
 ---
 --- Registered as an override on `Default`, so it inherits every metric and
 --- only restates what differs.
+--- @section Themes
 
 local rgb = Color3.fromRGB
 

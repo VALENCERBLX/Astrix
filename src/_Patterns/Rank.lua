@@ -7,6 +7,7 @@
 --- console at all. Above it, every command is still checked against its own
 --- `Rank`. The two are independent on purpose — "can open the console" and
 --- "can run this" are different questions.
+--- @section Patterns
 
 --// The rank bands.
 --//

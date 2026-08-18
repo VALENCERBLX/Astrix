@@ -6,6 +6,7 @@
 --- Overwriting warns rather than errors — a game that hot-reloads a command
 --- module during development should not be brought down by it, which is the
 --- behaviour Konsole had and worth keeping.
+--- @section Patterns
 
 local Types = require(script.Parent.Parent.Types)
 

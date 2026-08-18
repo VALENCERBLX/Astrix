@@ -6,7 +6,9 @@
 --- Everything visual is Lume's. This module's job is deciding *what* to show —
 --- when to update completions, which window a result belongs to, what the
 --- prompt looks like — not how to draw or animate it.
+--- @section Console
 
+local ContextActionService = game:GetService("ContextActionService")
 local UserInputService = game:GetService("UserInputService")
 
 local Types = require(script.Parent.Parent.Types)
@@ -93,56 +95,64 @@ function Interface.new(config: Config): Interface
 	return interface
 end
 
---- Tab accepts a completion, the arrows walk the dropdown when it is visible
---- and the command history when it is not, and Escape backs out one level.
+local CONSOLE_ACTION = "AstrixConsoleKeys"
+local CONSOLE_PRIORITY = 10002
+
+--- Binds Tab, the arrows and Escape while the console has the keyboard.
 ---
---- These are raw connections for now; they are the set that moves onto Switch's
---- `"AstrixConsole"` context once it is wired, so they go quiet automatically
---- when the console is closed.
+--- Bound through ContextActionService and **sunk**, not observed. An
+--- InputBegan listener runs alongside the TextBox rather than instead of it,
+--- so pressing Tab both accepted the completion *and* let Roblox insert a
+--- literal tab into the field. Stripping it afterwards is a race the tab
+--- sometimes wins; sinking the key means the field never sees it at all.
+---
+--- Bound only while the console owns the keyboard, so Tab and the arrows
+--- behave normally everywhere else in the game.
 function Interface.BindKeys(self: Interface, view: any): () -> ()
-	local connection = UserInputService.InputBegan:Connect(function(input, processed)
-		if input.UserInputType ~= Enum.UserInputType.Keyboard then
-			return
+	local function handle(_: string, state: Enum.UserInputState, input: InputObject): Enum.ContextActionResult
+		if state ~= Enum.UserInputState.Begin then
+			return Enum.ContextActionResult.Pass
 		end
 
-		if not self.Container.Shown then
-			return
-		end
-
-		--// only while the console owns the keyboard. Without this, Tab and the
-		--// arrows would still be driving the dropdown while the player is
-		--// typing into some other part of the game
-		if not view.Input:Focused() then
-			return
+		if not self.Container.Shown or not view.Input:Focused() then
+			return Enum.ContextActionResult.Pass
 		end
 
 		local code = input.KeyCode
 		local visible = self.Suggestions:Visible()
 
-		--// Tab autofill. The dropdown and the ghost hint are the same thing seen
-		--// two ways — the highlighted match is what is ghosted after the caret —
-		--// so accepting either is one call
 		if code == Enum.KeyCode.Tab then
-			if visible then
-				self.Suggestions:Accept()
-			elseif self.Suggestions:Highlighted() then
+			--// accept whether or not the list is showing: the ghost hint after
+			--// the caret is the same match, seen a different way
+			if visible or self.Suggestions:Highlighted() then
 				self.Suggestions:Accept()
 			end
-		elseif code == Enum.KeyCode.Up then
+
+			--// sunk either way, so a stray tab never reaches the field
+			return Enum.ContextActionResult.Sink
+		end
+
+		if code == Enum.KeyCode.Up then
 			if visible then
 				self.Suggestions:Previous()
-			elseif not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+			else
 				view.Input:Recall(-1)
 			end
-		elseif code == Enum.KeyCode.Down then
+
+			return Enum.ContextActionResult.Sink
+		end
+
+		if code == Enum.KeyCode.Down then
 			if visible then
 				self.Suggestions:Next()
-			elseif not UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+			else
 				view.Input:Recall(1)
 			end
-		--// Escape backs out one level at a time: the dropdown, then the
-		--// expanded terminal, then the console itself
-		elseif code == Enum.KeyCode.Escape then
+
+			return Enum.ContextActionResult.Sink
+		end
+
+		if code == Enum.KeyCode.Escape then
 			if visible then
 				self.Suggestions:Hide()
 			elseif self.Container:Expanded(self.Main) then
@@ -150,11 +160,26 @@ function Interface.BindKeys(self: Interface, view: any): () -> ()
 			else
 				self.Container:Hide()
 			end
+
+			return Enum.ContextActionResult.Sink
 		end
-	end)
+
+		return Enum.ContextActionResult.Pass
+	end
+
+	ContextActionService:BindActionAtPriority(
+		CONSOLE_ACTION,
+		handle,
+		false,
+		CONSOLE_PRIORITY,
+		Enum.KeyCode.Tab,
+		Enum.KeyCode.Up,
+		Enum.KeyCode.Down,
+		Enum.KeyCode.Escape
+	)
 
 	return function()
-		connection:Disconnect()
+		ContextActionService:UnbindAction(CONSOLE_ACTION)
 	end
 end
 
