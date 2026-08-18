@@ -744,6 +744,12 @@ export type CommandDefinition = {\
 	Cooldown: number?,\
 	Tasks: CommandTasks,\
 \
+	--- Set on definitions the client learned from the server's published\
+	--- schemas. Their `Tasks` are stubs — functions do not serialise — so a\
+	--- Service command that only exists server-side can be reported precisely\
+	--- rather than crashing when its missing half is called.\
+	Replicated: boolean?,\
+\
 	--// sub-commands, keyed by lowercase name and alias. A definition with\
 	--// these dispatches on its first positional word before binding anything\
 	Subs: { [string]: CommandDefinition }?,\
@@ -3789,7 +3795,11 @@ end\
 \
 --- Runs a task under `pcall`, so a thrown Luau error becomes a failure result\
 --- rather than taking the console down with it.\
-local function protected(task: Types.CommandTask, context: Types.ExecutionContext, prior: any, name: string): CommandResolve\
+local function protected(task: Types.CommandTask?, context: Types.ExecutionContext, prior: any, name: string): CommandResolve\
+	if not task then\
+		return Resolve.Fail(`Failed to run Command [{name}]: the task it routed to does not exist here`)\
+	end\
+\
 	local ok, result = pcall(task, context, prior)\
 \
 	if not ok then\
@@ -3885,9 +3895,30 @@ function Client.MakeDispatch(deps: Dependencies): (string, { any }, { [string]: 
 			return Network.InvokeServer(definition.Name, args, flags, raw, nil)\
 		end\
 \
-		--// Service: both halves run. LocalFirst puts the client first for\
-		--// instant feedback; the default puts the server first so its result\
-		--// is authoritative before anything is shown\
+		--// Service means both halves run, so the client needs a local task it\
+		--// can actually call. A definition that only ever existed in a server\
+		--// script arrives here as a replicated *schema* — name, arguments and\
+		--// rank, but no functions, because functions do not serialise. Calling\
+		--// the missing half is what used to raise \"attempt to call a nil\
+		--// value\" from inside the dispatcher, which said nothing about why.\
+		if not tasks.Local then\
+			if definition.Replicated then\
+				return Resolve.Fail(\
+					`Failed to run Command [{definition.Name}]: this is a Service command replicated from the server, `\
+						.. `so its Local task does not exist on this client. Define it on both sides — put the `\
+						.. `Define call in a ModuleScript both your server and client startup scripts require.`\
+				)\
+			end\
+\
+			return Resolve.Fail(\
+				`Failed to run Command [{definition.Name}]: Type is \"Service\" but no Local task was given. `\
+					.. `Use Type \"Server\" if it only has a server half.`\
+			)\
+		end\
+\
+		--// LocalFirst puts the client first for instant feedback; the default\
+		--// puts the server first so its result is authoritative before\
+		--// anything is shown\
 		if definition.LocalFirst then\
 			local localResult = protected(tasks.Local :: Types.CommandTask, context, nil, definition.Name)\
 			local serverResult = Network.InvokeServer(definition.Name, args, flags, raw, localResult.Result)\
@@ -28117,6 +28148,7 @@ function Replication.Hydrate(schema: ReplicatedDefinition): CommandDefinition\
 		Flags = schema.Flags,\
 		LocalFirst = schema.LocalFirst,\
 		Cooldown = schema.Cooldown,\
+		Replicated = true,\
 		Tasks = {\
 			Server = function()\
 				return nil\

@@ -127,6 +127,70 @@ Do not call `:Register()` on a sub. The parent freezes it.
 to the client task as `PriorResult`. `:LocalFirst(true)` reverses that for
 instant feedback.
 
+### Where to define a Service command
+
+**Both sides.** This is the one thing about `Service` that catches people out.
+
+Functions do not survive a trip across the network, so the client never
+receives a command's tasks — only its *schema*: name, aliases, arguments,
+flags, rank and cooldown. That is deliberate, and it is what makes autocomplete
+and argument hints work for server-only commands without shipping your server
+logic to every player.
+
+The consequence: a `Service` command defined in a `Script` is a server-only
+command whose client half does not exist on any client. Running it fails with
+
+> Failed to run Command \[Admit]: this is a Service command replicated from the
+> server, so its Local task does not exist on this client.
+
+Put the definition in a ModuleScript in `ReplicatedStorage` and require it from
+both startup scripts:
+
+```lua
+-- ReplicatedStorage/SharedCommands (a ModuleScript)
+return function(Astrix)
+    Astrix.Define("Admit")
+        :Type("Service")
+        :Rank(Astrix.Enums.Rank.Admin.Min)
+        :Parsed({ { Name = "Message", Type = "String", Required = true } })
+        :Tasks({
+            Server = function(context)
+                announce:FireAllClients(context.Executor.DisplayName, context.Parsed.Message)
+
+                return Astrix.Resolve.Ok("announced")
+            end,
+            Local = function(context, prior)
+                Flare.Toast("Announcement sent"):Ok():Show()
+
+                return Astrix.Resolve.Ok("announced")
+            end,
+        })
+        :Register()
+end
+```
+
+```lua
+-- both startup scripts
+require(ReplicatedStorage.SharedCommands)(Astrix)
+```
+
+`examples/SharedCommands.lua` is that file, filled in and runnable.
+
+### The client half only runs on the caller
+
+A `Service` command's `Local` task runs on the machine that *typed* it, once —
+not on everybody's. To reach every player, fire a `RemoteEvent` from the server
+half and let each client react to it. The client half is for acknowledging to
+the person who ran the command, not for broadcasting.
+
+### "command 'X' was overwritten"
+
+A warning, not an error: you defined a command with the same name as one that
+already exists, and yours replaced it. Astrix ships `Kick`, `Ping`, `Heal` and
+about twenty others, so defining your own `Kick` is a legitimate thing to do —
+the warning is only there so an accidental collision is not silent. Rename
+yours if it was an accident, or ignore it if it was not.
+
 ## Results
 
 ```lua

@@ -81,6 +81,7 @@ function Replication.Hydrate(schema: ReplicatedDefinition): CommandDefinition
 		Flags = schema.Flags,
 		LocalFirst = schema.LocalFirst,
 		Cooldown = schema.Cooldown,
+		Replicated = true,
 		Tasks = {
 			Server = function()
 				return nil

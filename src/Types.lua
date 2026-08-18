@@ -107,6 +107,12 @@ export type CommandDefinition = {
 	Cooldown: number?,
 	Tasks: CommandTasks,
 
+	--- Set on definitions the client learned from the server's published
+	--- schemas. Their `Tasks` are stubs — functions do not serialise — so a
+	--- Service command that only exists server-side can be reported precisely
+	--- rather than crashing when its missing half is called.
+	Replicated: boolean?,
+
 	--// sub-commands, keyed by lowercase name and alias. A definition with
 	--// these dispatches on its first positional word before binding anything
 	Subs: { [string]: CommandDefinition }?,
