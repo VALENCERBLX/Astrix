@@ -38,13 +38,20 @@ export type Options = {
 
 --// locals
 --// named layers, lowest first. Anything not listed lands on the default layer.
+--- Layer order. A popover sits above the modal and the toast layers on
+--- purpose: a dropdown opened *from* a modal, or from inside a notice, has to
+--- be readable, and it was not — at 100 it rendered behind both, so a select in
+--- a toast opened into nothing.
+---
+--- Only a tooltip goes higher, because a tooltip can be attached to something
+--- in a popover.
 local LAYERS: { [string]: number } = {
 	background = -10,
 	default = 1,
 	raised = 10,
-	popover = 100,
 	modal = 500,
 	toast = 800,
+	popover = 900,
 	tooltip = 1000,
 }
 
