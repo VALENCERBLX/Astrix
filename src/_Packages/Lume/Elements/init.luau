@@ -24,6 +24,7 @@ return {
 	Divider = require(script.Divider),
 	Spacer = require(script.Spacer),
 	Group = require(script.Group),
+	Accordion = require(script.Accordion),
 	Progress = require(script.Progress),
 	Tabs = require(script.Tabs),
 	Chips = require(script.Chips),

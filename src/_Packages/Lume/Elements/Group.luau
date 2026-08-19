@@ -212,6 +212,93 @@ function Group.toggle(self: Fields & Types.Group, label: Types.Bindable<string>?
 	return adopt(self, element) :: any
 end
 
+--// a group runs the same layout pass a panel does, so it hosts the same
+--// elements. Anything missing here is a control you cannot put in an accordion
+--// section or a row, for no reason anyone could defend
+function Group.slider(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Slider
+	local element = factory(self.app, "Slider")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.stepper(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Stepper
+	local element = factory(self.app, "Stepper")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.select(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Select
+	local element = factory(self.app, "Select")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.colorPicker(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.ColorPicker
+	local element = factory(self.app, "ColorPicker")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.keybind(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Keybind
+	local element = factory(self.app, "Keybind")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.list(self: Fields & Types.Group): Types.List
+	return adopt(self, factory(self.app, "List")) :: any
+end
+
+function Group.divider(self: Fields & Types.Group): Types.Divider
+	return adopt(self, factory(self.app, "Divider")) :: any
+end
+
+function Group.progress(self: Fields & Types.Group): Types.Progress
+	return adopt(self, factory(self.app, "Progress")) :: any
+end
+
+function Group.tabs(self: Fields & Types.Group): Types.Tabs
+	return adopt(self, factory(self.app, "Tabs")) :: any
+end
+
+function Group.chips(self: Fields & Types.Group): Types.Chips
+	return adopt(self, factory(self.app, "Chips")) :: any
+end
+
+function Group.accordion(self: Fields & Types.Group): Types.Accordion
+	return adopt(self, factory(self.app, "Accordion")) :: any
+end
+
+function Group.menuBar(self: Fields & Types.Group, menus: { Types.MenuGroup }?): Types.MenuBar
+	local element = factory(self.app, "MenuBar")
+
+	if menus then
+		element:setMenus(menus)
+	end
+
+	return adopt(self, element) :: any
+end
+
 function Group.badge(self: Fields & Types.Group, text: Types.Bindable<string>?): Types.Badge
 	local element = factory(self.app, "Badge")
 

@@ -401,6 +401,7 @@ export type PanelApi<T> = {
 	menuBar: (self: T, menus: { MenuGroup }?) -> MenuBar,
 	colorPicker: (self: T, label: Bindable<string>?) -> ColorPicker,
 	stepper: (self: T, label: Bindable<string>?) -> Stepper,
+	accordion: (self: T) -> Accordion,
 	badge: (self: T, text: Bindable<string>?) -> Badge,
 	scroll: (self: T) -> Scroll,
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,
@@ -543,6 +544,26 @@ export type Slider = NodeFields & ElementFields & NodeApi<Slider> & ElementApi<S
 	value: (self: Slider) -> number,
 }
 
+export type Accordion = NodeFields & ElementFields & NodeApi<Accordion> & ElementApi<Accordion> & {
+	--- Adds a section and returns its body, which is a group.
+	section: (self: Accordion, title: string, id: string?) -> Group,
+	--- The body of a section already added.
+	bodyOf: (self: Accordion, id: string) -> Group?,
+
+	openSection: (self: Accordion, id: string) -> Accordion,
+	closeSection: (self: Accordion, id: string) -> Accordion,
+	toggleSection: (self: Accordion, id: string) -> Accordion,
+
+	--- Only one section open at a time.
+	setExclusive: (self: Accordion, exclusive: boolean?) -> Accordion,
+	setGap: (self: Accordion, gap: number) -> Accordion,
+	clear: (self: Accordion) -> Accordion,
+
+	openIds: (self: Accordion) -> { string },
+
+	onToggled: (self: Accordion, handler: (string, boolean) -> ()) -> Accordion,
+}
+
 export type Stepper = NodeFields & ElementFields & NodeApi<Stepper> & ElementApi<Stepper> & {
 	setLabel: (self: Stepper, label: Bindable<string>) -> Stepper,
 	setRange: (self: Stepper, min: number, max: number) -> Stepper,
@@ -637,6 +658,18 @@ export type Group = NodeFields & ElementFields & NodeApi<Group> & ElementApi<Gro
 	button: (self: Group, text: Bindable<string>?) -> Button,
 	field: (self: Group, placeholder: Bindable<string>?) -> Field,
 	toggle: (self: Group, label: Bindable<string>?) -> Toggle,
+	slider: (self: Group, label: Bindable<string>?) -> Slider,
+	stepper: (self: Group, label: Bindable<string>?) -> Stepper,
+	select: (self: Group, label: Bindable<string>?) -> Select,
+	colorPicker: (self: Group, label: Bindable<string>?) -> ColorPicker,
+	keybind: (self: Group, label: Bindable<string>?) -> Keybind,
+	list: (self: Group) -> List,
+	divider: (self: Group) -> Divider,
+	progress: (self: Group) -> Progress,
+	tabs: (self: Group) -> Tabs,
+	chips: (self: Group) -> Chips,
+	accordion: (self: Group) -> Accordion,
+	menuBar: (self: Group, menus: { MenuGroup }?) -> MenuBar,
 	badge: (self: Group, text: Bindable<string>?) -> Badge,
 	spacer: (self: Group, size: number?) -> Spacer,
 	group: (self: Group, axis: Axis?) -> Group,

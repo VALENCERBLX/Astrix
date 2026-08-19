@@ -1242,6 +1242,11 @@ function Panel.menu(self: Panel): Types.Menu
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any
 end
 
+--- Sections with headers you click to fold away.
+function Panel.accordion(self: Panel): Types.Accordion
+	return adopt(self, elements().Accordion.new(self.app) :: any) :: any
+end
+
 --- A number with a minus and a plus either side of it.
 function Panel.stepper(self: Panel, label: Bindable<string>?): Types.Stepper
 	local element = elements().Stepper.new(self.app)

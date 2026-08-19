@@ -106,6 +106,7 @@ export type List = Types.List
 export type Divider = Types.Divider
 export type Spacer = Types.Spacer
 export type Group = Types.Group
+export type Accordion = Types.Accordion
 export type Progress = Types.Progress
 export type Tabs = Types.Tabs
 export type Chips = Types.Chips
