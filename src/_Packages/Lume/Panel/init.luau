@@ -1242,6 +1242,17 @@ function Panel.menu(self: Panel): Types.Menu
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any
 end
 
+--- A row of titled menus across the top of a panel.
+function Panel.menuBar(self: Panel, menus: { Types.MenuGroup }?): Types.MenuBar
+	local element = elements().MenuBar.new(self.app)
+
+	if menus then
+		element:setMenus(menus)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
 function Panel.badge(self: Panel, text: Bindable<string>?): Types.Badge
 	local element = elements().Badge.new(self.app)
 

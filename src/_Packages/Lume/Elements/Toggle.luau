@@ -20,7 +20,11 @@ Toggle.__index = Toggle
 
 export type Fields = Types.NodeFields & Types.ElementFields & {
 	--// `on`, not `value`, so it cannot shadow the `value()` method
-	on: boolean,
+	--// **not** `on`: an instance field shadows its metatable, and every
+	--// element inherits an `on(event, handler)` method from Node. A field
+	--// called `on` made `toggle:onChanged(fn)` fail with *attempt to call a
+	--// boolean value*, because `self:on(…)` was reading the boolean.
+	checked: boolean,
 	labelText: string,
 	descriptionText: string,
 	style: "switch" | "checkbox",
@@ -160,7 +164,7 @@ function Toggle.new(app: Types.App): Types.Toggle
 		enabled = true,
 		measured = false,
 
-		on = false,
+		checked = false,
 		labelText = "",
 		descriptionText = "",
 		style = "switch",
@@ -207,13 +211,13 @@ function Toggle.paint(self: Fields, immediate: boolean?)
 		thumb.AnchorPoint = Vector2.new(0.5, 0.5)
 
 		local target = {
-			BackgroundColor3 = if self.on then theme.color.accent else theme.color.track,
-			BackgroundTransparency = if self.on then 0 else theme.transparency.track,
+			BackgroundColor3 = if self.checked then theme.color.accent else theme.color.track,
+			BackgroundTransparency = if self.checked then 0 else theme.transparency.track,
 		}
 
 		local thumbTarget = {
 			Position = UDim2.fromScale(0.5, 0.5),
-			BackgroundTransparency = if self.on then 0 else 1,
+			BackgroundTransparency = if self.checked then 0 else 1,
 			BackgroundColor3 = theme.color.accentText,
 		}
 
@@ -225,7 +229,7 @@ function Toggle.paint(self: Fields, immediate: boolean?)
 			Motion.animate(thumb, thumbTarget, theme:spec("morph"))
 		end
 
-		stroke.Transparency = if self.on then 1 else theme.transparency.border
+		stroke.Transparency = if self.checked then 1 else theme.transparency.border
 
 		return
 	end
@@ -237,13 +241,13 @@ function Toggle.paint(self: Fields, immediate: boolean?)
 	local travel = SWITCH_WIDTH - (theme.size.thumb + 2) - 3
 
 	local trackTarget = {
-		BackgroundColor3 = if self.on then theme.color.accent else theme.color.track,
-		BackgroundTransparency = if self.on then 0 else theme.transparency.track,
+		BackgroundColor3 = if self.checked then theme.color.accent else theme.color.track,
+		BackgroundTransparency = if self.checked then 0 else theme.transparency.track,
 	}
 
 	local thumbTarget = {
-		Position = UDim2.new(0, if self.on then travel else 3, 0.5, 0),
-		BackgroundColor3 = if self.on then theme.color.accentText else theme.color.textMuted,
+		Position = UDim2.new(0, if self.checked then travel else 3, 0.5, 0),
+		BackgroundColor3 = if self.checked then theme.color.accentText else theme.color.textMuted,
 	}
 
 	if immediate then
@@ -254,7 +258,7 @@ function Toggle.paint(self: Fields, immediate: boolean?)
 		Motion.animate(thumb, thumbTarget, theme:spec("morph"))
 	end
 
-	stroke.Transparency = if self.on then 1 else theme.transparency.border
+	stroke.Transparency = if self.checked then 1 else theme.transparency.border
 end
 
 function Toggle.setLabel(self: Fields & Types.Toggle, label: Types.Bindable<string>): Types.Toggle
@@ -293,11 +297,11 @@ function Toggle.setValue(self: Fields & Types.Toggle, value: Types.Bindable<bool
 	Node.bind(self, "value", value, function(next: boolean)
 		local resolved = next == true
 
-		if self.on == resolved then
+		if self.checked == resolved then
 			return
 		end
 
-		self.on = resolved
+		self.checked = resolved
 
 		Toggle.paint(self)
 
@@ -321,17 +325,17 @@ end
 
 --- Flips the state and fires `changed`.
 function Toggle.flip(self: Fields & Types.Toggle): Types.Toggle
-	self.on = not self.on
+	self.checked = not self.checked
 
 	Toggle.paint(self)
 
-	self:emit("changed", self.on)
+	self:emit("changed", self.checked)
 
 	return self
 end
 
 function Toggle.value(self: Fields & Types.Toggle): boolean
-	return self.on
+	return self.checked
 end
 
 function Toggle.measure(self: Fields & Types.Toggle, available: Vector2): Vector2

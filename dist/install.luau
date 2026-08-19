@@ -8220,6 +8220,7 @@ return {\
 	Chips = require(script.Chips),\
 	Suggest = require(script.Suggest),\
 	Menu = require(script.Menu),\
+	MenuBar = require(script.MenuBar),\
 	Badge = require(script.Badge),\
 	Scroll = require(script.Scroll),\
 	Keybind = require(script.Keybind),\
@@ -11168,6 +11169,8 @@ List.__index = List\
 export type Row = {\
 	button: TextButton,\
 	icon: ImageLabel,\
+	text: Frame,\
+	lines: UIListLayout,\
 	title: TextLabel,\
 	detail: TextLabel,\
 	index: number,\
@@ -11184,6 +11187,8 @@ export type Fields = Types.NodeFields & Types.ElementFields & {\
 	virtual: boolean,\
 	selectable: boolean,\
 	selectedId: string?,\
+	stacked: boolean,\
+	detailSize: number,\
 \
 	widest: number,\
 	pinned: boolean,\
@@ -11292,6 +11297,8 @@ function List.new(app: Types.App): Types.List\
 		rows = {},\
 \
 		rowHeight = theme.size.row,\
+		stacked = false,\
+		detailSize = theme.text.xs,\
 		font = theme.font.body,\
 		textSize = theme.text.sm,\
 		maxRows = 8,\
@@ -11322,6 +11329,33 @@ function List.new(app: Types.App): Types.List\
 	end))\
 \
 	return list\
+end\
+\
+--- How tall one row is. A stacked row carries its description on a second\
+--- line, so it is taller — and virtualisation needs one honest number for it,\
+--- not a guess per item.\
+function List.span(self: Fields): number\
+	if not self.stacked then\
+		return self.rowHeight\
+	end\
+\
+	return self.rowHeight + self.detailSize + 2\
+end\
+\
+--- Arranges a row's text block for the current mode. A trailing detail is\
+--- right for a keybind sitting next to a command name; a sentence needs its own\
+--- line, or it runs off the edge of anything narrower than a console.\
+function List.layoutRow(self: Fields, row: Row)\
+	local theme = self.app.theme\
+	local stacked = self.stacked\
+\
+	row.lines.FillDirection = if stacked then Enum.FillDirection.Vertical else Enum.FillDirection.Horizontal\
+	row.lines.VerticalAlignment = if stacked then Enum.VerticalAlignment.Top else Enum.VerticalAlignment.Center\
+	row.lines.Padding = UDim.new(0, if stacked then 0 else theme.space.sm)\
+\
+	row.title.Size = UDim2.fromOffset(0, if stacked then self.textSize + 4 else self.rowHeight)\
+	row.detail.Size = UDim2.fromOffset(0, if stacked then self.detailSize + 4 else self.rowHeight)\
+	row.detail.TextSize = self.detailSize\
 end\
 \
 --- Builds one recycled row instance.\
@@ -11364,44 +11398,68 @@ function List.buildRow(self: Fields, index: number): Row\
 				},\
 			},\
 			{\
-				class = \"TextLabel\",\
-				ref = \"title\",\
+				class = \"Frame\",\
+				ref = \"text\",\
 				props = {\
 					BackgroundTransparency = 1,\
-					AutomaticSize = Enum.AutomaticSize.X,\
-					Size = UDim2.fromOffset(0, self.rowHeight),\
-\
-					Font = self.font,\
-					TextSize = self.textSize,\
-					TextColor3 = theme.color.text,\
-					TextXAlignment = Enum.TextXAlignment.Left,\
-					TextYAlignment = Enum.TextYAlignment.Center,\
-					RichText = true,\
+					AutomaticSize = Enum.AutomaticSize.XY,\
+					Size = UDim2.fromOffset(0, 0),\
 \
 					LayoutOrder = 2,\
-					Name = \"Title\",\
-					Text = \"\",\
+					Name = \"Text\",\
 				},\
-			},\
-			{\
-				class = \"TextLabel\",\
-				ref = \"detail\",\
-				props = {\
-					BackgroundTransparency = 1,\
-					AutomaticSize = Enum.AutomaticSize.X,\
-					Size = UDim2.fromOffset(0, self.rowHeight),\
+				children = {\
+					{\
+						class = \"UIListLayout\",\
+						ref = \"lines\",\
+						props = {\
+							SortOrder = Enum.SortOrder.LayoutOrder,\
+							FillDirection = Enum.FillDirection.Horizontal,\
+							VerticalAlignment = Enum.VerticalAlignment.Center,\
+							Padding = UDim.new(0, theme.space.sm),\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"title\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							AutomaticSize = Enum.AutomaticSize.X,\
+							Size = UDim2.fromOffset(0, self.rowHeight),\
 \
-					Font = theme.font.body,\
-					TextSize = theme.text.xs,\
-					TextColor3 = theme.color.textGhost,\
-					TextTransparency = theme.transparency.ghost,\
-					TextXAlignment = Enum.TextXAlignment.Left,\
-					TextYAlignment = Enum.TextYAlignment.Center,\
+							Font = self.font,\
+							TextSize = self.textSize,\
+							TextColor3 = theme.color.text,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+							RichText = true,\
 \
-					LayoutOrder = 3,\
-					Visible = false,\
-					Name = \"Detail\",\
-					Text = \"\",\
+							LayoutOrder = 1,\
+							Name = \"Title\",\
+							Text = \"\",\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"detail\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							AutomaticSize = Enum.AutomaticSize.X,\
+							Size = UDim2.fromOffset(0, self.rowHeight),\
+\
+							Font = theme.font.body,\
+							TextSize = self.detailSize,\
+							TextColor3 = theme.color.textGhost,\
+							TextTransparency = theme.transparency.ghost,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+							TextYAlignment = Enum.TextYAlignment.Center,\
+\
+							LayoutOrder = 2,\
+							Visible = false,\
+							Name = \"Detail\",\
+							Text = \"\",\
+						},\
+					},\
 				},\
 			},\
 		},\
@@ -11410,10 +11468,14 @@ function List.buildRow(self: Fields, index: number): Row\
 	local row: Row = {\
 		button = button :: TextButton,\
 		icon = refs.icon :: ImageLabel,\
+		text = refs.text :: Frame,\
+		lines = refs.lines :: UIListLayout,\
 		title = refs.title :: TextLabel,\
 		detail = refs.detail :: TextLabel,\
 		index = 0,\
 	}\
+\
+	List.layoutRow(self, row)\
 \
 	button.Parent = self.refs.canvas\
 \
@@ -11460,7 +11522,7 @@ function List.render(self: Fields)\
 	local canvas = self.refs.canvas :: Frame\
 \
 	local count = #self.items\
-	local height = Virtual.canvas(count, self.rowHeight)\
+	local height = Virtual.canvas(count, List.span(self))\
 \
 	scroller.CanvasSize = UDim2.fromOffset(0, height)\
 	canvas.Size = UDim2.new(1, 0, 0, math.max(height, 1))\
@@ -11473,8 +11535,8 @@ function List.render(self: Fields)\
 	if self.virtual then\
 		first, last = Virtual.range(\
 			scroller.CanvasPosition.Y,\
-			math.max(scroller.AbsoluteSize.Y, self.rowHeight),\
-			self.rowHeight,\
+			math.max(scroller.AbsoluteSize.Y, List.span(self)),\
+			List.span(self),\
 			count\
 		)\
 	end\
@@ -11499,8 +11561,8 @@ function List.render(self: Fields)\
 \
 		row.index = index\
 		row.button.Visible = true\
-		row.button.Position = UDim2.fromOffset(0, Virtual.offset(index, self.rowHeight))\
-		row.button.Size = UDim2.new(1, 0, 0, self.rowHeight)\
+		row.button.Position = UDim2.fromOffset(0, Virtual.offset(index, List.span(self)))\
+		row.button.Size = UDim2.new(1, 0, 0, List.span(self))\
 		row.button.BackgroundTransparency = if selected and self.selectable then 0.82 else 1\
 \
 		row.title.Text = if self.renderer then self.renderer(item, index) else Text.escape(item.text or \"\")\
@@ -11585,6 +11647,34 @@ function List.setTextSize(self: Fields & Types.List, size: number): Types.List\
 	return self:invalidate()\
 end\
 \
+--- Puts each row's description on its own line, under the text, rather than\
+--- trailing it on the same one.\
+---\
+--- The trailing form is right for a keybind beside a command name — short,\
+--- and the eye reads it as an annotation. A sentence needs the second line: on\
+--- anything narrower than a console it collides with the text it describes and\
+--- clips at the edge.\
+function List.setStacked(self: Fields & Types.List, stacked: boolean?): Types.List\
+	local next = stacked ~= false\
+\
+	if next == self.stacked then\
+		return self\
+	end\
+\
+	self.stacked = next\
+	--// row width is measured differently in each mode, so the cached answer\
+	--// from the other one is wrong\
+	self.widest = 0\
+\
+	for _, row in self.rows do\
+		List.layoutRow(self, row)\
+	end\
+\
+	List.render(self)\
+\
+	return self:invalidate()\
+end\
+\
 --- Turn virtualisation off for short lists where every row should exist.\
 function List.setVirtual(self: Fields & Types.List, virtual: boolean): Types.List\
 	self.virtual = virtual ~= false\
@@ -11661,7 +11751,7 @@ function List.scrollTo(self: Fields & Types.List, index: number): Types.List\
 \
 	scroller.CanvasPosition = Vector2.new(\
 		0,\
-		Virtual.scrollTo(index, self.rowHeight, scroller.AbsoluteSize.Y, scroller.CanvasPosition.Y)\
+		Virtual.scrollTo(index, List.span(self), scroller.AbsoluteSize.Y, scroller.CanvasPosition.Y)\
 	)\
 \
 	return self\
@@ -11694,7 +11784,7 @@ function List.measure(self: Fields & Types.List, available: Vector2): Vector2\
 	end\
 \
 	local rows = math.min(math.max(count, 1), self.maxRows)\
-	local height = rows * self.rowHeight\
+	local height = rows * List.span(self)\
 \
 	--// the widest row is what a panel should grow to, so it is measured even\
 	--// when filling. The budget bounds the cost: a hundred thousand rows do\
@@ -11709,7 +11799,11 @@ function List.measure(self: Fields & Types.List, available: Vector2): Vector2\
 			local line = self.app.measure:width(content, self.textSize, self.font)\
 \
 			if item.description then\
-				line += self.app.measure:width(item.description, theme.text.xs, theme.font.body) + theme.space.sm\
+				local detail = self.app.measure:width(item.description, self.detailSize, theme.font.body)\
+\
+				--// side by side they add up; stacked, the row only has to be as\
+				--// wide as whichever line is longer\
+				line = if self.stacked then math.max(line, detail) else line + detail + theme.space.sm\
 			end\
 \
 			if item.icon and item.icon ~= \"\" then\
@@ -11941,6 +12035,27 @@ function Menu.openAt(self: Fields & Types.Menu, position: Vector2): Types.Menu\
 	return self\
 end\
 \
+--- Opens the menu against another element rather than at a point — under a\
+--- title in a menu bar, under a button with a caret.\
+---\
+--- The difference from `openAt` is not only the arithmetic: attaching marks\
+--- that element as the menu's own, so a click on it closes the menu instead of\
+--- being read as a click outside and then immediately reopening it.\
+function Menu.openUnder(self: Fields & Types.Menu, target: GuiObject | Types.Element, side: Types.Edge?): Types.Menu\
+	local menu = if self.built and self.popover then self.popover :: Types.Panel else Menu.build(self)\
+	local instance = if typeof(target) == \"Instance\" then target else (target :: Types.Element).instance\
+\
+	menu:attachTo(instance, side or \"bottom\", self.app.theme.space.xs)\
+	menu:open()\
+\
+	return self\
+end\
+\
+--- The popover, once it exists. Nil until the menu has been opened once.\
+function Menu.surface(self: Fields & Types.Menu): Types.Panel?\
+	return self.popover\
+end\
+\
 function Menu.closeMenu(self: Fields & Types.Menu): Types.Menu\
 	if self.popover then\
 		self.popover:close()\
@@ -11973,6 +12088,357 @@ end\
 Element.install(Menu)\
 \
 return Menu\
+"},
+{"Astrix/_Packages/Lume/Elements/MenuBar","ModuleScript","--!strict\
+\
+--- A row of titled menus — File, Edit, View — each dropping its own list.\
+---\
+--- One menu popover is shared by every title rather than one per title. That is\
+--- what makes the bar feel like a bar: with a menu already open, moving the\
+--- pointer across the strip switches to the neighbour without a click, because\
+--- there is a single surface being re-aimed rather than one being closed and\
+--- another opened.\
+---\
+--- Picking is reported with the id of the menu it came from, so one handler can\
+--- serve the whole bar instead of one per title.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Menu = require(script.Parent.Menu)\
+local Element = require(script.Parent.Element)\
+\
+local MenuBar = {}\
+MenuBar.__index = MenuBar\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	menus: { Types.MenuGroup },\
+	buttons: { TextButton },\
+	widths: { number },\
+	open: string?,\
+	menu: Types.Menu?,\
+	wired: boolean,\
+}\
+\
+--// locals\
+local function identify(group: Types.MenuGroup, index: number): Types.MenuGroup\
+	return {\
+		id = group.id or group.text or tostring(index),\
+		text = group.text,\
+		icon = group.icon,\
+		disabled = group.disabled,\
+		items = group.items,\
+	}\
+end\
+\
+local function find(self: Fields, id: string): (Types.MenuGroup?, number)\
+	for index, group in self.menus do\
+		if group.id == id then\
+			return group, index\
+		end\
+	end\
+\
+	return nil, 0\
+end\
+\
+--- Creates a menu bar. Prefer `panel:menuBar()`.\
+function MenuBar.new(app: Types.App): Types.MenuBar\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"MenuBar\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Horizontal, 2, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"menubar\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		menus = {},\
+		buttons = {},\
+		widths = {},\
+		open = nil,\
+		menu = nil,\
+		wired = false,\
+	}\
+\
+	return setmetatable(fields, MenuBar) :: any\
+end\
+\
+--- The shared popover menu, built on first use.\
+function MenuBar.ensureMenu(self: Fields & Types.MenuBar): Types.Menu\
+	if self.menu then\
+		return self.menu\
+	end\
+\
+	local menu = Menu.new(self.app)\
+\
+	self.menu = menu\
+	self.scope:add(menu)\
+\
+	menu:onPicked(function(item)\
+		self:emit(\"picked\", item, self.open)\
+	end)\
+\
+	return menu\
+end\
+\
+--- Highlights whichever title is open and dims the rest.\
+function MenuBar.paint(self: Fields)\
+	local theme = self.app.theme\
+\
+	for index, group in self.menus do\
+		local button = self.buttons[index]\
+\
+		if not button then\
+			continue\
+		end\
+\
+		local active = group.id == self.open\
+		local off = group.disabled == true\
+\
+		button.BackgroundTransparency = if active then 0.85 else 1\
+		button.TextColor3 = if active then theme.color.text else theme.color.textMuted\
+		button.TextTransparency = if off\
+			then theme.transparency.disabled\
+			elseif active then 0\
+			else theme.transparency.muted\
+	end\
+end\
+\
+--- Opens one title's menu under its button.\
+function MenuBar.openMenu(self: Fields & Types.MenuBar, id: string): Types.MenuBar\
+	local group, index = find(self, id)\
+\
+	if not group or group.disabled or not self.enabled then\
+		return self\
+	end\
+\
+	local button = self.buttons[index]\
+\
+	if not button then\
+		return self\
+	end\
+\
+	local menu = MenuBar.ensureMenu(self)\
+\
+	menu:setItems(group.items)\
+	menu:openUnder(button, \"bottom\")\
+\
+	self.open = id\
+\
+	--// the popover only exists after the first open, so this is the earliest\
+	--// the bar can learn when it closes — including closes it did not ask for,\
+	--// like a click landing somewhere else entirely\
+	if not self.wired then\
+		local surface = menu:surface()\
+\
+		if surface then\
+			surface:setDismissable(true)\
+\
+			self.scope:add(Node.signal(surface, \"closed\"):connect(function()\
+				self.open = nil\
+\
+				MenuBar.paint(self)\
+			end))\
+\
+			self.wired = true\
+		end\
+	end\
+\
+	MenuBar.paint(self)\
+\
+	self:emit(\"opened\", id)\
+\
+	return self\
+end\
+\
+function MenuBar.closeMenu(self: Fields & Types.MenuBar): Types.MenuBar\
+	if self.menu then\
+		self.menu:closeMenu()\
+	end\
+\
+	self.open = nil\
+\
+	MenuBar.paint(self)\
+\
+	return self\
+end\
+\
+--- Click behaviour: open, or close the one already open.\
+function MenuBar.toggle(self: Fields & Types.MenuBar, id: string)\
+	if self.open == id then\
+		MenuBar.closeMenu(self)\
+\
+		return\
+	end\
+\
+	MenuBar.openMenu(self, id)\
+end\
+\
+--- Rebuilds the strip. Called on `setMenus` only.\
+function MenuBar.rebuild(self: Fields & Types.MenuBar)\
+	local theme = self.app.theme\
+\
+	for _, button in self.buttons do\
+		button:Destroy()\
+	end\
+\
+	table.clear(self.buttons)\
+	table.clear(self.widths)\
+\
+	for index, group in self.menus do\
+		local width = self.app.measure:width(group.text, theme.text.sm, theme.font.medium) + theme.space.md * 2\
+\
+		if group.icon and group.icon ~= \"\" then\
+			width += theme.size.icon + theme.space.xs\
+		end\
+\
+		self.widths[index] = math.ceil(width)\
+\
+		local button = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundColor3 = theme.color.surfaceHover,\
+				BackgroundTransparency = 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.fromOffset(self.widths[index], theme.size.control),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.medium,\
+				TextSize = theme.text.sm,\
+				TextColor3 = theme.color.textMuted,\
+				TextTransparency = theme.transparency.muted,\
+\
+				Name = `Menu_{group.id}`,\
+				Text = group.text,\
+			},\
+			children = { Create.corner(theme.radius.sm) },\
+		}) :: TextButton\
+\
+		button.Parent = self.instance\
+\
+		self.buttons[index] = button\
+\
+		Hover.attach(self.scope, button, function(hovering)\
+			if not self.enabled or group.disabled then\
+				return\
+			end\
+\
+			--// with one menu already down, crossing the strip switches to the\
+			--// neighbour. That is the behaviour every menu bar has had for\
+			--// thirty years, and its absence is felt immediately\
+			if hovering and self.open and self.open ~= group.id then\
+				MenuBar.openMenu(self, group.id :: string)\
+\
+				return\
+			end\
+\
+			if group.id ~= self.open then\
+				button.BackgroundTransparency = if hovering then 0.92 else 1\
+			end\
+		end)\
+\
+		self.scope:add(button.Activated:Connect(function()\
+			if not self.enabled or group.disabled then\
+				return\
+			end\
+\
+			MenuBar.toggle(self, group.id :: string)\
+		end))\
+	end\
+\
+	MenuBar.paint(self)\
+end\
+\
+function MenuBar.setMenus(self: Fields & Types.MenuBar, menus: { Types.MenuGroup }): Types.MenuBar\
+	local normalised: { Types.MenuGroup } = {}\
+\
+	for index, group in menus do\
+		table.insert(normalised, identify(group, index))\
+	end\
+\
+	self.menus = normalised\
+\
+	--// the open menu may not exist any more, and a highlighted title that is\
+	--// gone is worse than a closed menu\
+	MenuBar.closeMenu(self)\
+	MenuBar.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+--- Which menu is down, if any.\
+function MenuBar.openId(self: Fields & Types.MenuBar): string?\
+	return self.open\
+end\
+\
+function MenuBar.onPicked(self: Fields & Types.MenuBar, handler: (Types.MenuItem, string) -> ()): Types.MenuBar\
+	return self:on(\"picked\", handler)\
+end\
+\
+function MenuBar.onOpened(self: Fields & Types.MenuBar, handler: (string) -> ()): Types.MenuBar\
+	return self:on(\"opened\", handler)\
+end\
+\
+function MenuBar.measure(self: Fields & Types.MenuBar, available: Vector2): Vector2\
+	local total = 0\
+\
+	for index, width in self.widths do\
+		total += width + (if index > 1 then 2 else 0)\
+	end\
+\
+	local width = math.min(total, math.max(1, available.X - self.margin * 2))\
+\
+	self.desired = Vector2.new(math.ceil(width), self.app.theme.size.control)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function MenuBar.destroy(self: Fields & Types.MenuBar)\
+	if self.menu then\
+		self.menu:destroy()\
+\
+		self.menu = nil\
+	end\
+\
+	Node.teardown(self)\
+end\
+\
+Element.install(MenuBar)\
+\
+return MenuBar\
 "},
 {"Astrix/_Packages/Lume/Elements/Progress","ModuleScript","--!strict\
 \
@@ -14298,7 +14764,11 @@ Toggle.__index = Toggle\
 \
 export type Fields = Types.NodeFields & Types.ElementFields & {\
 	--// `on`, not `value`, so it cannot shadow the `value()` method\
-	on: boolean,\
+	--// **not** `on`: an instance field shadows its metatable, and every\
+	--// element inherits an `on(event, handler)` method from Node. A field\
+	--// called `on` made `toggle:onChanged(fn)` fail with *attempt to call a\
+	--// boolean value*, because `self:on(…)` was reading the boolean.\
+	checked: boolean,\
 	labelText: string,\
 	descriptionText: string,\
 	style: \"switch\" | \"checkbox\",\
@@ -14438,7 +14908,7 @@ function Toggle.new(app: Types.App): Types.Toggle\
 		enabled = true,\
 		measured = false,\
 \
-		on = false,\
+		checked = false,\
 		labelText = \"\",\
 		descriptionText = \"\",\
 		style = \"switch\",\
@@ -14485,13 +14955,13 @@ function Toggle.paint(self: Fields, immediate: boolean?)\
 		thumb.AnchorPoint = Vector2.new(0.5, 0.5)\
 \
 		local target = {\
-			BackgroundColor3 = if self.on then theme.color.accent else theme.color.track,\
-			BackgroundTransparency = if self.on then 0 else theme.transparency.track,\
+			BackgroundColor3 = if self.checked then theme.color.accent else theme.color.track,\
+			BackgroundTransparency = if self.checked then 0 else theme.transparency.track,\
 		}\
 \
 		local thumbTarget = {\
 			Position = UDim2.fromScale(0.5, 0.5),\
-			BackgroundTransparency = if self.on then 0 else 1,\
+			BackgroundTransparency = if self.checked then 0 else 1,\
 			BackgroundColor3 = theme.color.accentText,\
 		}\
 \
@@ -14503,7 +14973,7 @@ function Toggle.paint(self: Fields, immediate: boolean?)\
 			Motion.animate(thumb, thumbTarget, theme:spec(\"morph\"))\
 		end\
 \
-		stroke.Transparency = if self.on then 1 else theme.transparency.border\
+		stroke.Transparency = if self.checked then 1 else theme.transparency.border\
 \
 		return\
 	end\
@@ -14515,13 +14985,13 @@ function Toggle.paint(self: Fields, immediate: boolean?)\
 	local travel = SWITCH_WIDTH - (theme.size.thumb + 2) - 3\
 \
 	local trackTarget = {\
-		BackgroundColor3 = if self.on then theme.color.accent else theme.color.track,\
-		BackgroundTransparency = if self.on then 0 else theme.transparency.track,\
+		BackgroundColor3 = if self.checked then theme.color.accent else theme.color.track,\
+		BackgroundTransparency = if self.checked then 0 else theme.transparency.track,\
 	}\
 \
 	local thumbTarget = {\
-		Position = UDim2.new(0, if self.on then travel else 3, 0.5, 0),\
-		BackgroundColor3 = if self.on then theme.color.accentText else theme.color.textMuted,\
+		Position = UDim2.new(0, if self.checked then travel else 3, 0.5, 0),\
+		BackgroundColor3 = if self.checked then theme.color.accentText else theme.color.textMuted,\
 	}\
 \
 	if immediate then\
@@ -14532,7 +15002,7 @@ function Toggle.paint(self: Fields, immediate: boolean?)\
 		Motion.animate(thumb, thumbTarget, theme:spec(\"morph\"))\
 	end\
 \
-	stroke.Transparency = if self.on then 1 else theme.transparency.border\
+	stroke.Transparency = if self.checked then 1 else theme.transparency.border\
 end\
 \
 function Toggle.setLabel(self: Fields & Types.Toggle, label: Types.Bindable<string>): Types.Toggle\
@@ -14571,11 +15041,11 @@ function Toggle.setValue(self: Fields & Types.Toggle, value: Types.Bindable<bool
 	Node.bind(self, \"value\", value, function(next: boolean)\
 		local resolved = next == true\
 \
-		if self.on == resolved then\
+		if self.checked == resolved then\
 			return\
 		end\
 \
-		self.on = resolved\
+		self.checked = resolved\
 \
 		Toggle.paint(self)\
 \
@@ -14599,17 +15069,17 @@ end\
 \
 --- Flips the state and fires `changed`.\
 function Toggle.flip(self: Fields & Types.Toggle): Types.Toggle\
-	self.on = not self.on\
+	self.checked = not self.checked\
 \
 	Toggle.paint(self)\
 \
-	self:emit(\"changed\", self.on)\
+	self:emit(\"changed\", self.checked)\
 \
 	return self\
 end\
 \
 function Toggle.value(self: Fields & Types.Toggle): boolean\
-	return self.on\
+	return self.checked\
 end\
 \
 function Toggle.measure(self: Fields & Types.Toggle, available: Vector2): Vector2\
@@ -17977,6 +18447,17 @@ function Panel.menu(self: Panel): Types.Menu\
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any\
 end\
 \
+--- A row of titled menus across the top of a panel.\
+function Panel.menuBar(self: Panel, menus: { Types.MenuGroup }?): Types.MenuBar\
+	local element = elements().MenuBar.new(self.app)\
+\
+	if menus then\
+		element:setMenus(menus)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
 function Panel.badge(self: Panel, text: Bindable<string>?): Types.Badge\
 	local element = elements().Badge.new(self.app)\
 \
@@ -19468,6 +19949,7 @@ export type PanelApi<T> = {\
 	chips: (self: T) -> Chips,\
 	suggest: (self: T) -> Suggest,\
 	menu: (self: T) -> Menu,\
+	menuBar: (self: T, menus: { MenuGroup }?) -> MenuBar,\
 	badge: (self: T, text: Bindable<string>?) -> Badge,\
 	scroll: (self: T) -> Scroll,\
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,\
@@ -19645,6 +20127,7 @@ export type List = NodeFields & ElementFields & NodeApi<List> & ElementApi<List>
 	setVirtual: (self: List, virtual: boolean) -> List,\
 	setMaxRows: (self: List, rows: number) -> List,\
 	setSelectable: (self: List, selectable: boolean) -> List,\
+	setStacked: (self: List, stacked: boolean?) -> List,\
 	setSelected: (self: List, id: Bindable<string?>) -> List,\
 	setEmptyText: (self: List, text: Bindable<string>) -> List,\
 	setRenderer: (self: List, renderer: (ListItem, number) -> string) -> List,\
@@ -19754,9 +20237,30 @@ export type MenuItem = {\
 export type Menu = NodeFields & ElementFields & NodeApi<Menu> & ElementApi<Menu> & {\
 	setItems: (self: Menu, items: { MenuItem | string }) -> Menu,\
 	openAt: (self: Menu, position: Vector2) -> Menu,\
+	openUnder: (self: Menu, target: GuiObject | Element, side: Edge?) -> Menu,\
+	surface: (self: Menu) -> Panel?,\
 	closeMenu: (self: Menu) -> Menu,\
 \
 	onPicked: (self: Menu, handler: (MenuItem) -> ()) -> Menu,\
+}\
+\
+--- One titled menu in a bar: a word on the strip, and what drops from it.\
+export type MenuGroup = {\
+	id: string?,\
+	text: string,\
+	icon: string?,\
+	disabled: boolean?,\
+	items: { MenuItem | string },\
+}\
+\
+export type MenuBar = NodeFields & ElementFields & NodeApi<MenuBar> & ElementApi<MenuBar> & {\
+	setMenus: (self: MenuBar, menus: { MenuGroup }) -> MenuBar,\
+	openMenu: (self: MenuBar, id: string) -> MenuBar,\
+	closeMenu: (self: MenuBar) -> MenuBar,\
+	openId: (self: MenuBar) -> string?,\
+\
+	onPicked: (self: MenuBar, handler: (MenuItem, string) -> ()) -> MenuBar,\
+	onOpened: (self: MenuBar, handler: (string) -> ()) -> MenuBar,\
 }\
 \
 export type Badge = NodeFields & ElementFields & NodeApi<Badge> & ElementApi<Badge> & {\

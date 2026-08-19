@@ -206,6 +206,27 @@ function Menu.openAt(self: Fields & Types.Menu, position: Vector2): Types.Menu
 	return self
 end
 
+--- Opens the menu against another element rather than at a point — under a
+--- title in a menu bar, under a button with a caret.
+---
+--- The difference from `openAt` is not only the arithmetic: attaching marks
+--- that element as the menu's own, so a click on it closes the menu instead of
+--- being read as a click outside and then immediately reopening it.
+function Menu.openUnder(self: Fields & Types.Menu, target: GuiObject | Types.Element, side: Types.Edge?): Types.Menu
+	local menu = if self.built and self.popover then self.popover :: Types.Panel else Menu.build(self)
+	local instance = if typeof(target) == "Instance" then target else (target :: Types.Element).instance
+
+	menu:attachTo(instance, side or "bottom", self.app.theme.space.xs)
+	menu:open()
+
+	return self
+end
+
+--- The popover, once it exists. Nil until the menu has been opened once.
+function Menu.surface(self: Fields & Types.Menu): Types.Panel?
+	return self.popover
+end
+
 function Menu.closeMenu(self: Fields & Types.Menu): Types.Menu
 	if self.popover then
 		self.popover:close()

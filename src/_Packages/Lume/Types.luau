@@ -398,6 +398,7 @@ export type PanelApi<T> = {
 	chips: (self: T) -> Chips,
 	suggest: (self: T) -> Suggest,
 	menu: (self: T) -> Menu,
+	menuBar: (self: T, menus: { MenuGroup }?) -> MenuBar,
 	badge: (self: T, text: Bindable<string>?) -> Badge,
 	scroll: (self: T) -> Scroll,
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,
@@ -575,6 +576,7 @@ export type List = NodeFields & ElementFields & NodeApi<List> & ElementApi<List>
 	setVirtual: (self: List, virtual: boolean) -> List,
 	setMaxRows: (self: List, rows: number) -> List,
 	setSelectable: (self: List, selectable: boolean) -> List,
+	setStacked: (self: List, stacked: boolean?) -> List,
 	setSelected: (self: List, id: Bindable<string?>) -> List,
 	setEmptyText: (self: List, text: Bindable<string>) -> List,
 	setRenderer: (self: List, renderer: (ListItem, number) -> string) -> List,
@@ -684,9 +686,30 @@ export type MenuItem = {
 export type Menu = NodeFields & ElementFields & NodeApi<Menu> & ElementApi<Menu> & {
 	setItems: (self: Menu, items: { MenuItem | string }) -> Menu,
 	openAt: (self: Menu, position: Vector2) -> Menu,
+	openUnder: (self: Menu, target: GuiObject | Element, side: Edge?) -> Menu,
+	surface: (self: Menu) -> Panel?,
 	closeMenu: (self: Menu) -> Menu,
 
 	onPicked: (self: Menu, handler: (MenuItem) -> ()) -> Menu,
+}
+
+--- One titled menu in a bar: a word on the strip, and what drops from it.
+export type MenuGroup = {
+	id: string?,
+	text: string,
+	icon: string?,
+	disabled: boolean?,
+	items: { MenuItem | string },
+}
+
+export type MenuBar = NodeFields & ElementFields & NodeApi<MenuBar> & ElementApi<MenuBar> & {
+	setMenus: (self: MenuBar, menus: { MenuGroup }) -> MenuBar,
+	openMenu: (self: MenuBar, id: string) -> MenuBar,
+	closeMenu: (self: MenuBar) -> MenuBar,
+	openId: (self: MenuBar) -> string?,
+
+	onPicked: (self: MenuBar, handler: (MenuItem, string) -> ()) -> MenuBar,
+	onOpened: (self: MenuBar, handler: (string) -> ()) -> MenuBar,
 }
 
 export type Badge = NodeFields & ElementFields & NodeApi<Badge> & ElementApi<Badge> & {
