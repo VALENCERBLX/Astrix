@@ -399,6 +399,7 @@ export type PanelApi<T> = {
 	suggest: (self: T) -> Suggest,
 	menu: (self: T) -> Menu,
 	menuBar: (self: T, menus: { MenuGroup }?) -> MenuBar,
+	colorPicker: (self: T, label: Bindable<string>?) -> ColorPicker,
 	badge: (self: T, text: Bindable<string>?) -> Badge,
 	scroll: (self: T) -> Scroll,
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,
@@ -710,6 +711,23 @@ export type MenuBar = NodeFields & ElementFields & NodeApi<MenuBar> & ElementApi
 
 	onPicked: (self: MenuBar, handler: (MenuItem, string) -> ()) -> MenuBar,
 	onOpened: (self: MenuBar, handler: (string) -> ()) -> MenuBar,
+}
+
+export type ColorPicker = NodeFields & ElementFields & NodeApi<ColorPicker> & ElementApi<ColorPicker> & {
+	setValue: (self: ColorPicker, color: Bindable<Color3>) -> ColorPicker,
+	setLabel: (self: ColorPicker, label: Bindable<string>) -> ColorPicker,
+	setSquareHeight: (self: ColorPicker, height: number) -> ColorPicker,
+	setHexField: (self: ColorPicker, shown: boolean?) -> ColorPicker,
+	--- Sets the colour without firing anything, for loading a saved value.
+	setSilent: (self: ColorPicker, color: Color3) -> ColorPicker,
+
+	value: (self: ColorPicker) -> Color3,
+	hex: (self: ColorPicker) -> string,
+
+	--- Fires continuously while dragging.
+	onChanged: (self: ColorPicker, handler: (Color3) -> ()) -> ColorPicker,
+	--- Fires once, on release. Save here.
+	onCommitted: (self: ColorPicker, handler: (Color3) -> ()) -> ColorPicker,
 }
 
 export type Badge = NodeFields & ElementFields & NodeApi<Badge> & ElementApi<Badge> & {

@@ -28,6 +28,7 @@ return {
 	Chips = require(script.Chips),
 	Suggest = require(script.Suggest),
 	Menu = require(script.Menu),
+	ColorPicker = require(script.ColorPicker),
 	MenuBar = require(script.MenuBar),
 	Badge = require(script.Badge),
 	Scroll = require(script.Scroll),

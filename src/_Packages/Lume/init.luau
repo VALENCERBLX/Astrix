@@ -109,6 +109,7 @@ export type Progress = Types.Progress
 export type Tabs = Types.Tabs
 export type Chips = Types.Chips
 export type Suggest = Types.Suggest
+export type ColorPicker = Types.ColorPicker
 export type Menu = Types.Menu
 export type MenuBar = Types.MenuBar
 export type Badge = Types.Badge

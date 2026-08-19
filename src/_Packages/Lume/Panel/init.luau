@@ -1242,6 +1242,17 @@ function Panel.menu(self: Panel): Types.Menu
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any
 end
 
+--- A colour picker: saturation square, hue rail, hex field.
+function Panel.colorPicker(self: Panel, label: Bindable<string>?): Types.ColorPicker
+	local element = elements().ColorPicker.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
 --- A row of titled menus across the top of a panel.
 function Panel.menuBar(self: Panel, menus: { Types.MenuGroup }?): Types.MenuBar
 	local element = elements().MenuBar.new(self.app)
