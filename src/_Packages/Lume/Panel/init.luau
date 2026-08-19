@@ -1242,6 +1242,17 @@ function Panel.menu(self: Panel): Types.Menu
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any
 end
 
+--- A number with a minus and a plus either side of it.
+function Panel.stepper(self: Panel, label: Bindable<string>?): Types.Stepper
+	local element = elements().Stepper.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
 --- A colour picker: saturation square, hue rail, hex field.
 function Panel.colorPicker(self: Panel, label: Bindable<string>?): Types.ColorPicker
 	local element = elements().ColorPicker.new(self.app)

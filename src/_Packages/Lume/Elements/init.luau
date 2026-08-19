@@ -18,6 +18,7 @@ return {
 	Field = require(script.Field),
 	Toggle = require(script.Toggle),
 	Slider = require(script.Slider),
+	Stepper = require(script.Stepper),
 	Select = require(script.Select),
 	List = require(script.List),
 	Divider = require(script.Divider),

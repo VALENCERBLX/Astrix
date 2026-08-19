@@ -400,6 +400,7 @@ export type PanelApi<T> = {
 	menu: (self: T) -> Menu,
 	menuBar: (self: T, menus: { MenuGroup }?) -> MenuBar,
 	colorPicker: (self: T, label: Bindable<string>?) -> ColorPicker,
+	stepper: (self: T, label: Bindable<string>?) -> Stepper,
 	badge: (self: T, text: Bindable<string>?) -> Badge,
 	scroll: (self: T) -> Scroll,
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,
@@ -540,6 +541,26 @@ export type Slider = NodeFields & ElementFields & NodeApi<Slider> & ElementApi<S
 	onCommitted: (self: Slider, handler: (number) -> ()) -> Slider,
 
 	value: (self: Slider) -> number,
+}
+
+export type Stepper = NodeFields & ElementFields & NodeApi<Stepper> & ElementApi<Stepper> & {
+	setLabel: (self: Stepper, label: Bindable<string>) -> Stepper,
+	setRange: (self: Stepper, min: number, max: number) -> Stepper,
+	setStep: (self: Stepper, step: number) -> Stepper,
+	setValue: (self: Stepper, value: Bindable<number>) -> Stepper,
+	setFormat: (self: Stepper, format: (number) -> string) -> Stepper,
+	--- Past the top comes back to the bottom.
+	setWrap: (self: Stepper, wrap: boolean?) -> Stepper,
+
+	--- Moves by whole steps. `bump(-1)` is one press of minus.
+	bump: (self: Stepper, steps: number) -> Stepper,
+
+	--- Fires on every step.
+	onChanged: (self: Stepper, handler: (number) -> ()) -> Stepper,
+	--- Fires when the interaction ends. A held repeat is one commit, not forty.
+	onCommitted: (self: Stepper, handler: (number) -> ()) -> Stepper,
+
+	value: (self: Stepper) -> number,
 }
 
 export type Option = { id: string, text: string, icon: string?, description: string? }

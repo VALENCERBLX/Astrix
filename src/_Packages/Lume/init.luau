@@ -100,6 +100,7 @@ export type Button = Types.Button
 export type Field = Types.Field
 export type Toggle = Types.Toggle
 export type Slider = Types.Slider
+export type Stepper = Types.Stepper
 export type Select = Types.Select
 export type List = Types.List
 export type Divider = Types.Divider
