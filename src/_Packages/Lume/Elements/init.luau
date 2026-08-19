@@ -35,4 +35,17 @@ return {
 	Badge = require(script.Badge),
 	Scroll = require(script.Scroll),
 	Keybind = require(script.Keybind),
+
+	Radio = require(script.Radio),
+	Rating = require(script.Rating),
+	Meter = require(script.Meter),
+	Spinner = require(script.Spinner),
+	Table = require(script.Table),
+	Tree = require(script.Tree),
+	Avatar = require(script.Avatar),
+	Breadcrumb = require(script.Breadcrumb),
+	Pagination = require(script.Pagination),
+	Scrubber = require(script.Scrubber),
+	Vector = require(script.Vector),
+	Sparkline = require(script.Sparkline),
 }

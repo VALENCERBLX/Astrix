@@ -402,6 +402,18 @@ export type PanelApi<T> = {
 	colorPicker: (self: T, label: Bindable<string>?) -> ColorPicker,
 	stepper: (self: T, label: Bindable<string>?) -> Stepper,
 	accordion: (self: T) -> Accordion,
+	radio: (self: T, label: Bindable<string>?) -> Radio,
+	rating: (self: T, label: Bindable<string>?) -> Rating,
+	meter: (self: T, label: Bindable<string>?) -> Meter,
+	spinner: (self: T, label: Bindable<string>?) -> Spinner,
+	table: (self: T) -> Table,
+	tree: (self: T) -> Tree,
+	avatar: (self: T, userId: number?) -> Avatar,
+	breadcrumb: (self: T, crumbs: { Option | string }?) -> Breadcrumb,
+	pagination: (self: T, pages: number?) -> Pagination,
+	scrubber: (self: T, label: Bindable<string>?) -> Scrubber,
+	vector: (self: T, label: Bindable<string>?, count: number?) -> Vector,
+	sparkline: (self: T, points: { number }?) -> Sparkline,
 	badge: (self: T, text: Bindable<string>?) -> Badge,
 	scroll: (self: T) -> Scroll,
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,
@@ -586,6 +598,177 @@ export type Stepper = NodeFields & ElementFields & NodeApi<Stepper> & ElementApi
 
 export type Option = { id: string, text: string, icon: string?, description: string? }
 
+--- One column of a table. `weight` is a share of the width, not pixels.
+export type Column = {
+	key: string,
+	title: string?,
+	weight: number?,
+	align: ("left" | "center" | "right")?,
+}
+
+--- One row of a table: whatever the columns ask for, by key.
+export type Row = { [string]: any }
+
+--- One node of a tree. `id` is optional — without one, the path to the node is
+--- used, which is stable as long as the shape is.
+export type TreeNode = {
+	id: string?,
+	text: string,
+	icon: string?,
+	children: { TreeNode }?,
+	data: any?,
+}
+
+export type Radio = NodeFields & ElementFields & NodeApi<Radio> & ElementApi<Radio> & {
+	setOptions: (self: Radio, options: Bindable<{ Option | string }>) -> Radio,
+	setValue: (self: Radio, id: Bindable<string?>) -> Radio,
+	setLabel: (self: Radio, label: Bindable<string>) -> Radio,
+	--- Lays the options out in a row instead of a column.
+	setHorizontal: (self: Radio, horizontal: boolean?) -> Radio,
+
+	onChanged: (self: Radio, handler: (string) -> ()) -> Radio,
+	value: (self: Radio) -> string?,
+}
+
+export type Rating = NodeFields & ElementFields & NodeApi<Rating> & ElementApi<Rating> & {
+	setValue: (self: Rating, score: Bindable<number>) -> Rating,
+	setScore: (self: Rating, score: number) -> Rating,
+	setMaximum: (self: Rating, maximum: number) -> Rating,
+	setGlyph: (self: Rating, glyph: string) -> Rating,
+	setStarSize: (self: Rating, size: number) -> Rating,
+	--- Whether clicking the current score clears it.
+	setClearable: (self: Rating, clearable: boolean?) -> Rating,
+	setLabel: (self: Rating, label: Bindable<string>) -> Rating,
+
+	onChanged: (self: Rating, handler: (number) -> ()) -> Rating,
+	value: (self: Rating) -> number,
+}
+
+export type Meter = NodeFields & ElementFields & NodeApi<Meter> & ElementApi<Meter> & {
+	setValue: (self: Meter, value: Bindable<number>) -> Meter,
+	setRange: (self: Meter, min: number, max: number) -> Meter,
+	--- The thresholds the colour turns on.
+	setBands: (self: Meter, low: number?, high: number?) -> Meter,
+	--- Which direction is healthy.
+	setOptimum: (self: Meter, optimum: "high" | "low") -> Meter,
+	setLabel: (self: Meter, label: Bindable<string>) -> Meter,
+	setShowValue: (self: Meter, shown: boolean?) -> Meter,
+	setFormat: (self: Meter, format: (number, number) -> string) -> Meter,
+	setThickness: (self: Meter, thickness: number) -> Meter,
+
+	value: (self: Meter) -> number,
+}
+
+export type Spinner = NodeFields & ElementFields & NodeApi<Spinner> & ElementApi<Spinner> & {
+	setSpinning: (self: Spinner, spinning: boolean?) -> Spinner,
+	--- Seconds per rotation.
+	setSpeed: (self: Spinner, seconds: number) -> Spinner,
+	setDiameter: (self: Spinner, diameter: number) -> Spinner,
+	setLabel: (self: Spinner, label: Bindable<string>) -> Spinner,
+}
+
+export type Table = NodeFields & ElementFields & NodeApi<Table> & ElementApi<Table> & {
+	setColumns: (self: Table, columns: { Column }) -> Table,
+	setRows: (self: Table, rows: Bindable<{ Row }>) -> Table,
+	setRowHeight: (self: Table, height: number) -> Table,
+	setHeaderShown: (self: Table, shown: boolean?) -> Table,
+	setSelectable: (self: Table, selectable: boolean?) -> Table,
+	--- Alternating row tints.
+	setStriped: (self: Table, striped: boolean?) -> Table,
+	setSelected: (self: Table, index: number?) -> Table,
+
+	selected: (self: Table) -> Row?,
+	onActivated: (self: Table, handler: (Row, number) -> ()) -> Table,
+}
+
+export type Tree = NodeFields & ElementFields & NodeApi<Tree> & ElementApi<Tree> & {
+	setNodes: (self: Tree, nodes: Bindable<{ TreeNode }>) -> Tree,
+	expandNode: (self: Tree, id: string) -> Tree,
+	collapseNode: (self: Tree, id: string) -> Tree,
+	toggleNode: (self: Tree, id: string) -> Tree,
+	expandAll: (self: Tree) -> Tree,
+	collapseAll: (self: Tree) -> Tree,
+	setSelected: (self: Tree, id: string?) -> Tree,
+	setIndent: (self: Tree, indent: number) -> Tree,
+
+	onSelected: (self: Tree, handler: (TreeNode, string) -> ()) -> Tree,
+	onToggled: (self: Tree, handler: (string, boolean) -> ()) -> Tree,
+	value: (self: Tree) -> string?,
+	--- How many rows are on screen, not how many nodes exist.
+	count: (self: Tree) -> number,
+}
+
+export type Avatar = NodeFields & ElementFields & NodeApi<Avatar> & ElementApi<Avatar> & {
+	setUserId: (self: Avatar, userId: Bindable<number?>) -> Avatar,
+	setImage: (self: Avatar, image: Bindable<string>) -> Avatar,
+	--- The name to fall back to. Two letters are taken from it.
+	setName: (self: Avatar, name: Bindable<string>) -> Avatar,
+	setDiameter: (self: Avatar, diameter: number) -> Avatar,
+	--- `"online"`, `"away"`, `"busy"`, or nil for none.
+	setStatus: (self: Avatar, status: string?) -> Avatar,
+	setSquare: (self: Avatar, square: boolean?) -> Avatar,
+}
+
+export type Breadcrumb = NodeFields & ElementFields & NodeApi<Breadcrumb> & ElementApi<Breadcrumb> & {
+	setCrumbs: (self: Breadcrumb, crumbs: Bindable<{ Option | string }>) -> Breadcrumb,
+	setSeparator: (self: Breadcrumb, separator: string) -> Breadcrumb,
+
+	onPicked: (self: Breadcrumb, handler: (string, number) -> ()) -> Breadcrumb,
+}
+
+export type Pagination = NodeFields & ElementFields & NodeApi<Pagination> & ElementApi<Pagination> & {
+	setPages: (self: Pagination, pages: Bindable<number>) -> Pagination,
+	setPage: (self: Pagination, page: Bindable<number>) -> Pagination,
+	--- How many pages either side of the current one stay visible.
+	setWindow: (self: Pagination, window: number) -> Pagination,
+	goTo: (self: Pagination, page: number) -> Pagination,
+
+	onChanged: (self: Pagination, handler: (number) -> ()) -> Pagination,
+	value: (self: Pagination) -> number,
+}
+
+export type Scrubber = NodeFields & ElementFields & NodeApi<Scrubber> & ElementApi<Scrubber> & {
+	--- Either end may be nil, which means there is no end that way.
+	setRange: (self: Scrubber, min: number?, max: number?) -> Scrubber,
+	setStep: (self: Scrubber, step: number) -> Scrubber,
+	--- Steps per pixel of drag.
+	setSensitivity: (self: Scrubber, sensitivity: number) -> Scrubber,
+	setValue: (self: Scrubber, value: Bindable<number>) -> Scrubber,
+	setLabel: (self: Scrubber, label: Bindable<string>) -> Scrubber,
+	setFormat: (self: Scrubber, format: (number) -> string) -> Scrubber,
+
+	onChanged: (self: Scrubber, handler: (number) -> ()) -> Scrubber,
+	onCommitted: (self: Scrubber, handler: (number) -> ()) -> Scrubber,
+	value: (self: Scrubber) -> number,
+}
+
+export type Vector = NodeFields & ElementFields & NodeApi<Vector> & ElementApi<Vector> & {
+	--- Takes a Vector2, a Vector3, or a plain list of numbers.
+	setValue: (self: Vector, value: Bindable<any>) -> Vector,
+	setAxis: (self: Vector, index: number, value: number) -> Vector,
+	setCount: (self: Vector, count: number) -> Vector,
+	setStep: (self: Vector, step: number) -> Vector,
+	setSensitivity: (self: Vector, sensitivity: number) -> Vector,
+	setRange: (self: Vector, min: number?, max: number?) -> Vector,
+	setLabel: (self: Vector, label: Bindable<string>) -> Vector,
+
+	onChanged: (self: Vector, handler: ({ number }) -> ()) -> Vector,
+	onCommitted: (self: Vector, handler: ({ number }) -> ()) -> Vector,
+	value: (self: Vector) -> { number },
+	vector3: (self: Vector) -> Vector3,
+}
+
+export type Sparkline = NodeFields & ElementFields & NodeApi<Sparkline> & ElementApi<Sparkline> & {
+	setPoints: (self: Sparkline, points: Bindable<{ number }>) -> Sparkline,
+	--- Fixes the vertical scale, so a flat series does not look dramatic.
+	setRange: (self: Sparkline, min: number?, max: number?) -> Sparkline,
+	setColor: (self: Sparkline, color: Color3) -> Sparkline,
+	setThickness: (self: Sparkline, thickness: number) -> Sparkline,
+	setHeight: (self: Sparkline, height: number) -> Sparkline,
+
+	last: (self: Sparkline) -> number?,
+}
+
 export type Select = NodeFields & ElementFields & NodeApi<Select> & ElementApi<Select> & {
 	setLabel: (self: Select, label: Bindable<string>) -> Select,
 	setOptions: (self: Select, options: Bindable<{ Option | string }>) -> Select,
@@ -670,6 +853,18 @@ export type Group = NodeFields & ElementFields & NodeApi<Group> & ElementApi<Gro
 	chips: (self: Group) -> Chips,
 	accordion: (self: Group) -> Accordion,
 	menuBar: (self: Group, menus: { MenuGroup }?) -> MenuBar,
+	radio: (self: Group, label: Bindable<string>?) -> Radio,
+	rating: (self: Group, label: Bindable<string>?) -> Rating,
+	meter: (self: Group, label: Bindable<string>?) -> Meter,
+	spinner: (self: Group, label: Bindable<string>?) -> Spinner,
+	table: (self: Group) -> Table,
+	tree: (self: Group) -> Tree,
+	avatar: (self: Group, userId: number?) -> Avatar,
+	breadcrumb: (self: Group, crumbs: { Option | string }?) -> Breadcrumb,
+	pagination: (self: Group, pages: number?) -> Pagination,
+	scrubber: (self: Group, label: Bindable<string>?) -> Scrubber,
+	vector: (self: Group, label: Bindable<string>?, count: number?) -> Vector,
+	sparkline: (self: Group, points: { number }?) -> Sparkline,
 	badge: (self: Group, text: Bindable<string>?) -> Badge,
 	spacer: (self: Group, size: number?) -> Spacer,
 	group: (self: Group, axis: Axis?) -> Group,

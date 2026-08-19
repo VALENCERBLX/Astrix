@@ -299,6 +299,118 @@ function Group.menuBar(self: Fields & Types.Group, menus: { Types.MenuGroup }?):
 	return adopt(self, element) :: any
 end
 
+function Group.radio(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Radio
+	local element = factory(self.app, "Radio")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.rating(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Rating
+	local element = factory(self.app, "Rating")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.meter(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Meter
+	local element = factory(self.app, "Meter")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.spinner(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Spinner
+	local element = factory(self.app, "Spinner")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.scrubber(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Scrubber
+	local element = factory(self.app, "Scrubber")
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.table(self: Fields & Types.Group): Types.Table
+	return adopt(self, factory(self.app, "Table")) :: any
+end
+
+function Group.tree(self: Fields & Types.Group): Types.Tree
+	return adopt(self, factory(self.app, "Tree")) :: any
+end
+
+function Group.avatar(self: Fields & Types.Group, userId: number?): Types.Avatar
+	local element = factory(self.app, "Avatar")
+
+	if userId then
+		element:setUserId(userId)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.breadcrumb(self: Fields & Types.Group, crumbs: { Types.Option | string }?): Types.Breadcrumb
+	local element = factory(self.app, "Breadcrumb")
+
+	if crumbs then
+		element:setCrumbs(crumbs)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.pagination(self: Fields & Types.Group, pages: number?): Types.Pagination
+	local element = factory(self.app, "Pagination")
+
+	if pages then
+		element:setPages(pages)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.vector(self: Fields & Types.Group, label: Types.Bindable<string>?, count: number?): Types.Vector
+	local element = factory(self.app, "Vector")
+
+	if count then
+		element:setCount(count)
+	end
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element) :: any
+end
+
+function Group.sparkline(self: Fields & Types.Group, points: { number }?): Types.Sparkline
+	local element = factory(self.app, "Sparkline")
+
+	if points then
+		element:setPoints(points)
+	end
+
+	return adopt(self, element) :: any
+end
+
 function Group.badge(self: Fields & Types.Group, text: Types.Bindable<string>?): Types.Badge
 	local element = factory(self.app, "Badge")
 

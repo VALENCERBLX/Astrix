@@ -117,6 +117,20 @@ export type MenuBar = Types.MenuBar
 export type Badge = Types.Badge
 export type Scroll = Types.Scroll
 export type Keybind = Types.Keybind
+export type Radio = Types.Radio
+export type Rating = Types.Rating
+export type Meter = Types.Meter
+export type Spinner = Types.Spinner
+export type Table = Types.Table
+export type Tree = Types.Tree
+export type Avatar = Types.Avatar
+export type Breadcrumb = Types.Breadcrumb
+export type Pagination = Types.Pagination
+export type Scrubber = Types.Scrubber
+export type Vector = Types.Vector
+export type Sparkline = Types.Sparkline
+export type Column = Types.Column
+export type TreeNode = Types.TreeNode
 
 --// public api
 local Lume = {

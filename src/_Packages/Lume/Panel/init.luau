@@ -1242,6 +1242,121 @@ function Panel.menu(self: Panel): Types.Menu
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any
 end
 
+--// the wider widget set: everything a panel hosts, a group hosts too, so a
+--// row or an accordion section is never the poor relation
+
+function Panel.radio(self: Panel, label: Bindable<string>?): Types.Radio
+	local element = elements().Radio.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.rating(self: Panel, label: Bindable<string>?): Types.Rating
+	local element = elements().Rating.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.meter(self: Panel, label: Bindable<string>?): Types.Meter
+	local element = elements().Meter.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.spinner(self: Panel, label: Bindable<string>?): Types.Spinner
+	local element = elements().Spinner.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.scrubber(self: Panel, label: Bindable<string>?): Types.Scrubber
+	local element = elements().Scrubber.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.table(self: Panel): Types.Table
+	return adopt(self, elements().Table.new(self.app) :: any) :: any
+end
+
+function Panel.tree(self: Panel): Types.Tree
+	return adopt(self, elements().Tree.new(self.app) :: any) :: any
+end
+
+function Panel.avatar(self: Panel, userId: number?): Types.Avatar
+	local element = elements().Avatar.new(self.app)
+
+	if userId then
+		element:setUserId(userId)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.breadcrumb(self: Panel, crumbs: { Types.Option | string }?): Types.Breadcrumb
+	local element = elements().Breadcrumb.new(self.app)
+
+	if crumbs then
+		element:setCrumbs(crumbs)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.pagination(self: Panel, pages: number?): Types.Pagination
+	local element = elements().Pagination.new(self.app)
+
+	if pages then
+		element:setPages(pages)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.vector(self: Panel, label: Bindable<string>?, count: number?): Types.Vector
+	local element = elements().Vector.new(self.app)
+
+	if count then
+		element:setCount(count)
+	end
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
+function Panel.sparkline(self: Panel, points: { number }?): Types.Sparkline
+	local element = elements().Sparkline.new(self.app)
+
+	if points then
+		element:setPoints(points)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
 --- Sections with headers you click to fold away.
 function Panel.accordion(self: Panel): Types.Accordion
 	return adopt(self, elements().Accordion.new(self.app) :: any) :: any

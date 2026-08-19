@@ -6940,6 +6940,20 @@ export type MenuBar = Types.MenuBar\
 export type Badge = Types.Badge\
 export type Scroll = Types.Scroll\
 export type Keybind = Types.Keybind\
+export type Radio = Types.Radio\
+export type Rating = Types.Rating\
+export type Meter = Types.Meter\
+export type Spinner = Types.Spinner\
+export type Table = Types.Table\
+export type Tree = Types.Tree\
+export type Avatar = Types.Avatar\
+export type Breadcrumb = Types.Breadcrumb\
+export type Pagination = Types.Pagination\
+export type Scrubber = Types.Scrubber\
+export type Vector = Types.Vector\
+export type Sparkline = Types.Sparkline\
+export type Column = Types.Column\
+export type TreeNode = Types.TreeNode\
 \
 --// public api\
 local Lume = {\
@@ -8232,6 +8246,19 @@ return {\
 	Badge = require(script.Badge),\
 	Scroll = require(script.Scroll),\
 	Keybind = require(script.Keybind),\
+\
+	Radio = require(script.Radio),\
+	Rating = require(script.Rating),\
+	Meter = require(script.Meter),\
+	Spinner = require(script.Spinner),\
+	Table = require(script.Table),\
+	Tree = require(script.Tree),\
+	Avatar = require(script.Avatar),\
+	Breadcrumb = require(script.Breadcrumb),\
+	Pagination = require(script.Pagination),\
+	Scrubber = require(script.Scrubber),\
+	Vector = require(script.Vector),\
+	Sparkline = require(script.Sparkline),\
 }\
 "},
 {"Astrix/_Packages/Lume/Elements/Accordion","ModuleScript","--!strict\
@@ -8669,6 +8696,257 @@ Element.install(Accordion)\
 \
 return Accordion\
 "},
+{"Astrix/_Packages/Lume/Elements/Avatar","ModuleScript","--!strict\
+\
+--- A player's headshot, round, with initials underneath in case it never\
+--- arrives.\
+---\
+--- The initials are not a nicety. A thumbnail that has not loaded is a hole in\
+--- the layout, and a hole where a face should be reads as an error; two letters\
+--- read as a person whose picture is still coming.\
+---\
+--- Thumbnails are requested through `rbxthumb://`, which resolves without\
+--- yielding — so an avatar can be built inside a layout pass, which\
+--- `GetUserThumbnailAsync` cannot.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+\
+local Avatar = {}\
+Avatar.__index = Avatar\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	userId: number?,\
+	image: string,\
+	initials: string,\
+	diameter: number,\
+	status: string?,\
+	square: boolean,\
+}\
+\
+--// locals\
+--- Two letters out of a name: the first of the first two words, or the first\
+--- two letters if there is only one word.\
+local function shorten(name: string): string\
+	local words = {}\
+\
+	for word in name:gmatch(\"%S+\") do\
+		table.insert(words, word)\
+	end\
+\
+	if #words >= 2 then\
+		return (words[1]:sub(1, 1) .. words[2]:sub(1, 1)):upper()\
+	end\
+\
+	return name:sub(1, 2):upper()\
+end\
+\
+--- Creates an avatar. Prefer `panel:avatar(userId)`.\
+function Avatar.new(app: Types.App): Types.Avatar\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local diameter = 36\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundColor3 = theme.color.surfaceSunken,\
+			BackgroundTransparency = 0.3,\
+			BorderSizePixel = 0,\
+\
+			Size = UDim2.fromOffset(diameter, diameter),\
+			Name = \"Avatar\",\
+		},\
+		children = {\
+			Create.corner(UDim.new(1, 0)),\
+			{\
+				class = \"TextLabel\",\
+				ref = \"initials\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.fromScale(1, 1),\
+\
+					Font = theme.font.medium,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+\
+					Name = \"Initials\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"ImageLabel\",\
+				ref = \"image\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.fromScale(1, 1),\
+					ScaleType = Enum.ScaleType.Crop,\
+\
+					Name = \"Image\",\
+					Image = \"\",\
+					Visible = false,\
+				},\
+				children = { Create.corner(UDim.new(1, 0)) },\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"status\",\
+				props = {\
+					BackgroundColor3 = theme.color.success,\
+					BorderSizePixel = 0,\
+\
+					AnchorPoint = Vector2.new(1, 1),\
+					Position = UDim2.fromScale(1, 1),\
+					Size = UDim2.fromOffset(10, 10),\
+					Visible = false,\
+					ZIndex = 2,\
+					Name = \"Status\",\
+				},\
+				children = {\
+					Create.corner(UDim.new(1, 0)),\
+					Create.stroke(theme.color.surface, 2, 0),\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"avatar\",\
+		desired = Vector2.new(diameter, diameter),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		userId = nil,\
+		image = \"\",\
+		initials = \"\",\
+		diameter = diameter,\
+		status = nil,\
+		square = false,\
+	}\
+\
+	return setmetatable(fields, Avatar) :: any\
+end\
+\
+function Avatar.paint(self: Fields)\
+	local image = self.refs.image :: ImageLabel\
+	local initials = self.refs.initials :: TextLabel\
+\
+	image.Image = self.image\
+	image.Visible = self.image ~= \"\"\
+	initials.Text = self.initials\
+	initials.Visible = self.initials ~= \"\"\
+end\
+\
+--- Points the avatar at a player. Uses `rbxthumb://`, which does not yield.\
+function Avatar.setUserId(self: Fields & Types.Avatar, userId: Types.Bindable<number?>): Types.Avatar\
+	Node.bind(self, \"userId\", userId, function(next: number?)\
+		self.userId = next\
+		self.image = if next and next > 0\
+			then `rbxthumb://type=AvatarHeadShot&id={next}&w=150&h=150`\
+			else \"\"\
+\
+		Avatar.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- Any image, for the cases that are not a player.\
+function Avatar.setImage(self: Fields & Types.Avatar, image: Types.Bindable<string>): Types.Avatar\
+	Node.bind(self, \"image\", image, function(next: string)\
+		self.image = next or \"\"\
+\
+		Avatar.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- The name to fall back to. Two letters are taken from it.\
+function Avatar.setName(self: Fields & Types.Avatar, name: Types.Bindable<string>): Types.Avatar\
+	Node.bind(self, \"name\", name, function(next: string)\
+		self.initials = if next and next ~= \"\" then shorten(next) else \"\"\
+\
+		Avatar.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Avatar.setDiameter(self: Fields & Types.Avatar, diameter: number): Types.Avatar\
+	self.diameter = math.max(12, diameter)\
+	;(self.refs.initials :: TextLabel).TextSize = math.max(9, math.floor(self.diameter * 0.36))\
+\
+	self.instance.Size = UDim2.fromOffset(self.diameter, self.diameter)\
+\
+	return self:invalidate()\
+end\
+\
+--- A dot in the corner. `\"online\"`, `\"away\"`, `\"busy\"`, or nil for none.\
+function Avatar.setStatus(self: Fields & Types.Avatar, status: string?): Types.Avatar\
+	local theme = self.app.theme\
+	local dot = self.refs.status :: Frame\
+\
+	self.status = status\
+	dot.Visible = status ~= nil\
+\
+	if status == \"away\" then\
+		dot.BackgroundColor3 = theme.color.warn\
+	elseif status == \"busy\" then\
+		dot.BackgroundColor3 = theme.color.danger\
+	else\
+		dot.BackgroundColor3 = theme.color.success\
+	end\
+\
+	return self\
+end\
+\
+--- Rounded square instead of a circle.\
+function Avatar.setSquare(self: Fields & Types.Avatar, square: boolean?): Types.Avatar\
+	local theme = self.app.theme\
+\
+	self.square = square ~= false\
+\
+	local radius = if self.square then UDim.new(0, theme.radius.sm) else UDim.new(1, 0)\
+\
+	for _, child in self.instance:GetDescendants() do\
+		if child:IsA(\"UICorner\") then\
+			child.CornerRadius = radius\
+		end\
+	end\
+\
+	return self\
+end\
+\
+function Avatar.measure(self: Fields & Types.Avatar, _available: Vector2): Vector2\
+	self.desired = Vector2.new(self.diameter, self.diameter)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Avatar)\
+\
+return Avatar\
+"},
 {"Astrix/_Packages/Lume/Elements/Badge","ModuleScript","--!strict\
 \
 --- A small pill of text: counts, statuses, tags.\
@@ -8838,6 +9116,233 @@ end\
 Element.install(Badge)\
 \
 return Badge\
+"},
+{"Astrix/_Packages/Lume/Elements/Breadcrumb","ModuleScript","--!strict\
+\
+--- Where you are, as a trail you can click back along.\
+---\
+--- The last crumb is where you are and is not a link — making it one invites a\
+--- click that does nothing, which reads as broken rather than as \"you are\
+--- already here\".\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Breadcrumb = {}\
+Breadcrumb.__index = Breadcrumb\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	crumbs: { Types.Option },\
+	buttons: { TextButton },\
+	separator: string,\
+	widths: { number },\
+}\
+\
+--// locals\
+local function normalise(entry: Types.Option | string, index: number): Types.Option\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	local option = entry :: Types.Option\
+\
+	return { id = option.id or option.text or tostring(index), text = option.text or \"\", icon = option.icon }\
+end\
+\
+--- Creates a breadcrumb trail. Prefer `panel:breadcrumb(crumbs)`.\
+function Breadcrumb.new(app: Types.App): Types.Breadcrumb\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.row),\
+			Name = \"Breadcrumb\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Horizontal, 2, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"breadcrumb\",\
+		desired = Vector2.new(0, theme.size.row),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		crumbs = {},\
+		buttons = {},\
+		separator = \"/\",\
+		widths = {},\
+	}\
+\
+	return setmetatable(fields, Breadcrumb) :: any\
+end\
+\
+function Breadcrumb.rebuild(self: Fields & Types.Breadcrumb)\
+	local theme = self.app.theme\
+\
+	for _, child in self.instance:GetChildren() do\
+		if child:IsA(\"GuiObject\") then\
+			child:Destroy()\
+		end\
+	end\
+\
+	table.clear(self.buttons)\
+	table.clear(self.widths)\
+\
+	local order = 0\
+\
+	for index, crumb in self.crumbs do\
+		local last = index == #self.crumbs\
+		local width = self.app.measure:width(crumb.text, theme.text.sm, theme.font.body) + theme.space.xs * 2\
+\
+		order += 1\
+\
+		local button = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundTransparency = 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.fromOffset(math.ceil(width), theme.size.row),\
+				LayoutOrder = order,\
+\
+				Font = if last then theme.font.medium else theme.font.body,\
+				TextSize = theme.text.sm,\
+				TextColor3 = if last then theme.color.text else theme.color.textMuted,\
+				TextTransparency = if last then 0 else theme.transparency.muted,\
+\
+				Name = `Crumb_{crumb.id}`,\
+				Text = crumb.text,\
+			},\
+		}) :: TextButton\
+\
+		button.Parent = self.instance\
+\
+		table.insert(self.buttons, button)\
+		table.insert(self.widths, width)\
+\
+		if not last then\
+			Hover.attach(self.scope, button, function(hovering)\
+				if not self.enabled then\
+					return\
+				end\
+\
+				button.TextTransparency = if hovering then 0 else theme.transparency.muted\
+			end)\
+\
+			self.scope:add(button.Activated:Connect(function()\
+				if not self.enabled then\
+					return\
+				end\
+\
+				self:emit(\"picked\", crumb.id, index)\
+			end))\
+\
+			order += 1\
+\
+			local gap = self.app.measure:width(self.separator, theme.text.sm, theme.font.body) + 4\
+\
+			local mark = Create.node(self.scope, {\
+				class = \"TextLabel\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.fromOffset(math.ceil(gap), theme.size.row),\
+					LayoutOrder = order,\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textGhost,\
+					TextTransparency = theme.transparency.ghost,\
+\
+					Name = \"Separator\",\
+					Text = self.separator,\
+				},\
+			}) :: TextLabel\
+\
+			mark.Parent = self.instance\
+\
+			table.insert(self.widths, gap)\
+		end\
+	end\
+end\
+\
+function Breadcrumb.setCrumbs(\
+	self: Fields & Types.Breadcrumb,\
+	crumbs: Types.Bindable<{ Types.Option | string }>\
+): Types.Breadcrumb\
+	Node.bind(self, \"crumbs\", crumbs, function(next: { Types.Option | string })\
+		local normalised: { Types.Option } = {}\
+\
+		for index, entry in next do\
+			table.insert(normalised, normalise(entry, index))\
+		end\
+\
+		self.crumbs = normalised\
+\
+		Breadcrumb.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Breadcrumb.setSeparator(self: Fields & Types.Breadcrumb, separator: string): Types.Breadcrumb\
+	self.separator = separator\
+\
+	Breadcrumb.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Breadcrumb.onPicked(self: Fields & Types.Breadcrumb, handler: (string, number) -> ()): Types.Breadcrumb\
+	return self:on(\"picked\", handler)\
+end\
+\
+function Breadcrumb.measure(self: Fields & Types.Breadcrumb, available: Vector2): Vector2\
+	local total = 0\
+\
+	for _, width in self.widths do\
+		total += width + 2\
+	end\
+\
+	self.desired = Vector2.new(\
+		math.ceil(math.min(total, math.max(1, available.X - self.margin * 2))),\
+		self.app.theme.size.row\
+	)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Breadcrumb)\
+\
+return Breadcrumb\
 "},
 {"Astrix/_Packages/Lume/Elements/Button","ModuleScript","--!strict\
 \
@@ -11501,6 +12006,118 @@ function Group.menuBar(self: Fields & Types.Group, menus: { Types.MenuGroup }?):
 	return adopt(self, element) :: any\
 end\
 \
+function Group.radio(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Radio\
+	local element = factory(self.app, \"Radio\")\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.rating(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Rating\
+	local element = factory(self.app, \"Rating\")\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.meter(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Meter\
+	local element = factory(self.app, \"Meter\")\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.spinner(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Spinner\
+	local element = factory(self.app, \"Spinner\")\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.scrubber(self: Fields & Types.Group, label: Types.Bindable<string>?): Types.Scrubber\
+	local element = factory(self.app, \"Scrubber\")\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.table(self: Fields & Types.Group): Types.Table\
+	return adopt(self, factory(self.app, \"Table\")) :: any\
+end\
+\
+function Group.tree(self: Fields & Types.Group): Types.Tree\
+	return adopt(self, factory(self.app, \"Tree\")) :: any\
+end\
+\
+function Group.avatar(self: Fields & Types.Group, userId: number?): Types.Avatar\
+	local element = factory(self.app, \"Avatar\")\
+\
+	if userId then\
+		element:setUserId(userId)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.breadcrumb(self: Fields & Types.Group, crumbs: { Types.Option | string }?): Types.Breadcrumb\
+	local element = factory(self.app, \"Breadcrumb\")\
+\
+	if crumbs then\
+		element:setCrumbs(crumbs)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.pagination(self: Fields & Types.Group, pages: number?): Types.Pagination\
+	local element = factory(self.app, \"Pagination\")\
+\
+	if pages then\
+		element:setPages(pages)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.vector(self: Fields & Types.Group, label: Types.Bindable<string>?, count: number?): Types.Vector\
+	local element = factory(self.app, \"Vector\")\
+\
+	if count then\
+		element:setCount(count)\
+	end\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
+function Group.sparkline(self: Fields & Types.Group, points: { number }?): Types.Sparkline\
+	local element = factory(self.app, \"Sparkline\")\
+\
+	if points then\
+		element:setPoints(points)\
+	end\
+\
+	return adopt(self, element) :: any\
+end\
+\
 function Group.badge(self: Fields & Types.Group, text: Types.Bindable<string>?): Types.Badge\
 	local element = factory(self.app, \"Badge\")\
 \
@@ -13505,6 +14122,585 @@ Element.install(MenuBar)\
 \
 return MenuBar\
 "},
+{"Astrix/_Packages/Lume/Elements/Meter","ModuleScript","--!strict\
+\
+--- A level, not a task. Disk space, health, how full a stash is.\
+---\
+--- The difference from a progress bar is worth stating, because they look\
+--- alike: a progress bar goes one way and ends, and its colour means nothing.\
+--- A meter sits wherever the value happens to be, and its colour is the point —\
+--- it turns as the level crosses into territory you care about.\
+---\
+--- Which direction counts as bad is `optimum`: with it high, low readings are\
+--- the warning; with it low, high readings are. Health and disk usage are the\
+--- same widget pointed opposite ways.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Element = require(script.Parent.Element)\
+\
+local Meter = {}\
+Meter.__index = Meter\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	current: number,\
+	minimum: number,\
+	maximum: number,\
+	low: number?,\
+	high: number?,\
+	optimum: string,\
+\
+	labelText: string,\
+	showValue: boolean,\
+	thickness: number,\
+	formatter: ((number, number) -> string)?,\
+}\
+\
+--- Creates a meter. Prefer `panel:meter(label)`.\
+function Meter.new(app: Types.App): Types.Meter\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local thickness = theme.size.rail + 2\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.row + thickness),\
+			Name = \"Meter\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Vertical, theme.space.xs),\
+			{\
+				class = \"Frame\",\
+				ref = \"header\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, theme.size.row),\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Header\",\
+				},\
+				children = {\
+					{\
+						class = \"TextLabel\",\
+						ref = \"label\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							Size = UDim2.new(0.6, 0, 1, 0),\
+\
+							Font = theme.font.body,\
+							TextSize = theme.text.sm,\
+							TextColor3 = theme.color.textMuted,\
+							TextTransparency = theme.transparency.muted,\
+							TextXAlignment = Enum.TextXAlignment.Left,\
+\
+							Name = \"Label\",\
+							Text = \"\",\
+						},\
+					},\
+					{\
+						class = \"TextLabel\",\
+						ref = \"readout\",\
+						props = {\
+							BackgroundTransparency = 1,\
+							AnchorPoint = Vector2.new(1, 0),\
+							Position = UDim2.fromScale(1, 0),\
+							Size = UDim2.new(0.4, 0, 1, 0),\
+\
+							Font = theme.font.mono,\
+							TextSize = theme.text.xs,\
+							TextColor3 = theme.color.text,\
+							TextXAlignment = Enum.TextXAlignment.Right,\
+\
+							Name = \"Readout\",\
+							Text = \"\",\
+						},\
+					},\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"rail\",\
+				props = {\
+					BackgroundColor3 = theme.color.track,\
+					BackgroundTransparency = theme.transparency.track,\
+					BorderSizePixel = 0,\
+\
+					Size = UDim2.new(1, 0, 0, thickness),\
+					LayoutOrder = 2,\
+					Name = \"Rail\",\
+				},\
+				children = {\
+					Create.corner(UDim.new(1, 0)),\
+					{\
+						class = \"Frame\",\
+						ref = \"fill\",\
+						props = {\
+							BackgroundColor3 = theme.color.success,\
+							BorderSizePixel = 0,\
+							Size = UDim2.fromScale(0, 1),\
+							Name = \"Fill\",\
+						},\
+						children = { Create.corner(UDim.new(1, 0)) },\
+					},\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"meter\",\
+		desired = Vector2.new(0, thickness),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		current = 0,\
+		minimum = 0,\
+		maximum = 1,\
+		low = nil,\
+		high = nil,\
+		optimum = \"high\",\
+\
+		labelText = \"\",\
+		showValue = true,\
+		thickness = thickness,\
+		formatter = nil,\
+	}\
+\
+	return setmetatable(fields, Meter) :: any\
+end\
+\
+--- Which band the level is in: good, middling, or the one you should look at.\
+function Meter.zone(self: Fields): string\
+	local low = self.low\
+	local high = self.high\
+\
+	if not low and not high then\
+		return \"ok\"\
+	end\
+\
+	local below = low ~= nil and self.current < low\
+	local above = high ~= nil and self.current > high\
+\
+	if self.optimum == \"high\" then\
+		if below then\
+			return \"danger\"\
+		end\
+\
+		return if above or (high == nil and not below) then \"ok\" else \"warn\"\
+	end\
+\
+	if above then\
+		return \"danger\"\
+	end\
+\
+	return if below or (low == nil and not above) then \"ok\" else \"warn\"\
+end\
+\
+function Meter.paint(self: Fields, immediate: boolean?)\
+	local theme = self.app.theme\
+	local span = self.maximum - self.minimum\
+	local fraction = if span == 0 then 0 else math.clamp((self.current - self.minimum) / span, 0, 1)\
+\
+	local zone = Meter.zone(self)\
+	local color = if zone == \"danger\"\
+		then theme.color.danger\
+		elseif zone == \"warn\" then theme.color.warn\
+		else theme.color.success\
+\
+	local fill = self.refs.fill :: Frame\
+	local target = { Size = UDim2.fromScale(fraction, 1), BackgroundColor3 = color }\
+\
+	if immediate then\
+		Motion.set(fill, target)\
+	else\
+		Motion.animate(fill, target, theme:spec(\"morph\"))\
+	end\
+\
+	if self.showValue then\
+		local readout = self.refs.readout :: TextLabel\
+\
+		readout.Text = if self.formatter\
+			then self.formatter(self.current, self.maximum)\
+			else `{math.round(fraction * 100)}%`\
+	end\
+end\
+\
+function Meter.setValue(self: Fields & Types.Meter, value: Types.Bindable<number>): Types.Meter\
+	Node.bind(self, \"value\", value, function(next: number)\
+		self.current = next\
+\
+		Meter.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Meter.setRange(self: Fields & Types.Meter, minimum: number, maximum: number): Types.Meter\
+	self.minimum = minimum\
+	self.maximum = math.max(minimum, maximum)\
+\
+	Meter.paint(self)\
+\
+	return self\
+end\
+\
+--- The thresholds the colour turns on. Either may be left out.\
+function Meter.setBands(self: Fields & Types.Meter, low: number?, high: number?): Types.Meter\
+	self.low = low\
+	self.high = high\
+\
+	Meter.paint(self)\
+\
+	return self\
+end\
+\
+--- `\"high\"` means high readings are healthy — ammunition, battery. `\"low\"`\
+--- means low ones are — disk usage, ping.\
+function Meter.setOptimum(self: Fields & Types.Meter, optimum: \"high\" | \"low\"): Types.Meter\
+	self.optimum = optimum\
+\
+	Meter.paint(self)\
+\
+	return self\
+end\
+\
+function Meter.setLabel(self: Fields & Types.Meter, label: Types.Bindable<string>): Types.Meter\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local text = self.refs.label :: TextLabel\
+\
+		self.labelText = tostring(next)\
+\
+		text.Text = self.labelText\
+		;(self.refs.header :: Frame).Visible = self.labelText ~= \"\" or self.showValue\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Meter.setShowValue(self: Fields & Types.Meter, shown: boolean?): Types.Meter\
+	self.showValue = shown ~= false\
+	;(self.refs.readout :: TextLabel).Visible = self.showValue\
+	;(self.refs.header :: Frame).Visible = self.labelText ~= \"\" or self.showValue\
+\
+	Meter.paint(self)\
+\
+	return self:invalidate()\
+end\
+\
+--- How the readout is written. Given the value and the maximum.\
+function Meter.setFormat(self: Fields & Types.Meter, format: (number, number) -> string): Types.Meter\
+	self.formatter = format\
+\
+	Meter.paint(self)\
+\
+	return self\
+end\
+\
+function Meter.setThickness(self: Fields & Types.Meter, thickness: number): Types.Meter\
+	self.thickness = math.max(1, thickness)\
+	;(self.refs.rail :: Frame).Size = UDim2.new(1, 0, 0, self.thickness)\
+\
+	return self:invalidate()\
+end\
+\
+function Meter.value(self: Fields & Types.Meter): number\
+	return self.current\
+end\
+\
+function Meter.measure(self: Fields & Types.Meter, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local height = self.thickness\
+\
+	if (self.refs.header :: Frame).Visible then\
+		height += theme.size.row + theme.space.xs\
+	end\
+\
+	self.desired = Vector2.new(math.ceil(math.max(1, available.X - self.margin * 2)), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Meter)\
+\
+return Meter\
+"},
+{"Astrix/_Packages/Lume/Elements/Pagination","ModuleScript","--!strict\
+\
+--- Page numbers, with arrows either side.\
+---\
+--- Long runs collapse to an ellipsis so the control stays one row wide at any\
+--- length. What never collapses is the first page, the last page, and the\
+--- neighbourhood of where you are — those are the three things anyone actually\
+--- aims at.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Pagination = {}\
+Pagination.__index = Pagination\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	page: number,\
+	pages: number,\
+	window: number,\
+	buttons: { TextButton },\
+	slots: number,\
+}\
+\
+--- Which page numbers to draw, with `0` standing for an ellipsis.\
+function Pagination.slotsFor(page: number, pages: number, window: number): { number }\
+	if pages <= window + 4 then\
+		local all = {}\
+\
+		for index = 1, pages do\
+			table.insert(all, index)\
+		end\
+\
+		return all\
+	end\
+\
+	local out = { 1 }\
+	local first = math.max(2, page - window)\
+	local last = math.min(pages - 1, page + window)\
+\
+	if first > 2 then\
+		table.insert(out, 0)\
+	end\
+\
+	for index = first, last do\
+		table.insert(out, index)\
+	end\
+\
+	if last < pages - 1 then\
+		table.insert(out, 0)\
+	end\
+\
+	table.insert(out, pages)\
+\
+	return out\
+end\
+\
+--- Creates a pager. Prefer `panel:pagination(pages)`.\
+function Pagination.new(app: Types.App): Types.Pagination\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Pagination\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Horizontal, 2, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"pagination\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		page = 1,\
+		pages = 1,\
+		window = 1,\
+		buttons = {},\
+		slots = 0,\
+	}\
+\
+	return setmetatable(fields, Pagination) :: any\
+end\
+\
+function Pagination.rebuild(self: Fields & Types.Pagination)\
+	local theme = self.app.theme\
+	local size = theme.size.control\
+\
+	for _, child in self.instance:GetChildren() do\
+		if child:IsA(\"GuiObject\") then\
+			child:Destroy()\
+		end\
+	end\
+\
+	table.clear(self.buttons)\
+\
+	local order = 0\
+\
+	local function add(text: string, name: string, target: number?, active: boolean?)\
+		order += 1\
+\
+		local usable = target ~= nil and self.enabled\
+		local button = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundColor3 = if active then theme.color.accent else theme.color.surfaceHover,\
+				BackgroundTransparency = if active then 0 elseif usable then 0.88 else 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.fromOffset(size, size),\
+				LayoutOrder = order,\
+\
+				Font = if active then theme.font.medium else theme.font.body,\
+				TextSize = theme.text.sm,\
+				TextColor3 = if active then theme.color.accentText else theme.color.text,\
+				TextTransparency = if usable or active then 0 else theme.transparency.disabled,\
+\
+				Name = name,\
+				Text = text,\
+			},\
+			children = { Create.corner(theme.radius.sm) },\
+		}) :: TextButton\
+\
+		button.Parent = self.instance\
+\
+		table.insert(self.buttons, button)\
+\
+		if not usable or active then\
+			return\
+		end\
+\
+		Hover.attach(self.scope, button, function(hovering)\
+			button.BackgroundTransparency = if hovering then 0.78 else 0.88\
+		end)\
+\
+		self.scope:add(button.Activated:Connect(function()\
+			Pagination.goTo(self, target :: number)\
+		end))\
+	end\
+\
+	add(\"‹\", \"Previous\", if self.page > 1 then self.page - 1 else nil)\
+\
+	local slots = Pagination.slotsFor(self.page, self.pages, self.window)\
+\
+	self.slots = #slots\
+\
+	for _, slot in slots do\
+		if slot == 0 then\
+			add(\"…\", \"Ellipsis\", nil)\
+		else\
+			add(tostring(slot), `Page{slot}`, slot, slot == self.page)\
+		end\
+	end\
+\
+	add(\"›\", \"Next\", if self.page < self.pages then self.page + 1 else nil)\
+end\
+\
+--- Moves to a page and fires `changed`, clamped to what exists.\
+function Pagination.goTo(self: Fields & Types.Pagination, page: number): Types.Pagination\
+	local next = math.clamp(math.round(page), 1, math.max(1, self.pages))\
+\
+	if next == self.page then\
+		return self\
+	end\
+\
+	self.page = next\
+\
+	Pagination.rebuild(self)\
+\
+	self:emit(\"changed\", next)\
+\
+	return self\
+end\
+\
+function Pagination.setPages(self: Fields & Types.Pagination, pages: Types.Bindable<number>): Types.Pagination\
+	Node.bind(self, \"pages\", pages, function(next: number)\
+		self.pages = math.max(1, math.round(next))\
+		self.page = math.min(self.page, self.pages)\
+\
+		Pagination.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Pagination.setPage(self: Fields & Types.Pagination, page: Types.Bindable<number>): Types.Pagination\
+	Node.bind(self, \"page\", page, function(next: number)\
+		self.page = math.clamp(math.round(next), 1, math.max(1, self.pages))\
+\
+		Pagination.rebuild(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- How many pages either side of the current one stay visible.\
+function Pagination.setWindow(self: Fields & Types.Pagination, window: number): Types.Pagination\
+	self.window = math.max(0, math.round(window))\
+\
+	Pagination.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Pagination.onChanged(self: Fields & Types.Pagination, handler: (number) -> ()): Types.Pagination\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Pagination.value(self: Fields & Types.Pagination): number\
+	return self.page\
+end\
+\
+function Pagination.measure(self: Fields & Types.Pagination, available: Vector2): Vector2\
+	local size = self.app.theme.size.control\
+	local total = #self.buttons * (size + 2)\
+\
+	self.desired = Vector2.new(math.ceil(math.min(total, math.max(1, available.X - self.margin * 2))), size)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Pagination)\
+\
+return Pagination\
+"},
 {"Astrix/_Packages/Lume/Elements/Progress","ModuleScript","--!strict\
 \
 --- A progress bar, determinate or not.\
@@ -13768,6 +14964,722 @@ end\
 Element.install(Progress)\
 \
 return Progress\
+"},
+{"Astrix/_Packages/Lume/Elements/Radio","ModuleScript","--!strict\
+\
+--- A set of options where exactly one is chosen, each on its own row with a\
+--- dot beside it.\
+---\
+--- A select hides the options behind a click; a radio group shows them all at\
+--- once. That is the whole difference, and it decides which to use: three\
+--- options with consequences want to be read side by side, twenty countries do\
+--- not.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Radio = {}\
+Radio.__index = Radio\
+\
+export type Row = {\
+	option: Types.Option,\
+	button: TextButton,\
+	ring: Frame,\
+	dot: Frame,\
+}\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	options: { Types.Option },\
+	rows: { Row },\
+	selected: string?,\
+	labelText: string,\
+	horizontal: boolean,\
+	rowHeight: number,\
+}\
+\
+local RING = 16\
+\
+--// locals\
+local function normalise(entry: Types.Option | string, index: number): Types.Option\
+	if type(entry) == \"string\" then\
+		return { id = entry, text = entry }\
+	end\
+\
+	local option = entry :: Types.Option\
+\
+	return {\
+		id = option.id or option.text or tostring(index),\
+		text = option.text or \"\",\
+		icon = option.icon,\
+		description = option.description,\
+	}\
+end\
+\
+--- Creates a radio group. Prefer `panel:radio(label)`.\
+function Radio.new(app: Types.App): Types.Radio\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.row),\
+			Name = \"Radio\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Vertical, theme.space.xs),\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, theme.size.row),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"rows\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, 0),\
+					LayoutOrder = 2,\
+					Name = \"Rows\",\
+				},\
+				children = {\
+					Create.list(Enum.FillDirection.Vertical, theme.space.xs, {\
+						VerticalAlignment = Enum.VerticalAlignment.Top,\
+					}),\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"radio\",\
+		desired = Vector2.new(0, theme.size.row),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		options = {},\
+		rows = {},\
+		selected = nil,\
+		labelText = \"\",\
+		horizontal = false,\
+		rowHeight = theme.size.row,\
+	}\
+\
+	return setmetatable(fields, Radio) :: any\
+end\
+\
+--- Fills the chosen dot and empties the rest.\
+function Radio.paint(self: Fields, immediate: boolean?)\
+	local theme = self.app.theme\
+\
+	for _, row in self.rows do\
+		local chosen = row.option.id == self.selected\
+		local target = {\
+			Size = if chosen then UDim2.fromOffset(8, 8) else UDim2.fromOffset(0, 0),\
+			BackgroundColor3 = theme.color.accent,\
+		}\
+\
+		if immediate then\
+			Motion.set(row.dot, target)\
+		else\
+			Motion.animate(row.dot, target, theme:spec(\"morph\"))\
+		end\
+\
+		local stroke = row.ring:FindFirstChildOfClass(\"UIStroke\")\
+\
+		if stroke then\
+			stroke.Color = if chosen then theme.color.accent else theme.color.borderStrong\
+		end\
+\
+		row.button.TextColor3 = if chosen then theme.color.text else theme.color.textMuted\
+		row.button.TextTransparency = if chosen then 0 else theme.transparency.muted\
+	end\
+end\
+\
+--- Rebuilds the rows. Called on `setOptions` only.\
+function Radio.rebuild(self: Fields & Types.Radio)\
+	local theme = self.app.theme\
+	local host = self.refs.rows :: Frame\
+	local layout = host:FindFirstChildOfClass(\"UIListLayout\")\
+\
+	for _, row in self.rows do\
+		row.button:Destroy()\
+	end\
+\
+	table.clear(self.rows)\
+\
+	if layout then\
+		layout.FillDirection = if self.horizontal\
+			then Enum.FillDirection.Horizontal\
+			else Enum.FillDirection.Vertical\
+	end\
+\
+	for index, option in self.options do\
+		local width = self.app.measure:width(option.text, theme.text.sm, theme.font.body) + RING + theme.space.sm * 2\
+\
+		local button, refs = Create.tree(self.scope, {\
+			class = \"TextButton\",\
+			ref = \"button\",\
+			props = {\
+				BackgroundTransparency = 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = if self.horizontal\
+					then UDim2.fromOffset(math.ceil(width), self.rowHeight)\
+					else UDim2.new(1, 0, 0, self.rowHeight),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.body,\
+				TextSize = theme.text.sm,\
+				TextColor3 = theme.color.textMuted,\
+				TextTransparency = theme.transparency.muted,\
+				TextXAlignment = Enum.TextXAlignment.Left,\
+\
+				Name = `Option_{option.id}`,\
+				--// the label is padded past the ring rather than being its own\
+				--// instance: one less object per row, and the hit area is the\
+				--// whole row either way\
+				Text = `      {option.text}`,\
+			},\
+			children = {\
+				{\
+					class = \"Frame\",\
+					ref = \"ring\",\
+					props = {\
+						BackgroundTransparency = 1,\
+						BorderSizePixel = 0,\
+\
+						AnchorPoint = Vector2.new(0, 0.5),\
+						Position = UDim2.new(0, 0, 0.5, 0),\
+						Size = UDim2.fromOffset(RING, RING),\
+						Name = \"Ring\",\
+					},\
+					children = {\
+						Create.corner(UDim.new(1, 0)),\
+						Create.stroke(theme.color.borderStrong, 1.5, 0.2),\
+						{\
+							class = \"Frame\",\
+							ref = \"dot\",\
+							props = {\
+								BackgroundColor3 = theme.color.accent,\
+								BorderSizePixel = 0,\
+\
+								AnchorPoint = Vector2.new(0.5, 0.5),\
+								Position = UDim2.fromScale(0.5, 0.5),\
+								Size = UDim2.fromOffset(0, 0),\
+								Name = \"Dot\",\
+							},\
+							children = { Create.corner(UDim.new(1, 0)) },\
+						},\
+					},\
+				},\
+			},\
+		})\
+\
+		button.Parent = host\
+\
+		local row: Row = {\
+			option = option,\
+			button = button :: TextButton,\
+			ring = refs.ring :: Frame,\
+			dot = refs.dot :: Frame,\
+		}\
+\
+		table.insert(self.rows, row)\
+\
+		Hover.attach(self.scope, row.button, function(hovering)\
+			if not self.enabled or option.id == self.selected then\
+				return\
+			end\
+\
+			Motion.animate(\
+				row.button,\
+				{ TextTransparency = if hovering then 0 else theme.transparency.muted },\
+				theme:spec(\"hover\")\
+			)\
+		end)\
+\
+		self.scope:add(row.button.Activated:Connect(function()\
+			if not self.enabled then\
+				return\
+			end\
+\
+			Radio.choose(self, option.id)\
+		end))\
+	end\
+\
+	Radio.paint(self, true)\
+end\
+\
+--- Selects an option and fires `changed`, unless it was already chosen.\
+function Radio.choose(self: Fields & Types.Radio, id: string)\
+	if self.selected == id then\
+		return\
+	end\
+\
+	self.selected = id\
+\
+	Radio.paint(self)\
+\
+	self:emit(\"changed\", id)\
+end\
+\
+function Radio.setOptions(\
+	self: Fields & Types.Radio,\
+	options: Types.Bindable<{ Types.Option | string }>\
+): Types.Radio\
+	Node.bind(self, \"options\", options, function(next: { Types.Option | string })\
+		local normalised: { Types.Option } = {}\
+\
+		for index, entry in next do\
+			table.insert(normalised, normalise(entry, index))\
+		end\
+\
+		self.options = normalised\
+\
+		--// a selection that is no longer on the list is worse than none: the\
+		--// group would show nothing chosen while still reporting a value\
+		if self.selected then\
+			local found = false\
+\
+			for _, option in normalised do\
+				if option.id == self.selected then\
+					found = true\
+\
+					break\
+				end\
+			end\
+\
+			if not found then\
+				self.selected = nil\
+			end\
+		end\
+\
+		Radio.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Radio.setValue(self: Fields & Types.Radio, id: Types.Bindable<string?>): Types.Radio\
+	Node.bind(self, \"value\", id, function(next: string?)\
+		if self.selected == next then\
+			return\
+		end\
+\
+		self.selected = next\
+\
+		Radio.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Radio.setLabel(self: Fields & Types.Radio, label: Types.Bindable<string>): Types.Radio\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local text = self.refs.label :: TextLabel\
+\
+		self.labelText = tostring(next)\
+\
+		text.Text = self.labelText\
+		text.Visible = self.labelText ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+--- Lays the options out in a row instead of a column. For two or three short\
+--- ones; a column stays easier to read past that.\
+function Radio.setHorizontal(self: Fields & Types.Radio, horizontal: boolean?): Types.Radio\
+	self.horizontal = horizontal ~= false\
+\
+	Radio.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Radio.onChanged(self: Fields & Types.Radio, handler: (string) -> ()): Types.Radio\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Radio.value(self: Fields & Types.Radio): string?\
+	return self.selected\
+end\
+\
+function Radio.measure(self: Fields & Types.Radio, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local width = math.max(1, available.X - self.margin * 2)\
+\
+	local rows = #self.rows\
+	local height = 0\
+\
+	if self.horizontal then\
+		height = if rows > 0 then self.rowHeight else 0\
+	else\
+		height = rows * self.rowHeight + math.max(0, rows - 1) * theme.space.xs\
+	end\
+\
+	if self.labelText ~= \"\" then\
+		height += theme.size.row + theme.space.xs\
+	end\
+\
+	self.desired = Vector2.new(math.ceil(width), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Radio)\
+\
+return Radio\
+"},
+{"Astrix/_Packages/Lume/Elements/Rating","ModuleScript","--!strict\
+\
+--- A row of stars you click to score something.\
+---\
+--- Hovering previews the score rather than only highlighting one star, because\
+--- the question is \"how many\", not \"which\". Clicking the star already showing\
+--- clears it — otherwise a five-star rating given by accident can only be\
+--- lowered to one.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Rating = {}\
+Rating.__index = Rating\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	current: number,\
+	maximum: number,\
+	preview: number?,\
+	stars: { TextButton },\
+	labelText: string,\
+	glyph: string,\
+	clearable: boolean,\
+	starSize: number,\
+}\
+\
+--- Creates a rating. Prefer `panel:rating(label)`.\
+function Rating.new(app: Types.App): Types.Rating\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Rating\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.sm, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, theme.size.control),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"stars\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, theme.size.control),\
+					LayoutOrder = 2,\
+					Name = \"Stars\",\
+				},\
+				children = {\
+					Create.list(Enum.FillDirection.Horizontal, 2, {\
+						VerticalAlignment = Enum.VerticalAlignment.Center,\
+					}),\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"rating\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		current = 0,\
+		maximum = 5,\
+		preview = nil,\
+		stars = {},\
+		labelText = \"\",\
+		glyph = \"★\",\
+		clearable = true,\
+		starSize = theme.text.lg,\
+	}\
+\
+	local rating = setmetatable(fields, Rating) :: any\
+\
+	Rating.rebuild(rating)\
+\
+	return rating\
+end\
+\
+--- Lights every star up to the score, or up to whatever is being hovered.\
+function Rating.paint(self: Fields, immediate: boolean?)\
+	local theme = self.app.theme\
+	local showing = self.preview or self.current\
+\
+	for index, star in self.stars do\
+		local lit = index <= showing\
+		local target = {\
+			TextColor3 = if lit then theme.color.warn else theme.color.textGhost,\
+			TextTransparency = if lit then 0 else theme.transparency.ghost,\
+		}\
+\
+		if immediate then\
+			Motion.set(star, target)\
+		else\
+			Motion.animate(star, target, theme:spec(\"hover\"))\
+		end\
+	end\
+end\
+\
+function Rating.rebuild(self: Fields & Types.Rating)\
+	local theme = self.app.theme\
+	local host = self.refs.stars :: Frame\
+\
+	for _, star in self.stars do\
+		star:Destroy()\
+	end\
+\
+	table.clear(self.stars)\
+\
+	for index = 1, self.maximum do\
+		local star = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundTransparency = 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.fromOffset(self.starSize + 6, self.starSize + 6),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.body,\
+				TextSize = self.starSize,\
+				TextColor3 = theme.color.textGhost,\
+				TextTransparency = theme.transparency.ghost,\
+\
+				Name = `Star{index}`,\
+				Text = self.glyph,\
+			},\
+		}) :: TextButton\
+\
+		star.Parent = host\
+\
+		table.insert(self.stars, star)\
+\
+		Hover.attach(self.scope, star, function(hovering)\
+			if not self.enabled then\
+				return\
+			end\
+\
+			--// the preview is the whole run up to this star, not this star\
+			--// alone: the question is how many, not which\
+			self.preview = if hovering then index else nil\
+\
+			Rating.paint(self)\
+		end)\
+\
+		self.scope:add(star.Activated:Connect(function()\
+			if not self.enabled then\
+				return\
+			end\
+\
+			Rating.setScore(self, if self.clearable and self.current == index then 0 else index)\
+		end))\
+	end\
+\
+	Rating.paint(self, true)\
+end\
+\
+--- Sets the score and fires `changed` if it moved.\
+function Rating.setScore(self: Fields & Types.Rating, score: number): Types.Rating\
+	local next = math.clamp(math.round(score), 0, self.maximum)\
+\
+	if next == self.current then\
+		return self\
+	end\
+\
+	self.current = next\
+\
+	Rating.paint(self)\
+\
+	self:emit(\"changed\", next)\
+\
+	return self\
+end\
+\
+function Rating.setValue(self: Fields & Types.Rating, score: Types.Bindable<number>): Types.Rating\
+	Node.bind(self, \"value\", score, function(next: number)\
+		self.current = math.clamp(math.round(next), 0, self.maximum)\
+\
+		Rating.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- How many stars there are. Five unless you say otherwise.\
+function Rating.setMaximum(self: Fields & Types.Rating, maximum: number): Types.Rating\
+	self.maximum = math.max(1, math.round(maximum))\
+	self.current = math.min(self.current, self.maximum)\
+\
+	Rating.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+--- The character each star is drawn with. Hearts, skulls, whatever suits.\
+function Rating.setGlyph(self: Fields & Types.Rating, glyph: string): Types.Rating\
+	self.glyph = glyph\
+\
+	for _, star in self.stars do\
+		star.Text = glyph\
+	end\
+\
+	return self\
+end\
+\
+function Rating.setStarSize(self: Fields & Types.Rating, size: number): Types.Rating\
+	self.starSize = size\
+\
+	Rating.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+--- Whether clicking the current score clears it back to nothing.\
+function Rating.setClearable(self: Fields & Types.Rating, clearable: boolean?): Types.Rating\
+	self.clearable = clearable ~= false\
+\
+	return self\
+end\
+\
+function Rating.setLabel(self: Fields & Types.Rating, label: Types.Bindable<string>): Types.Rating\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local text = self.refs.label :: TextLabel\
+\
+		self.labelText = tostring(next)\
+\
+		text.Text = self.labelText\
+		text.Visible = self.labelText ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Rating.onChanged(self: Fields & Types.Rating, handler: (number) -> ()): Types.Rating\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Rating.value(self: Fields & Types.Rating): number\
+	return self.current\
+end\
+\
+function Rating.measure(self: Fields & Types.Rating, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local stars = self.maximum * (self.starSize + 6) + math.max(0, self.maximum - 1) * 2\
+	local width = stars\
+\
+	if self.labelText ~= \"\" then\
+		width += self.app.measure:width(self.labelText, theme.text.sm, theme.font.body) + theme.space.sm\
+	end\
+\
+	self.desired = Vector2.new(\
+		math.ceil(math.min(width, math.max(1, available.X - self.margin * 2))),\
+		math.ceil(math.max(theme.size.control, self.starSize + 6))\
+	)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Rating)\
+\
+return Rating\
 "},
 {"Astrix/_Packages/Lume/Elements/Scroll","ModuleScript","--!strict\
 \
@@ -14084,6 +15996,370 @@ end\
 Element.install(Scroll)\
 \
 return Scroll\
+"},
+{"Astrix/_Packages/Lume/Elements/Scrubber","ModuleScript","--!strict\
+\
+--- A number you drag sideways to change, with no track under it.\
+---\
+--- What a slider cannot do: work without a range. A camera's Z has no\
+--- meaningful minimum or maximum, so there is no rail to draw and no fraction\
+--- to fill — but dragging still works, because the gesture is *relative*.\
+---\
+--- Sensitivity is per-pixel and scales with the step, so a scrubber counting in\
+--- hundredths does not need a mile of desk to cross a whole unit.\
+--- @section Elements\
+\
+local UserInputService = game:GetService(\"UserInputService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Element = require(script.Parent.Element)\
+\
+local Scrubber = {}\
+Scrubber.__index = Scrubber\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	current: number,\
+	minimum: number?,\
+	maximum: number?,\
+	step: number,\
+	sensitivity: number,\
+\
+	labelText: string,\
+	dragging: boolean,\
+	anchor: number,\
+	origin: number,\
+	typing: boolean,\
+	formatter: ((number) -> string)?,\
+}\
+\
+--- Wires drag-to-scrub onto a box. Shared with `Vector`, which is three of\
+--- these in a row and should behave identically.\
+function Scrubber.attach(\
+	scope: Types.Scope,\
+	box: GuiObject,\
+	read: () -> number,\
+	write: (number, boolean) -> (),\
+	rate: () -> number\
+)\
+	local dragging = false\
+	local anchor = 0\
+	local origin = 0\
+\
+	scope:add(box.InputBegan:Connect(function(input)\
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then\
+			return\
+		end\
+\
+		dragging = true\
+		anchor = input.Position.X\
+		origin = read()\
+	end))\
+\
+	scope:add(UserInputService.InputChanged:Connect(function(input)\
+		if not dragging then\
+			return\
+		end\
+\
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then\
+			return\
+		end\
+\
+		--// relative to where the drag started, not to the last frame: a drag\
+		--// that wanders back to where it began leaves the number where it\
+		--// began, with no accumulated drift\
+		write(origin + (input.Position.X - anchor) * rate(), true)\
+	end))\
+\
+	scope:add(UserInputService.InputEnded:Connect(function(input)\
+		if not dragging then\
+			return\
+		end\
+\
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then\
+			return\
+		end\
+\
+		dragging = false\
+\
+		write(read(), false)\
+	end))\
+end\
+\
+--- Creates a scrubber. Prefer `panel:scrubber(label)`.\
+function Scrubber.new(app: Types.App): Types.Scrubber\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Scrubber\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.sm, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, theme.size.control),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"TextBox\",\
+				ref = \"box\",\
+				props = {\
+					BackgroundColor3 = theme.color.surfaceSunken,\
+					BackgroundTransparency = 0.4,\
+					BorderSizePixel = 0,\
+					ClearTextOnFocus = false,\
+\
+					Size = UDim2.new(1, 0, 0, theme.size.control),\
+					LayoutOrder = 2,\
+\
+					Font = theme.font.mono,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.text,\
+\
+					Name = \"Value\",\
+					Text = \"0\",\
+				},\
+				children = { Create.corner(theme.radius.sm) },\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"scrubber\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		current = 0,\
+		minimum = nil,\
+		maximum = nil,\
+		step = 1,\
+		sensitivity = 1,\
+\
+		labelText = \"\",\
+		dragging = false,\
+		anchor = 0,\
+		origin = 0,\
+		typing = false,\
+		formatter = nil,\
+	}\
+\
+	local scrubber = setmetatable(fields, Scrubber) :: any\
+	local box = refs.box :: TextBox\
+\
+	Scrubber.attach(scope, box, function()\
+		return fields.current\
+	end, function(value, live)\
+		if not fields.enabled then\
+			return\
+		end\
+\
+		Scrubber.commitValue(scrubber, value)\
+\
+		if not live then\
+			scrubber:emit(\"committed\", fields.current)\
+		end\
+	end, function()\
+		return fields.step * fields.sensitivity\
+	end)\
+\
+	Hover.attach(scope, box, function(hovering)\
+		if not fields.enabled then\
+			return\
+		end\
+\
+		box.BackgroundTransparency = if hovering then 0.25 else 0.4\
+	end)\
+\
+	scope:add(box.Focused:Connect(function()\
+		fields.typing = true\
+	end))\
+\
+	scope:add(box.FocusLost:Connect(function()\
+		fields.typing = false\
+\
+		local typed = tonumber((box.Text:gsub(\"[^%-%.%d]\", \"\")))\
+\
+		if typed then\
+			Scrubber.commitValue(scrubber, typed)\
+\
+			scrubber:emit(\"committed\", fields.current)\
+		end\
+\
+		Scrubber.paint(fields)\
+	end))\
+\
+	Scrubber.paint(fields)\
+\
+	return scrubber\
+end\
+\
+--- Snaps to the step and clamps to whichever ends exist. Both are optional —\
+--- that is the point of this element.\
+function Scrubber.quantise(self: Fields, value: number): number\
+	if self.step > 0 then\
+		value = math.round(value / self.step) * self.step\
+		value = math.round(value * 1e6) / 1e6\
+	end\
+\
+	if self.minimum then\
+		value = math.max(value, self.minimum)\
+	end\
+\
+	if self.maximum then\
+		value = math.min(value, self.maximum)\
+	end\
+\
+	return value\
+end\
+\
+function Scrubber.paint(self: Fields)\
+	if self.typing then\
+		return\
+	end\
+\
+	local box = self.refs.box :: TextBox\
+\
+	box.Text = if self.formatter\
+		then self.formatter(self.current)\
+		else string.format(if self.step % 1 == 0 then \"%d\" else \"%g\", self.current)\
+end\
+\
+function Scrubber.commitValue(self: Fields & Types.Scrubber, value: number)\
+	local next = Scrubber.quantise(self, value)\
+\
+	if next == self.current then\
+		return\
+	end\
+\
+	self.current = next\
+\
+	Scrubber.paint(self)\
+\
+	self:emit(\"changed\", next)\
+end\
+\
+--- Either end may be nil, which means there is no end that way.\
+function Scrubber.setRange(self: Fields & Types.Scrubber, minimum: number?, maximum: number?): Types.Scrubber\
+	self.minimum = minimum\
+	self.maximum = maximum\
+\
+	Scrubber.commitValue(self, self.current)\
+\
+	return self\
+end\
+\
+function Scrubber.setStep(self: Fields & Types.Scrubber, step: number): Types.Scrubber\
+	self.step = math.max(0, step)\
+\
+	Scrubber.paint(self)\
+\
+	return self\
+end\
+\
+--- Steps per pixel of drag. One by default.\
+function Scrubber.setSensitivity(self: Fields & Types.Scrubber, sensitivity: number): Types.Scrubber\
+	self.sensitivity = math.max(0.001, sensitivity)\
+\
+	return self\
+end\
+\
+function Scrubber.setValue(self: Fields & Types.Scrubber, value: Types.Bindable<number>): Types.Scrubber\
+	Node.bind(self, \"value\", value, function(next: number)\
+		self.current = Scrubber.quantise(self, next)\
+\
+		Scrubber.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Scrubber.setLabel(self: Fields & Types.Scrubber, label: Types.Bindable<string>): Types.Scrubber\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local text = self.refs.label :: TextLabel\
+\
+		self.labelText = tostring(next)\
+\
+		text.Text = self.labelText\
+		text.Visible = self.labelText ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Scrubber.setFormat(self: Fields & Types.Scrubber, format: (number) -> string): Types.Scrubber\
+	self.formatter = format\
+\
+	Scrubber.paint(self)\
+\
+	return self\
+end\
+\
+function Scrubber.onChanged(self: Fields & Types.Scrubber, handler: (number) -> ()): Types.Scrubber\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Scrubber.onCommitted(self: Fields & Types.Scrubber, handler: (number) -> ()): Types.Scrubber\
+	return self:on(\"committed\", handler)\
+end\
+\
+function Scrubber.value(self: Fields & Types.Scrubber): number\
+	return self.current\
+end\
+\
+function Scrubber.measure(self: Fields & Types.Scrubber, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local width = math.max(1, available.X - self.margin * 2)\
+\
+	self.desired = Vector2.new(math.ceil(width), theme.size.control)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Scrubber)\
+\
+return Scrubber\
 "},
 {"Astrix/_Packages/Lume/Elements/Select","ModuleScript","--!strict\
 \
@@ -15040,6 +17316,482 @@ Element.install(Spacer)\
 \
 return Spacer\
 "},
+{"Astrix/_Packages/Lume/Elements/Sparkline","ModuleScript","--!strict\
+\
+--- A line chart the size of a line of text.\
+---\
+--- No axes, no grid, no legend — the shape is the whole message. Used inline\
+--- next to a number, where a full chart would be a change of subject.\
+---\
+--- Drawn as rotated segments rather than an image, so it costs one frame per\
+--- point and inherits the theme's colours.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+\
+local Sparkline = {}\
+Sparkline.__index = Sparkline\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	points: { number },\
+	segments: { Frame },\
+	color: Color3?,\
+	thickness: number,\
+	height: number,\
+	minimum: number?,\
+	maximum: number?,\
+	area: boolean,\
+}\
+\
+--- Creates a sparkline. Prefer `panel:sparkline(points)`.\
+function Sparkline.new(app: Types.App): Types.Sparkline\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local height = 28\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			ClipsDescendants = true,\
+\
+			Size = UDim2.new(1, 0, 0, height),\
+			Name = \"Sparkline\",\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"sparkline\",\
+		desired = Vector2.new(0, height),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		points = {},\
+		segments = {},\
+		color = nil,\
+		thickness = 2,\
+		height = height,\
+		minimum = nil,\
+		maximum = nil,\
+		area = false,\
+	}\
+\
+	return setmetatable(fields, Sparkline) :: any\
+end\
+\
+--- Rebuilds the segments. Positions are fractions of the frame, so the line\
+--- follows the element's width without being redrawn when it changes.\
+function Sparkline.rebuild(self: Fields & Types.Sparkline)\
+	local theme = self.app.theme\
+\
+	for _, segment in self.segments do\
+		segment:Destroy()\
+	end\
+\
+	table.clear(self.segments)\
+\
+	local count = #self.points\
+\
+	if count < 2 then\
+		return\
+	end\
+\
+	local low = self.minimum\
+	local high = self.maximum\
+\
+	if not low or not high then\
+		low = self.points[1]\
+		high = self.points[1]\
+\
+		for _, point in self.points do\
+			low = math.min(low :: number, point)\
+			high = math.max(high :: number, point)\
+		end\
+	end\
+\
+	local span = (high :: number) - (low :: number)\
+	local color = self.color or theme.color.accent\
+\
+	--// a flat line has no span to divide by, and sits down the middle rather\
+	--// than at the bottom, where it would read as zero\
+	local function at(index: number): (number, number)\
+		local x = (index - 1) / (count - 1)\
+		local y = if span == 0 then 0.5 else 1 - ((self.points[index] - (low :: number)) / span)\
+\
+		return x, y\
+	end\
+\
+	for index = 1, count - 1 do\
+		local x1, y1 = at(index)\
+		local x2, y2 = at(index + 1)\
+\
+		--// pixel geometry is not known until the element is laid out, so the\
+		--// segment is positioned in scale and rotated by the angle between the\
+		--// two points in the element's own aspect\
+		local width = self.instance.AbsoluteSize.X\
+		local height = self.instance.AbsoluteSize.Y\
+\
+		local dx = (x2 - x1) * math.max(width, 1)\
+		local dy = (y2 - y1) * math.max(height, 1)\
+		local length = math.sqrt(dx * dx + dy * dy)\
+\
+		local segment = Create.node(self.scope, {\
+			class = \"Frame\",\
+			props = {\
+				BackgroundColor3 = color,\
+				BorderSizePixel = 0,\
+\
+				AnchorPoint = Vector2.new(0, 0.5),\
+				Position = UDim2.fromScale(x1, y1),\
+				Size = UDim2.fromOffset(math.max(length, 1), self.thickness),\
+				Rotation = math.deg(math.atan2(dy, dx)),\
+\
+				Name = `Segment{index}`,\
+			},\
+			children = { Create.corner(UDim.new(1, 0)) },\
+		}) :: Frame\
+\
+		segment.Parent = self.instance\
+\
+		table.insert(self.segments, segment)\
+	end\
+end\
+\
+function Sparkline.setPoints(self: Fields & Types.Sparkline, points: Types.Bindable<{ number }>): Types.Sparkline\
+	Node.bind(self, \"points\", points, function(next: { number })\
+		self.points = next\
+\
+		Sparkline.rebuild(self)\
+	end)\
+\
+	return self\
+end\
+\
+--- Fixes the vertical scale. Without it the line uses its own low and high,\
+--- which makes a flat-ish series look dramatic.\
+function Sparkline.setRange(self: Fields & Types.Sparkline, minimum: number?, maximum: number?): Types.Sparkline\
+	self.minimum = minimum\
+	self.maximum = maximum\
+\
+	Sparkline.rebuild(self)\
+\
+	return self\
+end\
+\
+function Sparkline.setColor(self: Fields & Types.Sparkline, color: Color3): Types.Sparkline\
+	self.color = color\
+\
+	Sparkline.rebuild(self)\
+\
+	return self\
+end\
+\
+function Sparkline.setThickness(self: Fields & Types.Sparkline, thickness: number): Types.Sparkline\
+	self.thickness = math.max(1, thickness)\
+\
+	Sparkline.rebuild(self)\
+\
+	return self\
+end\
+\
+function Sparkline.setHeight(self: Fields & Types.Sparkline, height: number): Types.Sparkline\
+	self.height = math.max(8, height)\
+\
+	return self:invalidate()\
+end\
+\
+--- The last point, which is usually the one being written about.\
+function Sparkline.last(self: Fields & Types.Sparkline): number?\
+	return self.points[#self.points]\
+end\
+\
+function Sparkline.measure(self: Fields & Types.Sparkline, available: Vector2): Vector2\
+	self.desired = Vector2.new(math.ceil(math.max(1, available.X - self.margin * 2)), self.height)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+function Sparkline.commit(self: Fields & Types.Sparkline, inner: Vector2, vertical: boolean, share: number)\
+	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X\
+\
+	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), self.height)\
+\
+	--// the segments are sized in pixels, so they are rebuilt once the element\
+	--// knows how wide it actually is\
+	Sparkline.rebuild(self)\
+end\
+\
+Element.install(Sparkline)\
+\
+return Sparkline\
+"},
+{"Astrix/_Packages/Lume/Elements/Spinner","ModuleScript","--!strict\
+\
+--- A ring that turns while something is happening.\
+---\
+--- Used where a progress bar would be a lie: you know the work has started and\
+--- nothing more. A bar that fills to a made-up percentage is worse than a\
+--- spinner, because it promises an ending it cannot see.\
+---\
+--- The sweep is a rotating gradient rather than a spritesheet, so it costs one\
+--- instance and inherits the theme's colours without an asset to ship.\
+--- @section Elements\
+\
+local RunService = game:GetService(\"RunService\")\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Element = require(script.Parent.Element)\
+\
+local Spinner = {}\
+Spinner.__index = Spinner\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	spinning: boolean,\
+	speed: number,\
+	diameter: number,\
+	labelText: string,\
+	turn: RBXScriptConnection?,\
+	angle: number,\
+}\
+\
+--- Creates a spinner. Prefer `panel:spinner(label)`.\
+function Spinner.new(app: Types.App): Types.Spinner\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local diameter = theme.size.icon + 4\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, diameter),\
+			Name = \"Spinner\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Horizontal, theme.space.sm, {\
+				VerticalAlignment = Enum.VerticalAlignment.Center,\
+			}),\
+			{\
+				class = \"Frame\",\
+				ref = \"ring\",\
+				props = {\
+					BackgroundColor3 = theme.color.accent,\
+					BorderSizePixel = 0,\
+\
+					Size = UDim2.fromOffset(diameter, diameter),\
+					LayoutOrder = 1,\
+					Name = \"Ring\",\
+				},\
+				children = {\
+					Create.corner(UDim.new(1, 0)),\
+					--// the sweep: opaque at one end of the gradient, gone at\
+					--// the other, and the whole thing rotates\
+					Create.gradient(\
+						ColorSequence.new(theme.color.accent),\
+						0,\
+						NumberSequence.new({\
+							NumberSequenceKeypoint.new(0, 1),\
+							NumberSequenceKeypoint.new(0.5, 0.6),\
+							NumberSequenceKeypoint.new(1, 0),\
+						})\
+					),\
+					{\
+						class = \"Frame\",\
+						props = {\
+							BackgroundColor3 = theme.color.surface,\
+							BorderSizePixel = 0,\
+\
+							AnchorPoint = Vector2.new(0.5, 0.5),\
+							Position = UDim2.fromScale(0.5, 0.5),\
+							Size = UDim2.fromOffset(diameter - 6, diameter - 6),\
+							Name = \"Hole\",\
+						},\
+						children = { Create.corner(UDim.new(1, 0)) },\
+					},\
+				},\
+			},\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					AutomaticSize = Enum.AutomaticSize.X,\
+					Size = UDim2.fromOffset(0, diameter),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+\
+					LayoutOrder = 2,\
+					Visible = false,\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"spinner\",\
+		desired = Vector2.new(diameter, diameter),\
+		margin = 0,\
+		fill = false,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		spinning = false,\
+		speed = 1.1,\
+		diameter = diameter,\
+		labelText = \"\",\
+		turn = nil,\
+		angle = 0,\
+	}\
+\
+	local spinner = setmetatable(fields, Spinner) :: any\
+\
+	Spinner.setSpinning(spinner, true)\
+\
+	return spinner\
+end\
+\
+--- Starts or stops the sweep. A stopped spinner keeps its place rather than\
+--- snapping back to the top, so stopping and starting does not jump.\
+function Spinner.setSpinning(self: Fields & Types.Spinner, spinning: boolean?): Types.Spinner\
+	local next = spinning ~= false\
+\
+	if next == self.spinning then\
+		return self\
+	end\
+\
+	self.spinning = next\
+\
+	if self.turn then\
+		self.turn:Disconnect()\
+\
+		self.turn = nil\
+	end\
+\
+	local ring = self.refs.ring :: Frame\
+\
+	if not next then\
+		ring.Visible = false\
+\
+		return self\
+	end\
+\
+	ring.Visible = true\
+\
+	local gradient = ring:FindFirstChildOfClass(\"UIGradient\")\
+\
+	local connection = RunService.RenderStepped:Connect(function(delta)\
+		self.angle = (self.angle + delta * 360 / self.speed) % 360\
+\
+		if gradient then\
+			gradient.Rotation = self.angle\
+		end\
+	end)\
+\
+	self.turn = connection\
+	self.scope:add(connection)\
+\
+	return self\
+end\
+\
+--- Seconds per rotation.\
+function Spinner.setSpeed(self: Fields & Types.Spinner, seconds: number): Types.Spinner\
+	self.speed = math.max(0.05, seconds)\
+\
+	return self\
+end\
+\
+function Spinner.setDiameter(self: Fields & Types.Spinner, diameter: number): Types.Spinner\
+	self.diameter = math.max(8, diameter)\
+\
+	local ring = self.refs.ring :: Frame\
+\
+	ring.Size = UDim2.fromOffset(self.diameter, self.diameter)\
+\
+	local hole = ring:FindFirstChild(\"Hole\")\
+\
+	if hole then\
+		(hole :: Frame).Size = UDim2.fromOffset(self.diameter - 6, self.diameter - 6)\
+	end\
+\
+	return self:invalidate()\
+end\
+\
+function Spinner.setLabel(self: Fields & Types.Spinner, label: Types.Bindable<string>): Types.Spinner\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local text = self.refs.label :: TextLabel\
+\
+		self.labelText = tostring(next)\
+\
+		text.Text = self.labelText\
+		text.Visible = self.labelText ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Spinner.measure(self: Fields & Types.Spinner, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local width = self.diameter\
+\
+	if self.labelText ~= \"\" then\
+		width += theme.space.sm + self.app.measure:width(self.labelText, theme.text.sm, theme.font.body)\
+	end\
+\
+	self.desired = Vector2.new(\
+		math.ceil(math.min(width, math.max(1, available.X - self.margin * 2))),\
+		math.ceil(self.diameter)\
+	)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Spinner)\
+\
+return Spinner\
+"},
 {"Astrix/_Packages/Lume/Elements/Stepper","ModuleScript","--!strict\
 \
 --- A number with a minus and a plus either side of it, and a field in the\
@@ -15890,6 +18642,379 @@ Element.install(Suggest)\
 \
 return Suggest\
 "},
+{"Astrix/_Packages/Lume/Elements/Table","ModuleScript","--!strict\
+\
+--- Rows and columns with a header.\
+---\
+--- A list renders one line per item; a table renders one *cell* per column, so\
+--- the second column starts at the same x on every row. That alignment is the\
+--- entire reason to reach for it — without it a table is a list with tabs in\
+--- the text, which stops being true the moment one value is long.\
+---\
+--- Column widths are weights, not pixels. A column with weight 2 takes twice\
+--- the room of one with weight 1, whatever the table ends up being.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Text = require(script.Parent.Parent.Text)\
+local Element = require(script.Parent.Element)\
+\
+local Table = {}\
+Table.__index = Table\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	columns: { Types.Column },\
+	rows: { Types.Row },\
+	built: { { instance: TextButton, cells: { TextLabel } } },\
+\
+	rowHeight: number,\
+	headerShown: boolean,\
+	selectable: boolean,\
+	selectedIndex: number?,\
+	striped: boolean,\
+}\
+\
+--// locals\
+local function weight(column: Types.Column): number\
+	return column.weight or 1\
+end\
+\
+--- Creates a table. Prefer `panel:table()`.\
+function Table.new(app: Types.App): Types.Table\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.row),\
+			Name = \"Table\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Vertical, 0),\
+			{\
+				class = \"Frame\",\
+				ref = \"header\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, theme.size.row),\
+					LayoutOrder = 1,\
+					Name = \"Header\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"rule\",\
+				props = {\
+					BackgroundColor3 = theme.color.border,\
+					BackgroundTransparency = theme.transparency.border,\
+					BorderSizePixel = 0,\
+\
+					Size = UDim2.new(1, 0, 0, 1),\
+					LayoutOrder = 2,\
+					Name = \"Rule\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"body\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, 0),\
+					LayoutOrder = 3,\
+					Name = \"Body\",\
+				},\
+				children = { Create.list(Enum.FillDirection.Vertical, 0) },\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"table\",\
+		desired = Vector2.new(0, theme.size.row),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		columns = {},\
+		rows = {},\
+		built = {},\
+\
+		rowHeight = theme.size.row,\
+		headerShown = true,\
+		selectable = false,\
+		selectedIndex = nil,\
+		striped = true,\
+	}\
+\
+	return setmetatable(fields, Table) :: any\
+end\
+\
+--- One cell, sized by its column's share of the row.\
+function Table.cell(self: Fields, parent: GuiObject, column: Types.Column, index: number, total: number, header: boolean): TextLabel\
+	local theme = self.app.theme\
+\
+	return Create.node(self.scope, {\
+		class = \"TextLabel\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+\
+			Size = UDim2.new(weight(column) / total, -theme.space.sm, 1, 0),\
+			Position = UDim2.fromScale(0, 0),\
+			LayoutOrder = index,\
+\
+			Font = if header then theme.font.medium else theme.font.body,\
+			TextSize = if header then theme.text.xs else theme.text.sm,\
+			TextColor3 = if header then theme.color.textMuted else theme.color.text,\
+			TextTransparency = if header then theme.transparency.muted else 0,\
+			TextXAlignment = if column.align == \"right\"\
+				then Enum.TextXAlignment.Right\
+				elseif column.align == \"center\" then Enum.TextXAlignment.Center\
+				else Enum.TextXAlignment.Left,\
+			TextTruncate = Enum.TextTruncate.AtEnd,\
+			RichText = true,\
+\
+			Name = `Cell_{column.key}`,\
+			Text = \"\",\
+		},\
+	}) :: TextLabel\
+end\
+\
+--- Rebuilds header and rows. Called on `setColumns` and `setRows`.\
+function Table.rebuild(self: Fields & Types.Table)\
+	local theme = self.app.theme\
+	local header = self.refs.header :: Frame\
+	local body = self.refs.body :: Frame\
+\
+	for _, child in header:GetChildren() do\
+		if child:IsA(\"GuiObject\") then\
+			child:Destroy()\
+		end\
+	end\
+\
+	for _, row in self.built do\
+		row.instance:Destroy()\
+	end\
+\
+	table.clear(self.built)\
+\
+	local total = 0\
+\
+	for _, column in self.columns do\
+		total += weight(column)\
+	end\
+\
+	total = math.max(total, 1)\
+\
+	--// the header is laid out by hand rather than by a list layout, because a\
+	--// cell has to sit at the same x as the cell under it, and a list layout\
+	--// would pack them instead\
+	local offset = 0\
+\
+	for index, column in self.columns do\
+		local cell = Table.cell(self, header, column, index, total, true)\
+\
+		cell.Text = column.title or column.key\
+		cell.Position = UDim2.fromScale(offset, 0)\
+		cell.Parent = header\
+\
+		offset += weight(column) / total\
+	end\
+\
+	header.Visible = self.headerShown\
+	;(self.refs.rule :: Frame).Visible = self.headerShown\
+\
+	for index, row in self.rows do\
+		local instance = Create.node(self.scope, {\
+			class = \"TextButton\",\
+			props = {\
+				BackgroundColor3 = theme.color.surfaceHover,\
+				BackgroundTransparency = if self.striped and index % 2 == 0 then 0.94 else 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.new(1, 0, 0, self.rowHeight),\
+				LayoutOrder = index,\
+\
+				Name = `Row{index}`,\
+				Text = \"\",\
+			},\
+		}) :: TextButton\
+\
+		instance.Parent = body\
+\
+		local cells = {}\
+		local at = 0\
+\
+		for column, definition in self.columns do\
+			local cell = Table.cell(self, instance, definition, column, total, false)\
+			local value = row[definition.key]\
+\
+			cell.Text = Text.escape(if value == nil then \"\" else tostring(value))\
+			cell.Position = UDim2.fromScale(at, 0)\
+			cell.Parent = instance\
+\
+			table.insert(cells, cell)\
+\
+			at += weight(definition) / total\
+		end\
+\
+		table.insert(self.built, { instance = instance, cells = cells })\
+\
+		Hover.attach(self.scope, instance, function(hovering)\
+			if not self.selectable or not self.enabled then\
+				return\
+			end\
+\
+			local selected = self.selectedIndex == index\
+\
+			instance.BackgroundTransparency = if selected\
+				then 0.82\
+				elseif hovering then 0.9\
+				elseif self.striped and index % 2 == 0 then 0.94\
+				else 1\
+		end)\
+\
+		self.scope:add(instance.Activated:Connect(function()\
+			if not self.enabled then\
+				return\
+			end\
+\
+			if self.selectable then\
+				self.selectedIndex = index\
+\
+				Table.paint(self)\
+			end\
+\
+			self:emit(\"activated\", row, index)\
+		end))\
+	end\
+\
+	Table.paint(self)\
+end\
+\
+function Table.paint(self: Fields)\
+	for index, row in self.built do\
+		local selected = self.selectedIndex == index\
+\
+		row.instance.BackgroundTransparency = if selected and self.selectable\
+			then 0.82\
+			elseif self.striped and index % 2 == 0 then 0.94\
+			else 1\
+	end\
+end\
+\
+function Table.setColumns(self: Fields & Types.Table, columns: { Types.Column }): Types.Table\
+	self.columns = columns\
+\
+	Table.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Table.setRows(self: Fields & Types.Table, rows: Types.Bindable<{ Types.Row }>): Types.Table\
+	Node.bind(self, \"rows\", rows, function(next: { Types.Row })\
+		self.rows = next\
+\
+		--// a selection past the end of the new data would highlight a row that\
+		--// is not there\
+		if self.selectedIndex and self.selectedIndex > #next then\
+			self.selectedIndex = nil\
+		end\
+\
+		Table.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Table.setRowHeight(self: Fields & Types.Table, height: number): Types.Table\
+	self.rowHeight = math.max(1, height)\
+\
+	Table.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Table.setHeaderShown(self: Fields & Types.Table, shown: boolean?): Types.Table\
+	self.headerShown = shown ~= false\
+	;(self.refs.header :: Frame).Visible = self.headerShown\
+	;(self.refs.rule :: Frame).Visible = self.headerShown\
+\
+	return self:invalidate()\
+end\
+\
+function Table.setSelectable(self: Fields & Types.Table, selectable: boolean?): Types.Table\
+	self.selectable = selectable ~= false\
+\
+	Table.paint(self)\
+\
+	return self\
+end\
+\
+--- Alternating row tints. On by default: without them the eye loses its place\
+--- crossing a wide row.\
+function Table.setStriped(self: Fields & Types.Table, striped: boolean?): Types.Table\
+	self.striped = striped ~= false\
+\
+	Table.paint(self)\
+\
+	return self\
+end\
+\
+function Table.setSelected(self: Fields & Types.Table, index: number?): Types.Table\
+	self.selectedIndex = index\
+\
+	Table.paint(self)\
+\
+	return self\
+end\
+\
+function Table.selected(self: Fields & Types.Table): Types.Row?\
+	return if self.selectedIndex then self.rows[self.selectedIndex] else nil\
+end\
+\
+function Table.onActivated(self: Fields & Types.Table, handler: (Types.Row, number) -> ()): Types.Table\
+	return self:on(\"activated\", handler)\
+end\
+\
+function Table.measure(self: Fields & Types.Table, available: Vector2): Vector2\
+	local height = #self.rows * self.rowHeight\
+\
+	if self.headerShown then\
+		height += self.rowHeight + 1\
+	end\
+\
+	self.desired = Vector2.new(math.ceil(math.max(1, available.X - self.margin * 2)), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Table)\
+\
+return Table\
+"},
 {"Astrix/_Packages/Lume/Elements/Tabs","ModuleScript","--!strict\
 \
 --- A row of tabs in one of three shapes: an underline, a pill, or a segmented\
@@ -16637,6 +19762,791 @@ end\
 Element.install(Toggle)\
 \
 return Toggle\
+"},
+{"Astrix/_Packages/Lume/Elements/Tree","ModuleScript","--!strict\
+\
+--- A tree you can fold: folders, a scene graph, anything nested.\
+---\
+--- The list of nodes is a shape; what gets drawn is that shape flattened to the\
+--- rows currently visible. Collapsing a branch removes its descendants from the\
+--- flattened list rather than hiding instances, so a folder with ten thousand\
+--- children costs nothing while it is closed.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Motion = require(script.Parent.Parent.Motion)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Text = require(script.Parent.Parent.Text)\
+local Element = require(script.Parent.Element)\
+\
+local Tree = {}\
+Tree.__index = Tree\
+\
+type Flat = { node: Types.TreeNode, depth: number, parent: string? }\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	nodes: { Types.TreeNode },\
+	flat: { Flat },\
+	rows: { TextButton },\
+	expanded: { [string]: boolean },\
+	selected: string?,\
+	rowHeight: number,\
+	indent: number,\
+}\
+\
+--// locals\
+local function identify(node: Types.TreeNode, index: number, parent: string?): string\
+	return node.id or `{parent or \"root\"}/{node.text or index}`\
+end\
+\
+--- Creates a tree. Prefer `panel:tree()`.\
+function Tree.new(app: Types.App): Types.Tree\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, 0),\
+			Name = \"Tree\",\
+		},\
+		children = { Create.list(Enum.FillDirection.Vertical, 0) },\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"tree\",\
+		desired = Vector2.new(0, 0),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		nodes = {},\
+		flat = {},\
+		rows = {},\
+		expanded = {},\
+		selected = nil,\
+		rowHeight = theme.size.row,\
+		indent = 14,\
+	}\
+\
+	return setmetatable(fields, Tree) :: any\
+end\
+\
+--- Walks the shape and writes down the rows that are currently visible.\
+function Tree.flatten(self: Fields)\
+	table.clear(self.flat)\
+\
+	local function walk(nodes: { Types.TreeNode }, depth: number, parent: string?)\
+		for index, node in nodes do\
+			local id = identify(node, index, parent)\
+\
+			table.insert(self.flat, { node = node, depth = depth, parent = parent })\
+\
+			if node.children and #node.children > 0 and self.expanded[id] then\
+				walk(node.children, depth + 1, id)\
+			end\
+		end\
+	end\
+\
+	walk(self.nodes, 0, nil)\
+end\
+\
+function Tree.paint(self: Fields)\
+	local theme = self.app.theme\
+\
+	for index, row in self.rows do\
+		local entry = self.flat[index]\
+\
+		if not entry then\
+			continue\
+		end\
+\
+		local id = identify(entry.node, index, entry.parent)\
+		local chosen = id == self.selected\
+\
+		row.BackgroundTransparency = if chosen then 0.82 else 1\
+		row.TextColor3 = if chosen then theme.color.text else theme.color.textMuted\
+		row.TextTransparency = if chosen then 0 else theme.transparency.muted\
+	end\
+end\
+\
+--- Rebuilds the visible rows.\
+function Tree.rebuild(self: Fields & Types.Tree)\
+	local theme = self.app.theme\
+\
+	for _, row in self.rows do\
+		row:Destroy()\
+	end\
+\
+	table.clear(self.rows)\
+\
+	Tree.flatten(self)\
+\
+	for index, entry in self.flat do\
+		local node = entry.node\
+		local id = identify(node, index, entry.parent)\
+		local branch = node.children ~= nil and #node.children > 0\
+		local indent = theme.space.xs + entry.depth * self.indent\
+\
+		local row, refs = Create.tree(self.scope, {\
+			class = \"TextButton\",\
+			ref = \"row\",\
+			props = {\
+				BackgroundColor3 = theme.color.surfaceHover,\
+				BackgroundTransparency = 1,\
+				BorderSizePixel = 0,\
+				AutoButtonColor = false,\
+\
+				Size = UDim2.new(1, 0, 0, self.rowHeight),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.body,\
+				TextSize = theme.text.sm,\
+				TextColor3 = theme.color.textMuted,\
+				TextTransparency = theme.transparency.muted,\
+				TextXAlignment = Enum.TextXAlignment.Left,\
+				RichText = true,\
+\
+				Name = `Node_{id}`,\
+				Text = \"\",\
+			},\
+			children = {\
+				Create.corner(theme.radius.sm),\
+				{\
+					class = \"TextButton\",\
+					ref = \"chevron\",\
+					props = {\
+						BackgroundTransparency = 1,\
+						BorderSizePixel = 0,\
+						AutoButtonColor = false,\
+\
+						AnchorPoint = Vector2.new(0, 0.5),\
+						Position = UDim2.new(0, indent, 0.5, 0),\
+						Size = UDim2.fromOffset(14, self.rowHeight),\
+\
+						Font = theme.font.medium,\
+						TextSize = theme.text.xs,\
+						TextColor3 = theme.color.textGhost,\
+						TextTransparency = theme.transparency.ghost,\
+						Rotation = if self.expanded[id] then 90 else 0,\
+\
+						Visible = branch,\
+						Name = \"Chevron\",\
+						Text = \"▶\",\
+					},\
+				},\
+				{\
+					class = \"TextLabel\",\
+					ref = \"text\",\
+					props = {\
+						BackgroundTransparency = 1,\
+\
+						AnchorPoint = Vector2.new(0, 0.5),\
+						Position = UDim2.new(0, indent + 18, 0.5, 0),\
+						Size = UDim2.new(1, -(indent + 18 + theme.space.xs), 0, self.rowHeight),\
+\
+						Font = theme.font.body,\
+						TextSize = theme.text.sm,\
+						TextColor3 = theme.color.text,\
+						TextXAlignment = Enum.TextXAlignment.Left,\
+						TextTruncate = Enum.TextTruncate.AtEnd,\
+						RichText = true,\
+\
+						Name = \"Text\",\
+						Text = Text.escape(node.text or \"\"),\
+					},\
+				},\
+			},\
+		})\
+\
+		row.Parent = self.instance\
+\
+		table.insert(self.rows, row :: TextButton)\
+\
+		local chevron = refs.chevron :: TextButton\
+\
+		Hover.attach(self.scope, row :: TextButton, function(hovering)\
+			if not self.enabled or id == self.selected then\
+				return\
+			end\
+\
+			(row :: TextButton).BackgroundTransparency = if hovering then 0.92 else 1\
+		end)\
+\
+		self.scope:add(chevron.Activated:Connect(function()\
+			if not self.enabled or not branch then\
+				return\
+			end\
+\
+			Tree.toggleNode(self, id)\
+		end))\
+\
+		self.scope:add((row :: TextButton).Activated:Connect(function()\
+			if not self.enabled then\
+				return\
+			end\
+\
+			self.selected = id\
+\
+			Tree.paint(self)\
+\
+			self:emit(\"selected\", node, id)\
+\
+			--// a branch row is a folder: clicking it opens it, which is what\
+			--// everyone expects and saves aiming at a 14px chevron\
+			if branch then\
+				Tree.toggleNode(self, id)\
+			end\
+		end))\
+\
+		if branch then\
+			Motion.set(chevron, { Rotation = if self.expanded[id] then 90 else 0 })\
+		end\
+	end\
+\
+	Tree.paint(self)\
+end\
+\
+function Tree.setNodes(self: Fields & Types.Tree, nodes: Types.Bindable<{ Types.TreeNode }>): Types.Tree\
+	Node.bind(self, \"nodes\", nodes, function(next: { Types.TreeNode })\
+		self.nodes = next\
+\
+		Tree.rebuild(self)\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Tree.expandNode(self: Fields & Types.Tree, id: string): Types.Tree\
+	if self.expanded[id] then\
+		return self\
+	end\
+\
+	self.expanded[id] = true\
+\
+	Tree.rebuild(self)\
+\
+	self:emit(\"toggled\", id, true)\
+\
+	return self:invalidate()\
+end\
+\
+function Tree.collapseNode(self: Fields & Types.Tree, id: string): Types.Tree\
+	if not self.expanded[id] then\
+		return self\
+	end\
+\
+	self.expanded[id] = nil\
+\
+	Tree.rebuild(self)\
+\
+	self:emit(\"toggled\", id, false)\
+\
+	return self:invalidate()\
+end\
+\
+function Tree.toggleNode(self: Fields & Types.Tree, id: string): Types.Tree\
+	if self.expanded[id] then\
+		return Tree.collapseNode(self, id)\
+	end\
+\
+	return Tree.expandNode(self, id)\
+end\
+\
+--- Opens everything. On a big tree this is a lot of rows, which is the point of\
+--- it being a separate call rather than a default.\
+function Tree.expandAll(self: Fields & Types.Tree): Types.Tree\
+	local function walk(nodes: { Types.TreeNode }, parent: string?)\
+		for index, node in nodes do\
+			local id = identify(node, index, parent)\
+\
+			if node.children and #node.children > 0 then\
+				self.expanded[id] = true\
+\
+				walk(node.children, id)\
+			end\
+		end\
+	end\
+\
+	walk(self.nodes, nil)\
+\
+	Tree.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Tree.collapseAll(self: Fields & Types.Tree): Types.Tree\
+	table.clear(self.expanded)\
+\
+	Tree.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Tree.setSelected(self: Fields & Types.Tree, id: string?): Types.Tree\
+	self.selected = id\
+\
+	Tree.paint(self)\
+\
+	return self\
+end\
+\
+function Tree.setIndent(self: Fields & Types.Tree, indent: number): Types.Tree\
+	self.indent = math.max(0, indent)\
+\
+	Tree.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Tree.onSelected(self: Fields & Types.Tree, handler: (Types.TreeNode, string) -> ()): Types.Tree\
+	return self:on(\"selected\", handler)\
+end\
+\
+function Tree.onToggled(self: Fields & Types.Tree, handler: (string, boolean) -> ()): Types.Tree\
+	return self:on(\"toggled\", handler)\
+end\
+\
+function Tree.value(self: Fields & Types.Tree): string?\
+	return self.selected\
+end\
+\
+--- How many rows are on screen — the flattened count, not the total.\
+function Tree.count(self: Fields & Types.Tree): number\
+	return #self.flat\
+end\
+\
+function Tree.measure(self: Fields & Types.Tree, available: Vector2): Vector2\
+	self.desired = Vector2.new(\
+		math.ceil(math.max(1, available.X - self.margin * 2)),\
+		math.ceil(#self.flat * self.rowHeight)\
+	)\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Tree)\
+\
+return Tree\
+"},
+{"Astrix/_Packages/Lume/Elements/Vector","ModuleScript","--!strict\
+\
+--- Two or three numbers that belong together: a position, a size, a colour in\
+--- RGB if you like.\
+---\
+--- Each axis is a scrubbable field, and they share one label. Three separate\
+--- scrubbers would work, but they would drift apart in width and each would\
+--- carry its own label — and a Vector3 read as three unrelated numbers is\
+--- exactly the mistake this element exists to prevent.\
+--- @section Elements\
+\
+local Types = require(script.Parent.Parent.Types)\
+local Create = require(script.Parent.Parent.Core.Create)\
+local Node = require(script.Parent.Parent.Core.Node)\
+local Hover = require(script.Parent.Parent.Input.Hover)\
+local Scrubber = require(script.Parent.Scrubber)\
+local Element = require(script.Parent.Element)\
+\
+local Vector = {}\
+Vector.__index = Vector\
+\
+export type Axis = { key: string, box: TextBox, tint: Color3 }\
+\
+export type Fields = Types.NodeFields & Types.ElementFields & {\
+	values: { number },\
+	axes: { Axis },\
+	count: number,\
+	step: number,\
+	sensitivity: number,\
+	minimum: number?,\
+	maximum: number?,\
+	labelText: string,\
+	typing: number?,\
+}\
+\
+local KEYS = { \"X\", \"Y\", \"Z\", \"W\" }\
+\
+--- Creates a vector input. Prefer `panel:vector(label, count)`.\
+function Vector.new(app: Types.App): Types.Vector\
+	local theme = app.theme\
+	local scope = app.scope:child()\
+\
+	local root, refs = Create.tree(scope, {\
+		class = \"Frame\",\
+		ref = \"root\",\
+		props = {\
+			BackgroundTransparency = 1,\
+			BorderSizePixel = 0,\
+			Size = UDim2.new(1, 0, 0, theme.size.control),\
+			Name = \"Vector\",\
+		},\
+		children = {\
+			Create.list(Enum.FillDirection.Vertical, theme.space.xs),\
+			{\
+				class = \"TextLabel\",\
+				ref = \"label\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, theme.size.row),\
+\
+					Font = theme.font.body,\
+					TextSize = theme.text.sm,\
+					TextColor3 = theme.color.textMuted,\
+					TextTransparency = theme.transparency.muted,\
+					TextXAlignment = Enum.TextXAlignment.Left,\
+\
+					LayoutOrder = 1,\
+					Visible = false,\
+					Name = \"Label\",\
+					Text = \"\",\
+				},\
+			},\
+			{\
+				class = \"Frame\",\
+				ref = \"axes\",\
+				props = {\
+					BackgroundTransparency = 1,\
+					Size = UDim2.new(1, 0, 0, theme.size.control),\
+					LayoutOrder = 2,\
+					Name = \"Axes\",\
+				},\
+				children = {\
+					Create.list(Enum.FillDirection.Horizontal, theme.space.xs, {\
+						VerticalAlignment = Enum.VerticalAlignment.Center,\
+					}),\
+				},\
+			},\
+		},\
+	})\
+\
+	local fields: Fields = {\
+		app = app,\
+		scope = scope,\
+		instance = root :: GuiObject,\
+		refs = refs,\
+		bindings = {},\
+		events = {},\
+		owner = nil,\
+		dead = false,\
+\
+		kind = \"vector\",\
+		desired = Vector2.new(0, theme.size.control),\
+		margin = 0,\
+		fill = true,\
+		grow = false,\
+		enabled = true,\
+		measured = false,\
+\
+		values = { 0, 0, 0 },\
+		axes = {},\
+		count = 3,\
+		step = 0.1,\
+		sensitivity = 1,\
+		minimum = nil,\
+		maximum = nil,\
+		labelText = \"\",\
+		typing = nil,\
+	}\
+\
+	local vector = setmetatable(fields, Vector) :: any\
+\
+	Vector.rebuild(vector)\
+\
+	return vector\
+end\
+\
+function Vector.quantise(self: Fields, value: number): number\
+	if self.step > 0 then\
+		value = math.round(value / self.step) * self.step\
+		value = math.round(value * 1e6) / 1e6\
+	end\
+\
+	if self.minimum then\
+		value = math.max(value, self.minimum)\
+	end\
+\
+	if self.maximum then\
+		value = math.min(value, self.maximum)\
+	end\
+\
+	return value\
+end\
+\
+function Vector.paint(self: Fields)\
+	for index, axis in self.axes do\
+		if self.typing ~= index then\
+			axis.box.Text = string.format(if self.step % 1 == 0 then \"%d\" else \"%g\", self.values[index] or 0)\
+		end\
+	end\
+end\
+\
+function Vector.rebuild(self: Fields & Types.Vector)\
+	local theme = self.app.theme\
+	local host = self.refs.axes :: Frame\
+\
+	for _, axis in self.axes do\
+		axis.box.Parent = nil\
+	end\
+\
+	for _, child in host:GetChildren() do\
+		if child:IsA(\"GuiObject\") then\
+			child:Destroy()\
+		end\
+	end\
+\
+	table.clear(self.axes)\
+\
+	--// one tint per axis, the convention every 3D tool shares: X red, Y green,\
+	--// Z blue. Reading a triple without them is guesswork\
+	local tints = { theme.color.danger, theme.color.success, theme.color.accent, theme.color.warn }\
+\
+	for index = 1, self.count do\
+		local key = KEYS[index] or tostring(index)\
+\
+		local box, refs = Create.tree(self.scope, {\
+			class = \"TextBox\",\
+			ref = \"box\",\
+			props = {\
+				BackgroundColor3 = theme.color.surfaceSunken,\
+				BackgroundTransparency = 0.4,\
+				BorderSizePixel = 0,\
+				ClearTextOnFocus = false,\
+\
+				Size = UDim2.new(1 / self.count, -theme.space.xs, 0, theme.size.control),\
+				LayoutOrder = index,\
+\
+				Font = theme.font.mono,\
+				TextSize = theme.text.sm,\
+				TextColor3 = theme.color.text,\
+\
+				Name = key,\
+				Text = \"0\",\
+			},\
+			children = {\
+				Create.corner(theme.radius.sm),\
+				Create.padding(theme.space.md, 0, theme.space.xs, 0),\
+				{\
+					class = \"Frame\",\
+					ref = \"tint\",\
+					props = {\
+						BackgroundColor3 = tints[index] or theme.color.accent,\
+						BorderSizePixel = 0,\
+\
+						AnchorPoint = Vector2.new(0, 0.5),\
+						Position = UDim2.new(0, -theme.space.md + 3, 0.5, 0),\
+						Size = UDim2.fromOffset(3, theme.size.control - 8),\
+						Name = \"Tint\",\
+					},\
+					children = { Create.corner(UDim.new(1, 0)) },\
+				},\
+			},\
+		})\
+\
+		box.Parent = host\
+\
+		local axis: Axis = { key = key, box = box :: TextBox, tint = tints[index] or theme.color.accent }\
+\
+		table.insert(self.axes, axis)\
+\
+		local slot = index\
+\
+		Scrubber.attach(self.scope, box :: TextBox, function()\
+			return self.values[slot] or 0\
+		end, function(value, live)\
+			if not self.enabled then\
+				return\
+			end\
+\
+			Vector.setAxis(self, slot, value)\
+\
+			if not live then\
+				self:emit(\"committed\", Vector.value(self))\
+			end\
+		end, function()\
+			return self.step * self.sensitivity\
+		end)\
+\
+		Hover.attach(self.scope, box :: TextBox, function(hovering)\
+			if not self.enabled then\
+				return\
+			end\
+\
+			;(box :: TextBox).BackgroundTransparency = if hovering then 0.25 else 0.4\
+		end)\
+\
+		self.scope:add((box :: TextBox).Focused:Connect(function()\
+			self.typing = slot\
+		end))\
+\
+		self.scope:add((box :: TextBox).FocusLost:Connect(function()\
+			self.typing = nil\
+\
+			local typed = tonumber(((box :: TextBox).Text:gsub(\"[^%-%.%d]\", \"\")))\
+\
+			if typed then\
+				Vector.setAxis(self, slot, typed)\
+\
+				self:emit(\"committed\", Vector.value(self))\
+			end\
+\
+			Vector.paint(self)\
+		end))\
+	end\
+\
+	Vector.paint(self)\
+end\
+\
+--- Sets one axis and fires `changed` with the whole vector.\
+function Vector.setAxis(self: Fields & Types.Vector, index: number, value: number): Types.Vector\
+	local next = Vector.quantise(self, value)\
+\
+	if self.values[index] == next then\
+		return self\
+	end\
+\
+	self.values[index] = next\
+\
+	Vector.paint(self)\
+\
+	self:emit(\"changed\", Vector.value(self))\
+\
+	return self\
+end\
+\
+--- Two axes or three. Four if you have a reason.\
+function Vector.setCount(self: Fields & Types.Vector, count: number): Types.Vector\
+	self.count = math.clamp(math.round(count), 1, 4)\
+\
+	Vector.rebuild(self)\
+\
+	return self:invalidate()\
+end\
+\
+function Vector.setStep(self: Fields & Types.Vector, step: number): Types.Vector\
+	self.step = math.max(0, step)\
+\
+	Vector.paint(self)\
+\
+	return self\
+end\
+\
+function Vector.setSensitivity(self: Fields & Types.Vector, sensitivity: number): Types.Vector\
+	self.sensitivity = math.max(0.001, sensitivity)\
+\
+	return self\
+end\
+\
+function Vector.setRange(self: Fields & Types.Vector, minimum: number?, maximum: number?): Types.Vector\
+	self.minimum = minimum\
+	self.maximum = maximum\
+\
+	for index = 1, self.count do\
+		self.values[index] = Vector.quantise(self, self.values[index] or 0)\
+	end\
+\
+	Vector.paint(self)\
+\
+	return self\
+end\
+\
+--- Takes a Vector2, a Vector3, or a plain list of numbers.\
+function Vector.setValue(self: Fields & Types.Vector, value: Types.Bindable<any>): Types.Vector\
+	Node.bind(self, \"value\", value, function(next: any)\
+		local read: { number }\
+\
+		if typeof(next) == \"Vector3\" then\
+			read = { next.X, next.Y, next.Z }\
+		elseif typeof(next) == \"Vector2\" then\
+			read = { next.X, next.Y }\
+		else\
+			read = next :: { number }\
+		end\
+\
+		for index = 1, self.count do\
+			self.values[index] = Vector.quantise(self, read[index] or 0)\
+		end\
+\
+		Vector.paint(self)\
+	end)\
+\
+	return self\
+end\
+\
+function Vector.setLabel(self: Fields & Types.Vector, label: Types.Bindable<string>): Types.Vector\
+	Node.bind(self, \"label\", label, function(next: string)\
+		local text = self.refs.label :: TextLabel\
+\
+		self.labelText = tostring(next)\
+\
+		text.Text = self.labelText\
+		text.Visible = self.labelText ~= \"\"\
+\
+		self:invalidate()\
+	end)\
+\
+	return self\
+end\
+\
+function Vector.onChanged(self: Fields & Types.Vector, handler: ({ number }) -> ()): Types.Vector\
+	return self:on(\"changed\", handler)\
+end\
+\
+function Vector.onCommitted(self: Fields & Types.Vector, handler: ({ number }) -> ()): Types.Vector\
+	return self:on(\"committed\", handler)\
+end\
+\
+--- The axes as a plain list.\
+function Vector.value(self: Fields & Types.Vector): { number }\
+	local out = {}\
+\
+	for index = 1, self.count do\
+		table.insert(out, self.values[index] or 0)\
+	end\
+\
+	return out\
+end\
+\
+--- The same thing as a Vector3, for the common case.\
+function Vector.vector3(self: Fields & Types.Vector): Vector3\
+	return Vector3.new(self.values[1] or 0, self.values[2] or 0, self.values[3] or 0)\
+end\
+\
+function Vector.measure(self: Fields & Types.Vector, available: Vector2): Vector2\
+	local theme = self.app.theme\
+	local height = theme.size.control\
+\
+	if self.labelText ~= \"\" then\
+		height += theme.size.row + theme.space.xs\
+	end\
+\
+	self.desired = Vector2.new(math.ceil(math.max(1, available.X - self.margin * 2)), math.ceil(height))\
+	self.measured = true\
+\
+	return self.desired\
+end\
+\
+Element.install(Vector)\
+\
+return Vector\
 "},
 {"Astrix/_Packages/Lume/Input","Folder",nil},
 {"Astrix/_Packages/Lume/Input/Drag","ModuleScript","--!strict\
@@ -19954,6 +23864,121 @@ function Panel.menu(self: Panel): Types.Menu\
 	return adopt(self, elements().Menu.new(self.app) :: any) :: any\
 end\
 \
+--// the wider widget set: everything a panel hosts, a group hosts too, so a\
+--// row or an accordion section is never the poor relation\
+\
+function Panel.radio(self: Panel, label: Bindable<string>?): Types.Radio\
+	local element = elements().Radio.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.rating(self: Panel, label: Bindable<string>?): Types.Rating\
+	local element = elements().Rating.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.meter(self: Panel, label: Bindable<string>?): Types.Meter\
+	local element = elements().Meter.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.spinner(self: Panel, label: Bindable<string>?): Types.Spinner\
+	local element = elements().Spinner.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.scrubber(self: Panel, label: Bindable<string>?): Types.Scrubber\
+	local element = elements().Scrubber.new(self.app)\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.table(self: Panel): Types.Table\
+	return adopt(self, elements().Table.new(self.app) :: any) :: any\
+end\
+\
+function Panel.tree(self: Panel): Types.Tree\
+	return adopt(self, elements().Tree.new(self.app) :: any) :: any\
+end\
+\
+function Panel.avatar(self: Panel, userId: number?): Types.Avatar\
+	local element = elements().Avatar.new(self.app)\
+\
+	if userId then\
+		element:setUserId(userId)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.breadcrumb(self: Panel, crumbs: { Types.Option | string }?): Types.Breadcrumb\
+	local element = elements().Breadcrumb.new(self.app)\
+\
+	if crumbs then\
+		element:setCrumbs(crumbs)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.pagination(self: Panel, pages: number?): Types.Pagination\
+	local element = elements().Pagination.new(self.app)\
+\
+	if pages then\
+		element:setPages(pages)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.vector(self: Panel, label: Bindable<string>?, count: number?): Types.Vector\
+	local element = elements().Vector.new(self.app)\
+\
+	if count then\
+		element:setCount(count)\
+	end\
+\
+	if label ~= nil then\
+		element:setLabel(label)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
+function Panel.sparkline(self: Panel, points: { number }?): Types.Sparkline\
+	local element = elements().Sparkline.new(self.app)\
+\
+	if points then\
+		element:setPoints(points)\
+	end\
+\
+	return adopt(self, element :: any) :: any\
+end\
+\
 --- Sections with headers you click to fold away.\
 function Panel.accordion(self: Panel): Types.Accordion\
 	return adopt(self, elements().Accordion.new(self.app) :: any) :: any\
@@ -21487,6 +25512,18 @@ export type PanelApi<T> = {\
 	colorPicker: (self: T, label: Bindable<string>?) -> ColorPicker,\
 	stepper: (self: T, label: Bindable<string>?) -> Stepper,\
 	accordion: (self: T) -> Accordion,\
+	radio: (self: T, label: Bindable<string>?) -> Radio,\
+	rating: (self: T, label: Bindable<string>?) -> Rating,\
+	meter: (self: T, label: Bindable<string>?) -> Meter,\
+	spinner: (self: T, label: Bindable<string>?) -> Spinner,\
+	table: (self: T) -> Table,\
+	tree: (self: T) -> Tree,\
+	avatar: (self: T, userId: number?) -> Avatar,\
+	breadcrumb: (self: T, crumbs: { Option | string }?) -> Breadcrumb,\
+	pagination: (self: T, pages: number?) -> Pagination,\
+	scrubber: (self: T, label: Bindable<string>?) -> Scrubber,\
+	vector: (self: T, label: Bindable<string>?, count: number?) -> Vector,\
+	sparkline: (self: T, points: { number }?) -> Sparkline,\
 	badge: (self: T, text: Bindable<string>?) -> Badge,\
 	scroll: (self: T) -> Scroll,\
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,\
@@ -21671,6 +25708,177 @@ export type Stepper = NodeFields & ElementFields & NodeApi<Stepper> & ElementApi
 \
 export type Option = { id: string, text: string, icon: string?, description: string? }\
 \
+--- One column of a table. `weight` is a share of the width, not pixels.\
+export type Column = {\
+	key: string,\
+	title: string?,\
+	weight: number?,\
+	align: (\"left\" | \"center\" | \"right\")?,\
+}\
+\
+--- One row of a table: whatever the columns ask for, by key.\
+export type Row = { [string]: any }\
+\
+--- One node of a tree. `id` is optional — without one, the path to the node is\
+--- used, which is stable as long as the shape is.\
+export type TreeNode = {\
+	id: string?,\
+	text: string,\
+	icon: string?,\
+	children: { TreeNode }?,\
+	data: any?,\
+}\
+\
+export type Radio = NodeFields & ElementFields & NodeApi<Radio> & ElementApi<Radio> & {\
+	setOptions: (self: Radio, options: Bindable<{ Option | string }>) -> Radio,\
+	setValue: (self: Radio, id: Bindable<string?>) -> Radio,\
+	setLabel: (self: Radio, label: Bindable<string>) -> Radio,\
+	--- Lays the options out in a row instead of a column.\
+	setHorizontal: (self: Radio, horizontal: boolean?) -> Radio,\
+\
+	onChanged: (self: Radio, handler: (string) -> ()) -> Radio,\
+	value: (self: Radio) -> string?,\
+}\
+\
+export type Rating = NodeFields & ElementFields & NodeApi<Rating> & ElementApi<Rating> & {\
+	setValue: (self: Rating, score: Bindable<number>) -> Rating,\
+	setScore: (self: Rating, score: number) -> Rating,\
+	setMaximum: (self: Rating, maximum: number) -> Rating,\
+	setGlyph: (self: Rating, glyph: string) -> Rating,\
+	setStarSize: (self: Rating, size: number) -> Rating,\
+	--- Whether clicking the current score clears it.\
+	setClearable: (self: Rating, clearable: boolean?) -> Rating,\
+	setLabel: (self: Rating, label: Bindable<string>) -> Rating,\
+\
+	onChanged: (self: Rating, handler: (number) -> ()) -> Rating,\
+	value: (self: Rating) -> number,\
+}\
+\
+export type Meter = NodeFields & ElementFields & NodeApi<Meter> & ElementApi<Meter> & {\
+	setValue: (self: Meter, value: Bindable<number>) -> Meter,\
+	setRange: (self: Meter, min: number, max: number) -> Meter,\
+	--- The thresholds the colour turns on.\
+	setBands: (self: Meter, low: number?, high: number?) -> Meter,\
+	--- Which direction is healthy.\
+	setOptimum: (self: Meter, optimum: \"high\" | \"low\") -> Meter,\
+	setLabel: (self: Meter, label: Bindable<string>) -> Meter,\
+	setShowValue: (self: Meter, shown: boolean?) -> Meter,\
+	setFormat: (self: Meter, format: (number, number) -> string) -> Meter,\
+	setThickness: (self: Meter, thickness: number) -> Meter,\
+\
+	value: (self: Meter) -> number,\
+}\
+\
+export type Spinner = NodeFields & ElementFields & NodeApi<Spinner> & ElementApi<Spinner> & {\
+	setSpinning: (self: Spinner, spinning: boolean?) -> Spinner,\
+	--- Seconds per rotation.\
+	setSpeed: (self: Spinner, seconds: number) -> Spinner,\
+	setDiameter: (self: Spinner, diameter: number) -> Spinner,\
+	setLabel: (self: Spinner, label: Bindable<string>) -> Spinner,\
+}\
+\
+export type Table = NodeFields & ElementFields & NodeApi<Table> & ElementApi<Table> & {\
+	setColumns: (self: Table, columns: { Column }) -> Table,\
+	setRows: (self: Table, rows: Bindable<{ Row }>) -> Table,\
+	setRowHeight: (self: Table, height: number) -> Table,\
+	setHeaderShown: (self: Table, shown: boolean?) -> Table,\
+	setSelectable: (self: Table, selectable: boolean?) -> Table,\
+	--- Alternating row tints.\
+	setStriped: (self: Table, striped: boolean?) -> Table,\
+	setSelected: (self: Table, index: number?) -> Table,\
+\
+	selected: (self: Table) -> Row?,\
+	onActivated: (self: Table, handler: (Row, number) -> ()) -> Table,\
+}\
+\
+export type Tree = NodeFields & ElementFields & NodeApi<Tree> & ElementApi<Tree> & {\
+	setNodes: (self: Tree, nodes: Bindable<{ TreeNode }>) -> Tree,\
+	expandNode: (self: Tree, id: string) -> Tree,\
+	collapseNode: (self: Tree, id: string) -> Tree,\
+	toggleNode: (self: Tree, id: string) -> Tree,\
+	expandAll: (self: Tree) -> Tree,\
+	collapseAll: (self: Tree) -> Tree,\
+	setSelected: (self: Tree, id: string?) -> Tree,\
+	setIndent: (self: Tree, indent: number) -> Tree,\
+\
+	onSelected: (self: Tree, handler: (TreeNode, string) -> ()) -> Tree,\
+	onToggled: (self: Tree, handler: (string, boolean) -> ()) -> Tree,\
+	value: (self: Tree) -> string?,\
+	--- How many rows are on screen, not how many nodes exist.\
+	count: (self: Tree) -> number,\
+}\
+\
+export type Avatar = NodeFields & ElementFields & NodeApi<Avatar> & ElementApi<Avatar> & {\
+	setUserId: (self: Avatar, userId: Bindable<number?>) -> Avatar,\
+	setImage: (self: Avatar, image: Bindable<string>) -> Avatar,\
+	--- The name to fall back to. Two letters are taken from it.\
+	setName: (self: Avatar, name: Bindable<string>) -> Avatar,\
+	setDiameter: (self: Avatar, diameter: number) -> Avatar,\
+	--- `\"online\"`, `\"away\"`, `\"busy\"`, or nil for none.\
+	setStatus: (self: Avatar, status: string?) -> Avatar,\
+	setSquare: (self: Avatar, square: boolean?) -> Avatar,\
+}\
+\
+export type Breadcrumb = NodeFields & ElementFields & NodeApi<Breadcrumb> & ElementApi<Breadcrumb> & {\
+	setCrumbs: (self: Breadcrumb, crumbs: Bindable<{ Option | string }>) -> Breadcrumb,\
+	setSeparator: (self: Breadcrumb, separator: string) -> Breadcrumb,\
+\
+	onPicked: (self: Breadcrumb, handler: (string, number) -> ()) -> Breadcrumb,\
+}\
+\
+export type Pagination = NodeFields & ElementFields & NodeApi<Pagination> & ElementApi<Pagination> & {\
+	setPages: (self: Pagination, pages: Bindable<number>) -> Pagination,\
+	setPage: (self: Pagination, page: Bindable<number>) -> Pagination,\
+	--- How many pages either side of the current one stay visible.\
+	setWindow: (self: Pagination, window: number) -> Pagination,\
+	goTo: (self: Pagination, page: number) -> Pagination,\
+\
+	onChanged: (self: Pagination, handler: (number) -> ()) -> Pagination,\
+	value: (self: Pagination) -> number,\
+}\
+\
+export type Scrubber = NodeFields & ElementFields & NodeApi<Scrubber> & ElementApi<Scrubber> & {\
+	--- Either end may be nil, which means there is no end that way.\
+	setRange: (self: Scrubber, min: number?, max: number?) -> Scrubber,\
+	setStep: (self: Scrubber, step: number) -> Scrubber,\
+	--- Steps per pixel of drag.\
+	setSensitivity: (self: Scrubber, sensitivity: number) -> Scrubber,\
+	setValue: (self: Scrubber, value: Bindable<number>) -> Scrubber,\
+	setLabel: (self: Scrubber, label: Bindable<string>) -> Scrubber,\
+	setFormat: (self: Scrubber, format: (number) -> string) -> Scrubber,\
+\
+	onChanged: (self: Scrubber, handler: (number) -> ()) -> Scrubber,\
+	onCommitted: (self: Scrubber, handler: (number) -> ()) -> Scrubber,\
+	value: (self: Scrubber) -> number,\
+}\
+\
+export type Vector = NodeFields & ElementFields & NodeApi<Vector> & ElementApi<Vector> & {\
+	--- Takes a Vector2, a Vector3, or a plain list of numbers.\
+	setValue: (self: Vector, value: Bindable<any>) -> Vector,\
+	setAxis: (self: Vector, index: number, value: number) -> Vector,\
+	setCount: (self: Vector, count: number) -> Vector,\
+	setStep: (self: Vector, step: number) -> Vector,\
+	setSensitivity: (self: Vector, sensitivity: number) -> Vector,\
+	setRange: (self: Vector, min: number?, max: number?) -> Vector,\
+	setLabel: (self: Vector, label: Bindable<string>) -> Vector,\
+\
+	onChanged: (self: Vector, handler: ({ number }) -> ()) -> Vector,\
+	onCommitted: (self: Vector, handler: ({ number }) -> ()) -> Vector,\
+	value: (self: Vector) -> { number },\
+	vector3: (self: Vector) -> Vector3,\
+}\
+\
+export type Sparkline = NodeFields & ElementFields & NodeApi<Sparkline> & ElementApi<Sparkline> & {\
+	setPoints: (self: Sparkline, points: Bindable<{ number }>) -> Sparkline,\
+	--- Fixes the vertical scale, so a flat series does not look dramatic.\
+	setRange: (self: Sparkline, min: number?, max: number?) -> Sparkline,\
+	setColor: (self: Sparkline, color: Color3) -> Sparkline,\
+	setThickness: (self: Sparkline, thickness: number) -> Sparkline,\
+	setHeight: (self: Sparkline, height: number) -> Sparkline,\
+\
+	last: (self: Sparkline) -> number?,\
+}\
+\
 export type Select = NodeFields & ElementFields & NodeApi<Select> & ElementApi<Select> & {\
 	setLabel: (self: Select, label: Bindable<string>) -> Select,\
 	setOptions: (self: Select, options: Bindable<{ Option | string }>) -> Select,\
@@ -21755,6 +25963,18 @@ export type Group = NodeFields & ElementFields & NodeApi<Group> & ElementApi<Gro
 	chips: (self: Group) -> Chips,\
 	accordion: (self: Group) -> Accordion,\
 	menuBar: (self: Group, menus: { MenuGroup }?) -> MenuBar,\
+	radio: (self: Group, label: Bindable<string>?) -> Radio,\
+	rating: (self: Group, label: Bindable<string>?) -> Rating,\
+	meter: (self: Group, label: Bindable<string>?) -> Meter,\
+	spinner: (self: Group, label: Bindable<string>?) -> Spinner,\
+	table: (self: Group) -> Table,\
+	tree: (self: Group) -> Tree,\
+	avatar: (self: Group, userId: number?) -> Avatar,\
+	breadcrumb: (self: Group, crumbs: { Option | string }?) -> Breadcrumb,\
+	pagination: (self: Group, pages: number?) -> Pagination,\
+	scrubber: (self: Group, label: Bindable<string>?) -> Scrubber,\
+	vector: (self: Group, label: Bindable<string>?, count: number?) -> Vector,\
+	sparkline: (self: Group, points: { number }?) -> Sparkline,\
 	badge: (self: Group, text: Bindable<string>?) -> Badge,\
 	spacer: (self: Group, size: number?) -> Spacer,\
 	group: (self: Group, axis: Axis?) -> Group,\
