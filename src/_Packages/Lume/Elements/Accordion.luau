@@ -405,8 +405,28 @@ function Accordion.measure(self: Fields & Types.Accordion, available: Vector2): 
 end
 
 function Accordion.commit(self: Fields & Types.Accordion, inner: Vector2, vertical: boolean, share: number)
-	local width = if vertical and self.fill then math.max(0, inner.X - self.margin * 2) else self.desired.X
-	local height = self.desired.Y + (if self.grow then share else 0)
+	local width = self.desired.X
+	local height = self.desired.Y
+
+	--// same rule as Group: the parent's axis decides which dimension fill and
+	--// grow apply to
+	if vertical then
+		if self.fill then
+			width = math.max(0, inner.X - self.margin * 2)
+		end
+
+		if self.grow then
+			height += share
+		end
+	else
+		if self.fill then
+			height = math.max(0, inner.Y - self.margin * 2)
+		end
+
+		if self.grow then
+			width += share
+		end
+	end
 
 	self.instance.Size = UDim2.fromOffset(math.floor(width + 0.5), math.floor(height + 0.5))
 

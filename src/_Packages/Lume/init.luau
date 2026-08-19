@@ -129,6 +129,7 @@ export type Pagination = Types.Pagination
 export type Scrubber = Types.Scrubber
 export type Vector = Types.Vector
 export type Sparkline = Types.Sparkline
+export type Graph = Types.Graph
 export type Column = Types.Column
 export type TreeNode = Types.TreeNode
 

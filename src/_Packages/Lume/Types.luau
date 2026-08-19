@@ -414,6 +414,7 @@ export type PanelApi<T> = {
 	scrubber: (self: T, label: Bindable<string>?) -> Scrubber,
 	vector: (self: T, label: Bindable<string>?, count: number?) -> Vector,
 	sparkline: (self: T, points: { number }?) -> Sparkline,
+	graph: (self: T, label: Bindable<string>?) -> Graph,
 	badge: (self: T, text: Bindable<string>?) -> Badge,
 	scroll: (self: T) -> Scroll,
 	keybind: (self: T, label: Bindable<string>?) -> Keybind,
@@ -758,6 +759,33 @@ export type Vector = NodeFields & ElementFields & NodeApi<Vector> & ElementApi<V
 	vector3: (self: Vector) -> Vector3,
 }
 
+--- A live series with thresholds. The idea is borrowed from Lori, a Roblox
+--- debug overlay whose graphs colour themselves against a warning and a failure
+--- line rather than leaving you to read an axis.
+export type Graph = NodeFields & ElementFields & NodeApi<Graph> & ElementApi<Graph> & {
+	--- Adds a sample, dropping the oldest once the window is full.
+	push: (self: Graph, sample: number) -> Graph,
+	setSamples: (self: Graph, samples: Bindable<{ number }>) -> Graph,
+	--- How many samples are kept.
+	setWindow: (self: Graph, window: number) -> Graph,
+	--- Fixes the vertical scale. Unset, the graph scales to what it has.
+	setRange: (self: Graph, min: number?, max: number?) -> Graph,
+	--- The line a sample is unwelcome past, and the one it fails past.
+	setThresholds: (self: Graph, warn: number?, fail: number?) -> Graph,
+	--- Which direction is healthy.
+	setOptimum: (self: Graph, optimum: "high" | "low") -> Graph,
+	--- Written straight after the number: `"ms"`, `"%"`, `" fps"`.
+	setUnit: (self: Graph, unit: string) -> Graph,
+	setLabel: (self: Graph, label: Bindable<string>) -> Graph,
+	setShowValue: (self: Graph, shown: boolean?) -> Graph,
+	setFormat: (self: Graph, format: (number) -> string) -> Graph,
+	setPlotHeight: (self: Graph, height: number) -> Graph,
+
+	last: (self: Graph) -> number?,
+	average: (self: Graph) -> number,
+	clear: (self: Graph) -> Graph,
+}
+
 export type Sparkline = NodeFields & ElementFields & NodeApi<Sparkline> & ElementApi<Sparkline> & {
 	setPoints: (self: Sparkline, points: Bindable<{ number }>) -> Sparkline,
 	--- Fixes the vertical scale, so a flat series does not look dramatic.
@@ -865,6 +893,7 @@ export type Group = NodeFields & ElementFields & NodeApi<Group> & ElementApi<Gro
 	scrubber: (self: Group, label: Bindable<string>?) -> Scrubber,
 	vector: (self: Group, label: Bindable<string>?, count: number?) -> Vector,
 	sparkline: (self: Group, points: { number }?) -> Sparkline,
+	graph: (self: Group, label: Bindable<string>?) -> Graph,
 	badge: (self: Group, text: Bindable<string>?) -> Badge,
 	spacer: (self: Group, size: number?) -> Spacer,
 	group: (self: Group, axis: Axis?) -> Group,

@@ -1347,6 +1347,16 @@ function Panel.vector(self: Panel, label: Bindable<string>?, count: number?): Ty
 	return adopt(self, element :: any) :: any
 end
 
+function Panel.graph(self: Panel, label: Bindable<string>?): Types.Graph
+	local element = elements().Graph.new(self.app)
+
+	if label ~= nil then
+		element:setLabel(label)
+	end
+
+	return adopt(self, element :: any) :: any
+end
+
 function Panel.sparkline(self: Panel, points: { number }?): Types.Sparkline
 	local element = elements().Sparkline.new(self.app)
 

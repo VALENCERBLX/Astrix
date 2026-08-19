@@ -48,4 +48,5 @@ return {
 	Scrubber = require(script.Scrubber),
 	Vector = require(script.Vector),
 	Sparkline = require(script.Sparkline),
+	Graph = require(script.Graph),
 }
